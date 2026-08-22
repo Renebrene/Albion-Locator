@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АЛЬБИОН: Локатор-Навигатор 2.0</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f5f7; }
+        #sidebar { width: 360px; padding: 20px; overflow-y: auto; background: #fff; box-shadow: 2px 0 10px rgba(0,0,0,0.1); z-index: 2; }
+        #map { flex: 1; z-index: 1; cursor: crosshair; position: relative; }
+        #panorama-panel { width: 320px; background: #fff; border-left: 1px solid #ddd; display: flex; flex-direction: column; box-shadow: -2px 0 10px rgba(0,0,0,0.1); }
+        
+        .panorama-header { padding: 12px 15px; background: #1a3a5c; color: white; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; }
+        .panorama-toggle { background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .panorama-toggle:hover { background: rgba(255,255,255,0.3); }
+        #panorama-container { flex: 1; min-height: 300px; position: relative; background: #111; }
+        #panorama-placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #aaa; font-size: 13px; max-width: 80%; z-index: 10; }
+        #mapillary-panorama { width: 100%; height: 100%; display: none; }
+        
+        h2 { margin: 0 0 15px 0; color: #1a3a5c; font-size: 20px; }
+        .subtitle { font-size: 12px; color: #888; margin-top: -10px; margin-bottom: 15px; }
+        h3 { margin: 20px 0 10px 0; color: #555; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .drop-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 25px; text-align: center; cursor: pointer; transition: 0.2s; margin-bottom: 5px; color: #666; }
+        .drop-zone:hover, .drop-zone.hover { border-color: #1a3a5c; background: #e0e8f0; }
+        .drop-hint { font-size: 11px; color: #999; margin-bottom: 15px; text-align: center; }
+        
+        .coord-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-bottom: 8px; }
+        .coord-input:focus { outline: none; border-color: #1a3a5c; }
+        
+        .btn { width: 100%; padding: 10px; background: #ff8c00; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .btn:hover { background: #e67e00; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #545b62; }
+        
+        .results-frame { margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; display: none; }
+        .radius-row { display: flex; align-items: center; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6; }
+        .radius-row input { width: 80px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+        
+        /* ФИЧКА: Невыделяемый текст в карточке */
+        .result-card { 
+            background: #fff; border-radius: 6px; padding: 12px; margin-bottom: 10px; 
+            border-left: 4px solid #1a3a5c; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;
+        }
+        .result-card p { margin: 4px 0; font-size: 13px; color: #555; }
+        
+        /* ФИЧКА: Кнопка копирования */
+        .copy-btn {
+            margin-top: 8px; width: 100%; padding: 6px; background: #e9ecef; border: 1px solid #ced4da;
+            border-radius: 4px; cursor: pointer; font-size: 12px; color: #495057; transition: all 0.2s;
+        }
+        .copy-btn:hover { background: #dee2e6; }
+        .copy-btn:active { background: #ced4da; }
+
+        #loader { text-align: center; padding: 10px; color: #666; font-size: 13px; }
+        .hint { font-size: 12px; color: #888; margin-top: 5px; }
+        .region-btn { display: inline-block; padding: 6px 12px; background: #e9ecef; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px; }
+        .region-btn:hover { background: #dee2e6; }
+        .error-msg { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #856404; }
+        .selected-coords { background: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #155724; }
+        .selected-coords strong { display: block; margin-bottom: 5px; }
+        .leaflet-control-attribution { display: none !important; }
+        
+        @media (max-width: 1200px) { #panorama-panel { display: none; } #panorama-panel.visible { display: flex; position: fixed; right: 0; top: 0; bottom: 0; z-index: 1000; } }
+
+        #panorama-panel { transition: width 0.3s ease, opacity 0.3s ease; }
+        #panorama-panel.hidden { width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; border: none; padding: 0; }
+        #panorama-panel.hidden * { display: none !important; }
+        
+        #show-panorama-btn {
+            position: absolute; top: 10px; right: 10px; z-index: 1000; background: #1a3a5c; color: white;
+            border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2); display: none; transition: background 0.2s;
+        }
+        #show-panorama-btn:hover { background: #2a5a8c; }
+        #show-panorama-btn.visible { display: block; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h2>АЛЬБИОН: Локатор-Навигатор 2.0</h2>
+        <div class="subtitle">Поиск ближайшей дороги ФГИС СКДФ</div>
+        <button class="region-btn" onclick="goToRostov()">📍 Ростовская область</button>
+        
+        <h3>1. Загрузить фото</h3>
+        <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
+        <div class="drop-hint">Координаты будут взяты из EXIF</div>
+        
+        <h3>2. Ввести координаты</h3>
+        <input type="text" id="coordSingle" class="coord-input" placeholder="47.23, 39.72" onkeypress="handleEnter(event)">
+        <div class="hint">Десятичные градусы через запятую или пробел</div>
+        <button class="btn" onclick="locateByCoords()" style="margin-top: 10px;">🔍 Найти ближайшую дорогу</button>
+        
+        <h3>3. Выбрать точку на карте</h3>
+        <div class="hint">💡 Кликните по карте для выбора точки</div>
+        <div id="selectedCoords"></div>
+        <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 10px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
+        
+        <div id="resultsFrame" class="results-frame">
+            <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
+            <div id="errorContainer"></div>
+            <div id="results"></div>
+            <div class="radius-row">
+                <label style="font-size: 13px; color: #555; font-weight: 500;">Радиус поиска (м):</label>
+                <input type="number" id="radius" value="2000" min="10" max="5000">
+            </div>
+            <div class="radius-row" style="border-top: none; padding-top: 5px;">
+                <label style="font-size: 13px; color: #555; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="excludeMinor" checked style="cursor: pointer;">
+                    Искать только основные дороги
+                </label>
+            </div>
+        </div>
+    </div>
+    
+    <div id="map">
+        <button id="show-panorama-btn" class="visible" onclick="togglePanorama()">📷 Показать панораму</button>
+    </div>
+    
+    <div id="panorama-panel" class="hidden">
+        <div class="panorama-header"><span>📷 Прямой вид с камеры</span><button class="panorama-toggle" onclick="togglePanorama()" id="togglePanoramaBtn" title="Скрыть/показать панель">✕</button></div>
+        <div id="panorama-container">
+            <div id="panorama-placeholder"><div>Кликните по карте,<br>чтобы загрузить панораму</div></div>
+            <div id="mapillary-panorama"></div>
+        </div>
+    </div>
+
+    <!-- Модуль для прямой загрузки камеры -->
+    <script type="module">
+        import { Viewer } from 'https://cdn.jsdelivr.net/npm/mapillary-js@4.1.2/dist/mapillary.module.js';
+
+        let mlyViewer = null;
+        const clientToken = 'MLY|27847566708265022|72a6bf4b2d05c5e8a17a0c4947f0dd0e';
+
+        window.showPanorama = function(lat, lon) {
+            const placeholder = document.getElementById('panorama-placeholder');
+            const panoramaDiv = document.getElementById('mapillary-panorama');
+            placeholder.style.display = 'none';
+            panoramaDiv.style.display = 'block';
+            placeholder.innerHTML = '<div>🔍 Загружаем вид с камеры...</div>';
+
+            if (mlyViewer) { mlyViewer.remove(); mlyViewer = null; }
+
+            try {
+                mlyViewer = new Viewer({
+                    container: 'mapillary-panorama', token: clientToken, imageId: null, lat: lat, lon: lon, zoom: 1,
+                    component: { cover: false, zoom: true, compass: true }
+                });
+                mlyViewer.on('image', () => console.log(`📷 Прямой вид с камеры активен: ${lat.toFixed(4)}, ${lon.toFixed(4)}`));
+                mlyViewer.on('error', () => {
+                    placeholder.innerHTML = '<div>⚠️ Панорамы нет<br>в этой точке</div>';
+                    placeholder.style.display = 'block'; panoramaDiv.style.display = 'none';
+                });
+            } catch (e) {
+                console.error('Ошибка камеры:', e);
+                placeholder.innerHTML = '<div>⚠️ Ошибка загрузки</div>';
+                placeholder.style.display = 'block'; panoramaDiv.style.display = 'none';
+            }
+        };
+
+        window.clearPanorama = function() {
+            if (mlyViewer) { mlyViewer.remove(); mlyViewer = null; }
+            const placeholder = document.getElementById('panorama-placeholder');
+            const panoramaDiv = document.getElementById('mapillary-panorama');
+            placeholder.style.display = 'block'; panoramaDiv.style.display = 'none';
+            placeholder.innerHTML = '<div>Кликните по карте,<br>чтобы загрузить панораму</div>';
+        };
+    </script>
+
+    <script>
+        const ROSTOV_CENTER = [47.23, 39.72];
+        const map = L.map('map', { attributionControl: false }).setView(ROSTOV_CENTER, 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        setTimeout(() => map.invalidateSize(), 100);
+        
+        let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
+        window.lastPanoramaPoint = null;
+        window.currentRoadCopyText = '';
+
+        // === ЗАГРУЗКА ГРАНИЦЫ: ФАЙЛ -> OVERPASS ===
+        async function loadRostovBoundary() {
+            try {
+                const response = await fetch('/static/rostov_boundary.geojson');
+                if (!response.ok) throw new Error('Файл не найден');
+                const geojson = await response.json();
+                L.geoJSON(geojson, { style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false }, pane: 'overlayPane' }).addTo(map);
+                console.log("✅ Граница загружена из локального файла");
+            } catch (error) {
+                console.warn("⚠️ Файл границы не найден, переключаюсь на Overpass API...");
+                try {
+                    const overpassQuery = `[out:json][timeout:25]; relation["name"="Ростовская область"]["boundary"="administrative"]; out geom;`;
+                    const response = await fetch('https://overpass-api.de/api/interpreter', {
+                        method: 'POST', body: overpassQuery,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    if (!data.elements || data.elements.length === 0) throw new Error("Пустой ответ Overpass");
+                    
+                    const relation = data.elements[0];
+                    const coordinates = relation.members.filter(m => m.type === 'way' && m.geometry).flatMap(m => m.geometry.map(g => [g.lon, g.lat]));
+                    if (coordinates.length > 0) {
+                        L.geoJSON({ type: "Feature", geometry: { type: "LineString", coordinates: coordinates } }, {
+                            style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false }, pane: 'overlayPane'
+                        }).addTo(map);
+                        console.log("✅ Граница загружена через Overpass API");
+                    }
+                } catch (apiError) {
+                    console.error("❌ Ошибка загрузки границы через Overpass:", apiError);
+                    L.rectangle([[45.55, 38.20], [49.95, 44.15]], { color: '#ffffff', weight: 3, fillColor: '#000000', fillOpacity: 0.6, interactive: false }).addTo(map);
+                }
+            }
+        }
+        loadRostovBoundary();
+
+        function goToRostov() { map.setView(ROSTOV_CENTER, 7); }
+        
+        function parseCoords(input) {
+            if (!input || !input.trim()) return null;
+            let s = input.trim().replace(/,/g, '.').replace(/[°′'"\s]+/g, ' ').replace(/[NSEW]/gi, ' ').replace(/\s+/g, ' ').trim();
+            const parts = s.split(/[\s;]+/).filter(x => x && !isNaN(parseFloat(x)));
+            if (parts.length >= 2) {
+                const a = parseFloat(parts[0]), b = parseFloat(parts[1]);
+                if (!isNaN(a) && !isNaN(b)) return Math.abs(a) > 90 && Math.abs(b) <= 90 ? { lat: b, lon: a } : { lat: a, lon: b };
+            }
+            return null;
+        }
+
+        function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
+        
+        function showError(msg) { 
+            const c = document.getElementById('errorContainer'); 
+            c.innerHTML = `<div class="error-msg">⚠️ ${msg}</div>`; 
+            setTimeout(() => { c.innerHTML = ''; }, 5000); 
+        }
+        
+        function handleEnter(event) { if (event.key === 'Enter') { event.preventDefault(); locateByCoords(); } }
+
+        // === ФИЧКА: РЕНДЕР С КНОПКОЙ КОПИРОВАНИЯ ===
+        function renderResultsHTML(data) {
+            const { road, side } = data;
+            let html = '';
+            if (road && side && !side.error) {
+                const sideText = side.side === 1 ? 'справа по ходу движения' : (side.side === -1 ? 'слева по ходу движения' : 'на оси дороги');
+                const kmText = formatKm(side.km_estimate);
+                
+                // Сохраняем текст для копирования
+                window.currentRoadCopyText = `${road.full_name}\n${kmText}\n${sideText}\n${side.perpendicular_m} м до оси дороги`;
+
+                html += `<div class="result-card">
+                    <p style="font-size: 12px; color: #666; margin-bottom: 4px; font-style: italic;">Из СКДФ:</p>
+                    <p style="font-size: 13px; color: #555; margin-bottom: 12px; padding: 6px; background: #f8f9fa; border-radius: 4px;">${road.skdf_name}</p>
+                    <p style="font-size: 12px; color: #666; margin-bottom: 4px; font-style: italic;">Из справочника:</p>
+                    <p style="font-size: 14px; font-weight: 600; color: #1a3a5c; margin-bottom: 10px; line-height: 1.4; word-wrap: break-word;">${road.full_name},</p>
+                    <p style="font-size: 13px; color: #333; margin-bottom: 8px;">${kmText},</p>
+                    <p style="font-size: 13px; color: #333; margin-bottom: 8px;">${sideText}</p>
+                    <p style="color: #888; font-style: italic; font-size: 12px; border-top: 1px solid #eee; padding-top: 6px; margin-top: 6px;">${side.perpendicular_m} м до оси дороги</p>
+                    <button class="copy-btn" onclick="copyRoadInfo()">📋 Скопировать информацию</button>
+                </div>`;
+            } else {
+                html = `<div class="result-card"><p style="color: #856404; font-weight: 600; margin: 0 0 5px 0;">Дорога не найдена</p><p style="font-size: 13px; color: #856404; margin: 0;">В заданном радиусе нет данных о дорогах в ФГИС СКДФ.</p></div>`;
+            }
+            return html;
+        }
+
+        // === ФИЧКА: ФУНКЦИЯ КОПИРОВАНИЯ (с fallback) ===
+        window.copyRoadInfo = function() {
+            const text = window.currentRoadCopyText;
+            if (!text) return;
+            
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(showCopySuccess).catch(() => fallbackCopy(text));
+            } else {
+                fallbackCopy(text);
+            }
+        };
+
+        function fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showCopySuccess();
+            } catch (err) {
+                alert('Не удалось скопировать текст');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function showCopySuccess() {
+            const btn = document.querySelector('.copy-btn');
+            if (btn) {
+                const originalText = btn.innerText;
+                btn.innerText = '✅ Скопировано!';
+                btn.style.background = '#d4edda';
+                setTimeout(() => { 
+                    btn.innerText = originalText; 
+                    btn.style.background = '';
+                }, 2000);
+            }
+        }
+
+        function togglePanorama() {
+            const panel = document.getElementById('panorama-panel');
+            const btn = document.getElementById('togglePanoramaBtn');
+            const showBtn = document.getElementById('show-panorama-btn');
+            
+            if (panel.classList.contains('hidden')) {
+                panel.classList.remove('hidden');
+                btn.textContent = '✕';
+                showBtn.classList.remove('visible');
+                setTimeout(() => map.invalidateSize(), 350);
+                if (window.lastPanoramaPoint && window.showPanorama) {
+                    window.showPanorama(window.lastPanoramaPoint.lat, window.lastPanoramaPoint.lon);
+                }
+            } else {
+                panel.classList.add('hidden');
+                btn.textContent = '✕';
+                showBtn.classList.add('visible');
+                setTimeout(() => map.invalidateSize(), 350);
+            }
+        }
+
+        map.on('click', function(e) {
+            const lat = e.latlng.lat, lon = e.latlng.lng;
+            
+            // === ФИЧКА: КРАСНАЯ ТОЧКА (надежный Leaflet-маркер) ===
+            if (redPointMarker) map.removeLayer(redPointMarker);
+            redPointMarker = L.circleMarker([lat, lon], {
+                radius: 8, fillColor: "#e74c3c", color: "#c0392b", weight: 2, opacity: 1, fillOpacity: 0.9
+            }).addTo(map);
+            // ========================================================
+
+            if (clickMarker) map.removeLayer(clickMarker);
+            clickMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'custom-click-marker', html: '<div style="background-color: #28a745; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map).bindPopup('⏳ Поиск ближайшей дороги...').openPopup();
+            
+            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>✅ Точка выбрана:</strong>Широта: ${lat.toFixed(6)}<br>Долгота: ${lon.toFixed(6)}</div>`;
+            document.getElementById('clearPointBtn').style.display = 'block';
+            document.getElementById('resultsFrame').style.display = 'block';
+            
+            window.lastPanoramaPoint = { lat: lat, lon: lon };
+            locate(lat, lon, clickMarker);
+        });
+
+        function clearSelectedPoint() {
+            if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
+            if (redPointMarker) { map.removeLayer(redPointMarker); redPointMarker = null; } // Очистка красной точки
+            if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
+            if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
+            
+            window.currentRoadCopyText = ''; // Очистка текста для копирования
+            
+            document.getElementById('selectedCoords').innerHTML = '';
+            document.getElementById('clearPointBtn').style.display = 'none';
+            document.getElementById('resultsFrame').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('coordSingle').value = '';
+            
+            if (window.clearPanorama) window.clearPanorama();
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('hover'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('hover');
+        dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('hover'); handleFile(e.dataTransfer.files[0]); };
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+        async function handleFile(file) {
+            if (!file) return;
+            clearSelectedPoint();
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            try {
+                const form = new FormData(); form.append('photo', file);
+                const exifRes = await fetch('/api/exif', { method: 'POST', body: form });
+                if (!exifRes.ok) throw new Error(`Ошибка сервера ${exifRes.status}`);
+                const exif = await exifRes.json();
+                if (!exif || typeof exif.lat !== 'number' || typeof exif.lon !== 'number') throw new Error('Не удалось извлечь координаты из EXIF');
+                await locate(exif.lat, exif.lon, null, true);
+            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; }
+        }
+
+        function locateByCoords() {
+            const coords = parseCoords(document.getElementById('coordSingle').value);
+            if (!coords || typeof coords.lat !== 'number' || typeof coords.lon !== 'number' || Math.abs(coords.lat) > 90 || Math.abs(coords.lon) > 180) {
+                return showError('Неверные координаты. Пример: 47.23, 39.72');
+            }
+            if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
+            if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
+            if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
+            document.getElementById('selectedCoords').innerHTML = '';
+            document.getElementById('clearPointBtn').style.display = 'none';
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            window.lastPanoramaPoint = { lat: coords.lat, lon: coords.lon };
+            locate(coords.lat, coords.lon, null, true);
+        }
+
+        async function locate(lat, lon, marker = null, isPhotoOrManual = false) {
+            try {
+                const radius = parseInt(document.getElementById('radius').value) || 2000;
+                const excludeMinor = document.getElementById('excludeMinor').checked;
+                const excludeCategories = excludeMinor ? [6] : [];
+                const res = await fetch('/api/locate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat: parseFloat(lat), lon: parseFloat(lon), radius: radius, exclude_categories: excludeCategories })
+                });
+                if (!res.ok) throw new Error(`Ошибка сервера ${res.status}`);
+                const data = await res.json();
+                document.getElementById('loader').style.display = 'none';
+                const resultsHTML = renderResultsHTML(data);
+                if (marker) { marker.setPopupContent(resultsHTML).openPopup(); }
+                else if (isPhotoOrManual) {
+                    if (photoMarker) map.removeLayer(photoMarker);
+                    photoMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'custom-photo-marker', html: '<div style="background-color: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map).bindPopup(resultsHTML).openPopup();
+                    map.setView([lat, lon], 15);
+                }
+                document.getElementById('results').innerHTML = resultsHTML;
+                if (data.road && data.side && !data.side.error) {
+                    if (roadLine) map.removeLayer(roadLine);
+                    roadLine = L.polyline([[lat, lon], [data.side.projected_lat, data.side.projected_lon]], { color: '#dc3545', weight: 2, dashArray: '5, 5' }).addTo(map);
+                }
+            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; if (marker) marker.setPopupContent('❌ Ошибка загрузки данных'); }
+        }
+    </script>
+</body>
+</html>

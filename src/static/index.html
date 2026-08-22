@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АЛЬБИОН: Локатор (Autonom) v4.2.1</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dom-to-image-more@3.4.5/dist/dom-to-image-more.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        :root {
+            --bg-main: #f4f5f7;
+            --bg-sidebar: #fff;
+            --bg-card: #fff;
+            --bg-input: #fff;
+            --bg-muted: #f8f9fa;
+            --text-main: #333;
+            --text-muted: #555;
+            --text-subtle: #888;
+            --border: #e9ecef;
+            --border-strong: #dee2e6;
+            --accent: #1a3a5c;
+            --accent-hover: #2a5a8c;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+        }
+        body.dark {
+            --bg-main: #1a1a1a;
+            --bg-sidebar: #242424;
+            --bg-card: #2d2d2d;
+            --bg-input: #333;
+            --bg-muted: #2a2a2a;
+            --text-main: #e0e0e0;
+            --text-muted: #b0b0b0;
+            --text-subtle: #888;
+            --border: #3a3a3a;
+            --border-strong: #444;
+            --accent: #4a90d9;
+            --accent-hover: #5aa0e9;
+        }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg-main); color: var(--text-main); transition: background 0.3s, color 0.3s; }
+        
+        #sidebar { width: 360px; padding: 20px; overflow-y: auto; background: var(--bg-sidebar); box-shadow: 2px 0 10px rgba(0,0,0,0.1); z-index: 2; display: flex; flex-direction: column; transition: background 0.3s; }
+        #sidebar-content { flex: 1; overflow-y: auto; }
+        #sidebar-footer { border-top: 1px solid var(--border); padding-top: 15px; margin-top: 15px; }
+        
+        #map { flex: 1; z-index: 1; cursor: crosshair; position: relative; }
+
+        #help-frame {
+            width: 0; background: var(--bg-sidebar); box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            z-index: 2; overflow: hidden; transition: width 0.3s ease;
+            display: flex; flex-direction: column;
+        }
+        #help-frame.open { width: 380px; }
+        #help-frame-header {
+            padding: 12px 16px; background: var(--accent); color: white;
+            font-weight: 600; font-size: 14px; display: flex;
+            justify-content: space-between; align-items: center; white-space: nowrap;
+        }
+        #help-frame-close { background: none; border: none; color: white; font-size: 20px; cursor: pointer; padding: 0 4px; }
+        #help-frame-content { flex: 1; overflow-y: auto; padding: 16px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+        #help-frame-content h4 { margin: 16px 0 8px 0; color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        #help-frame-content h4:first-child { margin-top: 0; }
+        #help-frame-content ul { margin: 4px 0 12px 0; padding-left: 20px; }
+        #help-frame-content li { margin-bottom: 4px; }
+        #help-frame-content kbd { background: var(--bg-muted); border: 1px solid var(--border-strong); border-radius: 3px; padding: 1px 5px; font-size: 11px; font-family: monospace; }
+
+        h2 { margin: 0 0 5px 0; color: var(--accent); font-size: 20px; }
+        .subtitle { font-size: 12px; color: var(--text-subtle); margin-bottom: 15px; }
+        h3 { margin: 20px 0 10px 0; color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .drop-zone { border: 2px dashed var(--border-strong); border-radius: 8px; padding: 25px; text-align: center; cursor: pointer; transition: 0.2s; margin-bottom: 5px; color: var(--text-muted); }
+        .drop-zone:hover, .drop-zone.hover { border-color: var(--accent); background: var(--bg-muted); }
+        .drop-hint { font-size: 11px; color: var(--text-subtle); margin-bottom: 15px; text-align: center; }
+        
+        .coord-input { width: 100%; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 14px; margin-bottom: 8px; background: var(--bg-input); color: var(--text-main); }
+        .coord-input:focus { outline: none; border-color: var(--accent); }
+        
+        .btn { width: 100%; padding: 10px; background: #ff8c00; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        .btn:hover { background: #e67e00; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #545b62; }
+        .btn:disabled { background: #6c757d; cursor: not-allowed; opacity: 0.6; }
+        .btn-small { padding: 6px 12px; font-size: 12px; }
+        
+        .results-frame { margin-top: 15px; padding: 15px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border); display: none; }
+        .radius-row { display: flex; align-items: center; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-strong); }
+        .radius-row input { width: 80px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--text-main); }
+        
+        .result-card { background: var(--bg-card); border-radius: 6px; padding: 12px; margin-bottom: 10px; border-left: 4px solid var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .result-card p { margin: 4px 0; font-size: 13px; color: var(--text-muted); }
+        .no-select { user-select: none; -webkit-user-select: none; color: var(--text-subtle); font-size: 12px; font-style: italic; pointer-events: none; }
+        
+        .action-btns { display: flex; gap: 8px; margin-top: 12px; }
+        .action-btns .btn { flex: 1; padding: 8px; font-size: 13px; }
+        .btn-screenshot { background: var(--accent); }
+        .btn-screenshot:hover { background: var(--accent-hover); }
+        .btn-copy { background: var(--success); }
+        .btn-copy:hover { background: #218838; }
+        .btn-copy.copied { background: #d4edda !important; color: #155724 !important; }
+
+        #loader { text-align: center; padding: 10px; color: var(--text-muted); font-size: 13px; }
+        .hint { font-size: 12px; color: var(--text-subtle); margin-top: 5px; }
+        .region-btn { display: inline-block; padding: 6px 12px; background: var(--bg-muted); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px; margin-right: 5px; color: var(--text-main); }
+        .region-btn:hover { background: var(--border); }
+        .help-btn { background: var(--accent); color: white; border-color: var(--accent); }
+        .help-btn:hover { background: var(--accent-hover); }
+        .geo-btn { background: var(--success); color: white; border-color: var(--success); }
+        .geo-btn:hover { background: #218838; }
+        .error-msg { background: #fff3cd; border-left: 4px solid var(--warning); padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #856404; }
+        .selected-coords { background: #d4edda; border-left: 4px solid var(--success); padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #155724; }
+        .selected-coords strong { display: block; margin-bottom: 5px; }
+        .leaflet-control-attribution { display: none !important; }
+
+        #screenshot-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 998; cursor: crosshair; display: none; background: transparent; pointer-events: auto; }
+        #selection-rect { position: absolute; border: 2px dashed #ff8c00; background: rgba(255, 255, 255, 0.05); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); pointer-events: none; display: none; z-index: 999; cursor: move; }
+        .resize-handle { position: absolute; width: 10px; height: 10px; background: #ff8c00; border: 1px solid #fff; border-radius: 2px; z-index: 1000; pointer-events: auto; }
+        .resize-handle.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+        .resize-handle.n  { top: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+        .resize-handle.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+        .resize-handle.e  { top: calc(50% - 5px); right: -6px; cursor: ew-resize; }
+        .resize-handle.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .resize-handle.s  { bottom: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+        .resize-handle.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .resize-handle.w  { top: calc(50% - 5px); left: -6px; cursor: ew-resize; }
+
+        #screenshot-menu { position: absolute; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); padding: 8px 0; z-index: 1001; display: none; min-width: 220px; }
+        .screenshot-menu-item { padding: 8px 16px; cursor: pointer; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+        .screenshot-menu-item:hover { background: var(--bg-muted); }
+        .screenshot-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
+        .countdown-label { padding: 6px 16px; font-size: 11px; color: var(--text-subtle); font-style: italic; display: none; }
+
+        .settings-block { background: var(--bg-muted); border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+        .settings-block h4 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .settings-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text-muted); }
+        .settings-row:last-child { margin-bottom: 0; }
+        .settings-row input[type="number"] { width: 60px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 3px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
+        .settings-row input[type="text"] { flex: 1; padding: 4px; border: 1px solid var(--border-strong); border-radius: 3px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
+        .folder-status { font-size: 11px; color: var(--success); margin-top: 4px; font-style: italic; }
+        
+        .toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 3000; font-size: 13px; opacity: 0; transform: translateY(20px); transition: opacity 0.3s, transform 0.3s; pointer-events: none; }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: var(--success); }
+        .toast.error { background: var(--danger); }
+
+        .history-block { background: var(--bg-muted); border-radius: 6px; padding: 10px; margin-top: 10px; }
+        .history-block h4 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+        .history-clear { background: none; border: none; color: var(--text-subtle); cursor: pointer; font-size: 11px; padding: 2px 6px; }
+        .history-clear:hover { color: var(--danger); }
+        .history-list { max-height: 150px; overflow-y: auto; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; margin-bottom: 3px; background: var(--bg-card); border-radius: 4px; font-size: 12px; cursor: pointer; transition: background 0.2s; }
+        .history-item:hover { background: var(--border); }
+        .history-item .coords { color: var(--text-main); font-family: monospace; font-size: 11px; }
+        .history-item .time { color: var(--text-subtle); font-size: 10px; }
+        .history-empty { text-align: center; color: var(--text-subtle); font-size: 11px; padding: 8px; font-style: italic; }
+
+        .bookmarks-block { background: var(--bg-muted); border-radius: 6px; padding: 10px; margin-top: 10px; }
+        .bookmarks-block h4 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .bookmark-add { display: flex; gap: 5px; margin-bottom: 8px; }
+        .bookmark-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
+        .bookmark-add button { padding: 5px 10px; background: var(--success); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .bookmark-add button:hover { background: #218838; }
+        .bookmark-list { max-height: 180px; overflow-y: auto; }
+        .bookmark-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; margin-bottom: 3px; background: var(--bg-card); border-radius: 4px; font-size: 12px; }
+        .bookmark-info { flex: 1; cursor: pointer; }
+        .bookmark-info:hover .bookmark-name { color: var(--accent); }
+        .bookmark-name { color: var(--text-main); font-weight: 500; }
+        .bookmark-meta { color: var(--text-subtle); font-size: 10px; font-family: monospace; }
+        .bookmark-delete { background: none; border: none; color: var(--text-subtle); cursor: pointer; font-size: 14px; padding: 2px 6px; }
+        .bookmark-delete:hover { color: var(--danger); }
+        .bookmark-empty { text-align: center; color: var(--text-subtle); font-size: 11px; padding: 8px; font-style: italic; }
+
+        .theme-toggle { display: flex; align-items: center; gap: 8px; }
+        .theme-switch { position: relative; width: 44px; height: 22px; background: var(--border-strong); border-radius: 11px; cursor: pointer; transition: background 0.3s; }
+        .theme-switch.active { background: var(--accent); }
+        .theme-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: white; border-radius: 50%; transition: transform 0.3s; }
+        .theme-switch.active::after { transform: translateX(22px); }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="sidebar-content">
+            <h2>АЛЬБИОН: Локатор</h2>
+            <div class="subtitle">Поиск ближайшей дороги ФГИС СКДФ (Autonom v4.2.1)</div>
+            <div>
+                <button class="region-btn" onclick="goToRostov()">📍 Ростовская область</button>
+                <button class="region-btn geo-btn" onclick="goToMyLocation()">📡 Моё место</button>
+                <button class="region-btn help-btn" onclick="toggleHelpFrame()">❓ Справка</button>
+            </div>
+            
+            <h3>1. Загрузить фото</h3>
+            <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
+            <div class="drop-hint">Координаты будут взяты из EXIF</div>
+            
+            <h3>2. Ввести координаты</h3>
+            <input type="text" id="coordSingle" class="coord-input" placeholder="47.23, 39.72" onkeypress="handleEnter(event)">
+            <div class="hint">Десятичные градусы через запятую или пробел</div>
+            <button class="btn" onclick="locateByCoords()" style="margin-top: 10px;">🔍 Найти ближайшую дорогу</button>
+            
+            <h3>3. Работа с картой</h3>
+            <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
+            <div id="selectedCoords"></div>
+            <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 10px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
+            
+            <div id="resultsFrame" class="results-frame">
+                <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
+                <div id="errorContainer"></div>
+                <div id="results"></div>
+                <div class="radius-row">
+                    <label style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Радиус поиска (м):</label>
+                    <input type="number" id="radius" value="2000" min="10" max="5000">
+                </div>
+                <div class="radius-row" style="border-top: none; padding-top: 5px;">
+                    <label style="font-size: 13px; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="excludeMinor" checked style="cursor: pointer;">
+                        Искать только основные дороги
+                    </label>
+                </div>
+            </div>
+
+            <div class="history-block">
+                <h4>🕒 История <button class="history-clear" onclick="clearHistory()">очистить</button></h4>
+                <div class="history-list" id="historyList">
+                    <div class="history-empty">История пуста</div>
+                </div>
+            </div>
+
+            <div class="bookmarks-block">
+                <h4>⭐ Закладки</h4>
+                <div class="bookmark-add">
+                    <input type="text" id="bookmarkName" placeholder="Имя закладки">
+                    <button onclick="addBookmark()" id="addBookmarkBtn" disabled>➕</button>
+                </div>
+                <div class="bookmark-list" id="bookmarkList">
+                    <div class="bookmark-empty">Нет закладок</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="sidebar-footer">
+            <div class="settings-block">
+                <h4>⏱ Автоскриншот</h4>
+                <div class="settings-row">
+                    <label>Задержка (сек):</label>
+                    <input type="number" id="settingDelay" min="1" max="30" value="3">
+                </div>
+                <div class="settings-row">
+                    <label>Каталог на сервере:</label>
+                    <input type="text" id="serverPath" placeholder="screenshots" value="screenshots">
+                </div>
+                <div class="settings-row">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="autoScreenshotCheckbox" style="cursor: pointer;">
+                        <span>Включить автоскриншот</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-block">
+                <h4>🗺️ Контур области</h4>
+                <div class="settings-row">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="localBoundaryCheckbox" style="cursor: pointer;">
+                        <span>Локальный контур РО</span>
+                    </label>
+                </div>
+                <div class="hint">Быстрее, работает офлайн</div>
+            </div>
+
+            <div class="settings-block">
+                <h4>🎨 Интерфейс</h4>
+                <div class="settings-row theme-toggle">
+                    <span>🌙 Тёмная тема</span>
+                    <div class="theme-switch" id="themeSwitch" onclick="toggleTheme()"></div>
+                </div>
+            </div>
+
+            <button class="btn btn-small" onclick="saveScreenshotSettings()">💾 Сохранить все настройки</button>
+            <div class="folder-status" id="folderStatus">Загрузка...</div>
+        </div>
+    </div>
+    
+    <div id="map">
+        <div id="screenshot-overlay"></div>
+        <div id="selection-rect">
+            <div class="resize-handle nw" data-handle="nw"></div>
+            <div class="resize-handle n" data-handle="n"></div>
+            <div class="resize-handle ne" data-handle="ne"></div>
+            <div class="resize-handle e" data-handle="e"></div>
+            <div class="resize-handle se" data-handle="se"></div>
+            <div class="resize-handle s" data-handle="s"></div>
+            <div class="resize-handle sw" data-handle="sw"></div>
+            <div class="resize-handle w" data-handle="w"></div>
+        </div>
+        <div id="screenshot-menu">
+            <div class="screenshot-menu-item" id="menuSaveBtn" onclick="saveScreenshot()">💾 Сохранить <span style="margin-left:auto;font-size:11px;color:var(--text-subtle);">Enter</span></div>
+            <div class="screenshot-menu-divider"></div>
+            <div class="countdown-label" id="countdownLabel">Автосохранение через <span id="countdownValue">3</span> сек...</div>
+        </div>
+    </div>
+
+    <div id="help-frame">
+        <div id="help-frame-header">
+            <span>📖 Справка по интерфейсу</span>
+            <button id="help-frame-close" onclick="toggleHelpFrame()" title="Закрыть">&times;</button>
+        </div>
+        <div id="help-frame-content">
+            <h4>🖱️ Работа с картой</h4>
+            <ul>
+                <li><b>Одинарный клик ЛКМ</b> — скрыть панель результатов</li>
+                <li><b>Двойной клик ЛКМ</b> — поставить точку и найти дорогу</li>
+                <li><b>Перетаскивание ЛКМ</b> — перемещение карты</li>
+                <li><b>Колёсико мыши</b> — масштабирование</li>
+                <li><b>Правый клик + перетаскивание</b> — выделить область для скриншота</li>
+            </ul>
+            <h4>⌨️ Горячие клавиши</h4>
+            <ul>
+                <li><kbd>Enter</kbd> — сохранить скриншот (когда выделена область)</li>
+                <li><kbd>Esc</kbd> — отменить выделение / закрыть меню скриншота</li>
+                <li><kbd>Ctrl+S</kbd> — запустить режим скриншота вокруг текущей точки</li>
+                <li><kbd>Ctrl+L</kbd> — очистить точку, результаты и буфер копирования</li>
+            </ul>
+            <h4>📸 Загрузка фото</h4>
+            <ul>
+                <li>Перетащите фото в зону загрузки или кликните для выбора</li>
+                <li>Координаты извлекаются из EXIF автоматически</li>
+                <li><b>При загрузке нового фото все предыдущие точки и результаты очищаются</b></li>
+            </ul>
+            <h4>📸 Создание скриншотов</h4>
+            <ul>
+                <li><b>Правый клик + перетаскивание</b> — выделить область</li>
+                <li><b>Кнопка «📸 Скриншот»</b> в карточке — запустить скриншот вокруг точки</li>
+                <li>После выделения появится меню сохранения</li>
+                <li>Можно перетаскивать выделение за середину или изменять размер за маркеры</li>
+            </ul>
+            <h4>💾 Сохранение файлов</h4>
+            <ul>
+                <li>В Chrome/Edge — откроется нативное окно «Сохранить как...»</li>
+                <li>В Firefox — файл попадёт в папку «Загрузки»</li>
+                <li>Имя формируется из текста копирования (обрезается до 50 символов с конца)</li>
+                <li>Добавляется временная метка для уникальности</li>
+                <li>Скриншоты старше 7 дней удаляются автоматически</li>
+            </ul>
+            <h4>🕒 История точек</h4>
+            <ul>
+                <li>Хранит последние 10 точек, по которым был поиск</li>
+                <li>Сохраняется в браузере (localStorage)</li>
+                <li>Клик по элементу — мгновенный переход к точке</li>
+                <li>Кнопка «очистить» — удалить всю историю</li>
+            </ul>
+            <h4>⭐ Закладки</h4>
+            <ul>
+                <li>Сохранённые места с именами (хранятся на сервере)</li>
+                <li>Доступны с любого устройства в сети ZeroTier</li>
+                <li>Введите имя → нажмите ➕ (когда есть точка на карте)</li>
+                <li>Клик по закладке — переход к точке</li>
+                <li>Крестик × — удалить закладку</li>
+            </ul>
+            <h4>📡 Моё местоположение</h4>
+            <ul>
+                <li>Кнопка запрашивает координаты через браузерный Geolocation API</li>
+                <li>Мгновенно переносит карту к вам и ставит точку для поиска</li>
+            </ul>
+            <h4>🗺️ Контур области</h4>
+            <ul>
+                <li><b>Локальный контур</b> — из файла <code>rostov_boundary.geojson</code>, работает мгновенно</li>
+                <li><b>Overpass API</b> — из интернета, актуальный, но медленный</li>
+                <li>Переключается чекбоксом в настройках</li>
+            </ul>
+            <h4>🌙 Тёмная тема</h4>
+            <ul>
+                <li>Применяется только к UI (сайдбар, панели, карточки)</li>
+                <li>Карта остаётся светлой для лучшей читаемости</li>
+                <li>Выбор сохраняется в браузере</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const DEFAULT_CENTER = [47.23, 39.72];
+        const map = L.map('map', { attributionControl: false, doubleClickZoom: false }).setView(DEFAULT_CENTER, 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { crossOrigin: 'anonymous' }).addTo(map);
+        setTimeout(() => map.invalidateSize(), 100);
+        
+        let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
+        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: false };
+        let pointHistory = [];
+        let bookmarks = [];
+
+        // === ТЕМА (только UI, карта всегда светлая) ===
+        function applyTheme(dark) {
+            document.body.classList.toggle('dark', dark);
+            document.getElementById('themeSwitch').classList.toggle('active', dark);
+            localStorage.setItem('albion_theme', dark ? 'dark' : 'light');
+        }
+        function toggleTheme() {
+            applyTheme(!document.body.classList.contains('dark'));
+        }
+        const savedTheme = localStorage.getItem('albion_theme');
+        if (savedTheme === 'dark') applyTheme(true);
+
+        // === ГЕОЛОКАЦИЯ ===
+        function goToMyLocation() {
+            if (!navigator.geolocation) { showToast('❌ Геолокация не поддерживается', 'error'); return; }
+            showToast('📡 Определяем местоположение...', 'info', 2000);
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+                    map.setView([lat, lon], 14);
+                    if (redPointMarker) map.removeLayer(redPointMarker);
+                    redPointMarker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('⏳ Поиск...').openPopup();
+                    document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>📡 Ваше местоположение:</strong>Широта: ${lat.toFixed(6)}<br>Долгота: ${lon.toFixed(6)}</div>`;
+                    document.getElementById('clearPointBtn').style.display = 'block';
+                    document.getElementById('resultsFrame').style.display = 'block';
+                    locate(lat, lon, redPointMarker);
+                },
+                (err) => { showToast('❌ Не удалось получить координаты: ' + err.message, 'error', 5000); },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        // === ИСТОРИЯ ===
+        function loadHistory() {
+            try { pointHistory = JSON.parse(localStorage.getItem('albion_history') || '[]'); }
+            catch { pointHistory = []; }
+            renderHistory();
+        }
+        function saveHistory() {
+            localStorage.setItem('albion_history', JSON.stringify(pointHistory));
+            renderHistory();
+        }
+        function addToHistory(lat, lon) {
+            const entry = {
+                lat: parseFloat(lat.toFixed(6)),
+                lon: parseFloat(lon.toFixed(6)),
+                time: new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+            };
+            pointHistory = pointHistory.filter(h => !(h.lat === entry.lat && h.lon === entry.lon));
+            pointHistory.unshift(entry);
+            pointHistory = pointHistory.slice(0, 10);
+            saveHistory();
+        }
+        function renderHistory() {
+            const list = document.getElementById('historyList');
+            if (pointHistory.length === 0) { list.innerHTML = '<div class="history-empty">История пуста</div>'; return; }
+            list.innerHTML = pointHistory.map((h, i) => `
+                <div class="history-item" onclick="goToHistoryPoint(${i})">
+                    <span class="coords">${h.lat}, ${h.lon}</span>
+                    <span class="time">${h.time}</span>
+                </div>
+            `).join('');
+        }
+        function goToHistoryPoint(index) {
+            const h = pointHistory[index];
+            if (!h) return;
+            map.setView([h.lat, h.lon], 15);
+            if (redPointMarker) map.removeLayer(redPointMarker);
+            redPointMarker = L.circleMarker([h.lat, h.lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('⏳ Поиск...').openPopup();
+            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>✅ Точка из истории:</strong>Широта: ${h.lat}<br>Долгота: ${h.lon}</div>`;
+            document.getElementById('clearPointBtn').style.display = 'block';
+            document.getElementById('resultsFrame').style.display = 'block';
+            locate(h.lat, h.lon, redPointMarker);
+        }
+        function clearHistory() {
+            if (pointHistory.length === 0) return;
+            if (!confirm('Очистить всю историю?')) return;
+            pointHistory = [];
+            saveHistory();
+            showToast('🗑 История очищена', 'success');
+        }
+
+        // === ЗАКЛАДКИ ===
+        async function loadBookmarks() {
+            try {
+                const res = await fetch('/api/bookmarks');
+                if (res.ok) { bookmarks = await res.json(); renderBookmarks(); }
+            } catch (e) { console.error('Ошибка загрузки закладок:', e); }
+        }
+        function renderBookmarks() {
+            const list = document.getElementById('bookmarkList');
+            const addBtn = document.getElementById('addBookmarkBtn');
+            addBtn.disabled = !redPointMarker;
+            if (bookmarks.length === 0) { list.innerHTML = '<div class="bookmark-empty">Нет закладок</div>'; return; }
+            list.innerHTML = bookmarks.map(b => `
+                <div class="bookmark-item">
+                    <div class="bookmark-info" onclick="goToBookmark('${b.id}')">
+                        <div class="bookmark-name">⭐ ${escapeHtml(b.name)}</div>
+                        <div class="bookmark-meta">${b.lat.toFixed(4)}, ${b.lon.toFixed(4)} · ${b.created_at}</div>
+                    </div>
+                    <button class="bookmark-delete" onclick="deleteBookmark('${b.id}')" title="Удалить">×</button>
+                </div>
+            `).join('');
+        }
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        async function addBookmark() {
+            if (!redPointMarker) { showToast('⚠️ Сначала выберите точку', 'error'); return; }
+            const nameInput = document.getElementById('bookmarkName');
+            const name = nameInput.value.trim();
+            if (!name) { showToast('⚠️ Введите имя закладки', 'error'); return; }
+            const latlng = redPointMarker.getLatLng();
+            try {
+                const res = await fetch('/api/bookmarks', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, lat: latlng.lat, lon: latlng.lng })
+                });
+                if (!res.ok) throw new Error('Ошибка сервера');
+                const data = await res.json();
+                bookmarks.unshift(data.bookmark);
+                renderBookmarks();
+                nameInput.value = '';
+                showToast(`⭐ Закладка "${name}" добавлена`, 'success');
+            } catch (e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
+        }
+        async function deleteBookmark(id) {
+            if (!confirm('Удалить закладку?')) return;
+            try {
+                await fetch(`/api/bookmarks/${id}`, { method: 'DELETE' });
+                bookmarks = bookmarks.filter(b => b.id !== id);
+                renderBookmarks();
+                showToast('🗑 Закладка удалена', 'success');
+            } catch (e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
+        }
+        function goToBookmark(id) {
+            const b = bookmarks.find(x => x.id === id);
+            if (!b) return;
+            map.setView([b.lat, b.lon], 15);
+            if (redPointMarker) map.removeLayer(redPointMarker);
+            redPointMarker = L.circleMarker([b.lat, b.lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('⏳ Поиск...').openPopup();
+            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>⭐ ${escapeHtml(b.name)}:</strong>Широта: ${b.lat.toFixed(6)}<br>Долгота: ${b.lon.toFixed(6)}</div>`;
+            document.getElementById('clearPointBtn').style.display = 'block';
+            document.getElementById('resultsFrame').style.display = 'block';
+            locate(b.lat, b.lon, redPointMarker);
+        }
+
+        // === ГРАНИЦЫ РО ===
+        async function loadRostovBoundary() {
+            const useLocal = document.getElementById('localBoundaryCheckbox').checked;
+            if (useLocal) {
+                try {
+                    const response = await fetch('/static/rostov_boundary.geojson');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    const maskFeatures = [], borderFeatures = [];
+                    for (const feature of data.features) {
+                        const geom = feature.geometry;
+                        if (geom.type === 'Polygon') {
+                            const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
+                            const holeRing = [...geom.coordinates[0]].reverse().map(c => [c[1], c[0]]);
+                            maskFeatures.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [worldRing, holeRing] }, properties: {} });
+                            borderFeatures.push({ type: "Feature", geometry: { type: "LineString", coordinates: geom.coordinates[0].map(c => [c[1], c[0]]) }, properties: {} });
+                        } else if (geom.type === 'MultiPolygon') {
+                            for (const polygon of geom.coordinates) {
+                                const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
+                                const holeRing = [...polygon[0]].reverse().map(c => [c[1], c[0]]);
+                                maskFeatures.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [worldRing, holeRing] }, properties: {} });
+                                borderFeatures.push({ type: "Feature", geometry: { type: "LineString", coordinates: polygon[0].map(c => [c[1], c[0]]) }, properties: {} });
+                            }
+                        }
+                    }
+                    L.geoJSON({ type: "FeatureCollection", features: maskFeatures }, { style: { color: 'transparent', fillColor: '#000000', fillOpacity: 0.6, interactive: false }, pane: 'overlayPane' }).addTo(map);
+                    L.geoJSON({ type: "FeatureCollection", features: borderFeatures }, { style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false }, pane: 'overlayPane' }).addTo(map);
+                    console.log("✅ Локальный контур РО отрисован");
+                    updateFolderStatus("🗺️ Локальный контур");
+                } catch (error) {
+                    console.error("❌ Ошибка локального контура:", error);
+                    showToast('⚠️ Локальный контур не найден, используем Overpass', 'error', 5000);
+                    await loadRostovBoundaryOverpass();
+                }
+            } else {
+                await loadRostovBoundaryOverpass();
+            }
+        }
+
+        async function loadRostovBoundaryOverpass() {
+            try {
+                const overpassQuery = `[out:json][timeout:25]; relation["name"="Ростовская область"]["boundary"="administrative"]; out geom;`;
+                const response = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: overpassQuery, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' } });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (data.elements && data.elements.length > 0) {
+                    const relation = data.elements[0];
+                    const coordinates = relation.members.filter(m => m.type === 'way' && m.geometry).flatMap(m => m.geometry.map(g => [g.lat, g.lon]));
+                    if (coordinates.length > 0) {
+                        const outerRing = [[-90, -180], [-90, 180], [90, 180], [90, -180], [-90, -180]];
+                        const holeRing = [...coordinates].reverse();
+                        L.polygon([outerRing, holeRing], { color: 'transparent', fillColor: '#000000', fillOpacity: 0.5, interactive: false }).addTo(map);
+                        L.polyline(coordinates, { color: '#ffffff', weight: 2, opacity: 0.8, interactive: false }).addTo(map);
+                        console.log(`✅ Контур РО через Overpass (${coordinates.length} точек)`);
+                        updateFolderStatus("🌐 Overpass API");
+                        return;
+                    }
+                }
+                throw new Error("Нет данных");
+            } catch (error) {
+                console.warn("⚠️ Overpass недоступен:", error.message);
+                const fallbackBounds = [[45.55, 38.20], [49.95, 38.20], [49.95, 44.15], [45.55, 44.15], [45.55, 38.20]];
+                const outerRing = [[-90, -180], [-90, 180], [90, 180], [90, -180], [-90, -180]];
+                const holeRing = [...fallbackBounds].reverse();
+                L.polygon([outerRing, holeRing], { color: 'transparent', fillColor: '#000000', fillOpacity: 0.5, interactive: false }).addTo(map);
+                L.polyline(fallbackBounds, { color: '#ffffff', weight: 2, interactive: false }).addTo(map);
+                updateFolderStatus("⚠️ Фоллбэк");
+            }
+        }
+
+        function toggleHelpFrame() { document.getElementById('help-frame').classList.toggle('open'); }
+
+        map.on('dblclick', function(e) {
+            L.DomEvent.stopPropagation(e); 
+            const lat = e.latlng.lat, lon = e.latlng.lng;
+            if (redPointMarker) map.removeLayer(redPointMarker);
+            redPointMarker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map).bindPopup('⏳ Поиск...').openPopup();
+            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>✅ Точка выбрана:</strong>Широта: ${lat.toFixed(6)}<br>Долгота: ${lon.toFixed(6)}</div>`;
+            document.getElementById('clearPointBtn').style.display = 'block';
+            document.getElementById('resultsFrame').style.display = 'block';
+            locate(lat, lon, redPointMarker);
+        });
+
+        map.on('click', function() { document.getElementById('resultsFrame').style.display = 'none'; });
+
+        async function loadScreenshotSettings() {
+            try {
+                const response = await fetch('/api/screenshot-settings');
+                if (response.ok) {
+                    const data = await response.json();
+                    screenshotSettings.delay = data.delay || 3;
+                    screenshotSettings.savePath = data.save_path || 'screenshots';
+                    screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
+                    screenshotSettings.localBoundary = data.local_boundary || false;
+                    document.getElementById('settingDelay').value = screenshotSettings.delay;
+                    document.getElementById('serverPath').value = screenshotSettings.savePath;
+                    document.getElementById('autoScreenshotCheckbox').checked = screenshotSettings.autoScreenshotEnabled;
+                    document.getElementById('localBoundaryCheckbox').checked = screenshotSettings.localBoundary;
+                    updateFolderStatus();
+                    if (data.last_point && data.last_point.lat && data.last_point.lon) {
+                        map.setView([data.last_point.lat, data.last_point.lon], 14);
+                    }
+                    await loadRostovBoundary();
+                }
+            } catch (e) { console.error('Ошибка загрузки настроек:', e); }
+        }
+        
+        async function saveScreenshotSettings() {
+            const delay = parseInt(document.getElementById('settingDelay').value);
+            if (isNaN(delay) || delay < 1 || delay > 30) { showToast('Задержка: 1-30 сек', 'error'); return; }
+            const savePath = document.getElementById('serverPath').value.trim() || 'screenshots';
+            const autoEnabled = document.getElementById('autoScreenshotCheckbox').checked;
+            const localBoundary = document.getElementById('localBoundaryCheckbox').checked;
+            screenshotSettings.delay = delay;
+            screenshotSettings.savePath = savePath;
+            screenshotSettings.autoScreenshotEnabled = autoEnabled;
+            screenshotSettings.localBoundary = localBoundary;
+            try {
+                const response = await fetch('/api/screenshot-settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delay, save_path: savePath, auto_enabled: autoEnabled, local_boundary: localBoundary })
+                });
+                if (!response.ok) throw new Error('Ошибка сервера');
+                showToast('✅ Настройки сохранены', 'success');
+                updateFolderStatus();
+                await loadRostovBoundary();
+            } catch (error) { showToast('❌ Ошибка: ' + error.message, 'error'); }
+        }
+        
+        function updateFolderStatus(customText = null) {
+            const status = document.getElementById('folderStatus');
+            if (customText) status.textContent = customText;
+            else {
+                const mode = screenshotSettings.localBoundary ? '🗺️ Локальный' : '🌐 Overpass';
+                status.textContent = `${mode} • Сервер: ${screenshotSettings.savePath || 'screenshots'}`;
+            }
+            status.className = 'folder-status';
+        }
+
+        function showToast(message, type = 'info', duration = 3000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => { toast.className = 'toast'; }, duration);
+        }
+
+        if (typeof domtoimage === 'undefined') console.error("❌ dom-to-image не загружен!");
+
+        let isSelecting = false, startX = 0, startY = 0;
+        const overlay = document.getElementById('screenshot-overlay');
+        const rect = document.getElementById('selection-rect');
+        const menu = document.getElementById('screenshot-menu');
+        const countdownLabel = document.getElementById('countdownLabel');
+        const countdownValue = document.getElementById('countdownValue');
+        let capturedImageData = null, capturedBlob = null, countdownInterval = null;
+        let editMode = null, editStartX = 0, editStartY = 0, editStartRect = null;
+
+        document.querySelectorAll('.resize-handle').forEach(handle => {
+            handle.addEventListener('mousedown', function(e) { e.stopPropagation(); e.preventDefault(); startEditMode('resize-' + this.getAttribute('data-handle'), e); });
+        });
+        rect.addEventListener('mousedown', function(e) { if (e.target.classList.contains('resize-handle')) return; e.stopPropagation(); e.preventDefault(); startEditMode('move', e); });
+
+        function startEditMode(mode, e) {
+            editMode = mode;
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            editStartX = e.clientX - mapRect.left; editStartY = e.clientY - mapRect.top;
+            editStartRect = { left: parseInt(rect.style.left), top: parseInt(rect.style.top), width: parseInt(rect.style.width), height: parseInt(rect.style.height) };
+            document.addEventListener('mousemove', handleEditMove);
+            document.addEventListener('mouseup', handleEditEnd);
+        }
+
+        function handleEditMove(e) {
+            if (!editMode) return;
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            const dx = (e.clientX - mapRect.left) - editStartX, dy = (e.clientY - mapRect.top) - editStartY;
+            let newLeft = editStartRect.left, newTop = editStartRect.top, newWidth = editStartRect.width, newHeight = editStartRect.height;
+            if (editMode === 'move') { newLeft += dx; newTop += dy; } 
+            else {
+                const dir = editMode.replace('resize-', '');
+                if (dir.includes('w')) { newLeft += dx; newWidth -= dx; }
+                if (dir.includes('e')) { newWidth += dx; }
+                if (dir.includes('n')) { newTop += dy; newHeight -= dy; }
+                if (dir.includes('s')) { newHeight += dy; }
+                if (newWidth < 20) { newWidth = 20; if (dir.includes('w')) newLeft = editStartRect.left + editStartRect.width - 20; }
+                if (newHeight < 20) { newHeight = 20; if (dir.includes('n')) newTop = editStartRect.top + editStartRect.height - 20; }
+            }
+            rect.style.left = newLeft + 'px'; rect.style.top = newTop + 'px'; rect.style.width = newWidth + 'px'; rect.style.height = newHeight + 'px';
+        }
+
+        function handleEditEnd() {
+            editMode = null;
+            document.removeEventListener('mousemove', handleEditMove);
+            document.removeEventListener('mouseup', handleEditEnd);
+            if (rect.style.display === 'block' && menu.style.display !== 'block') {
+                const rectBounds = rect.getBoundingClientRect();
+                if (rectBounds.width >= 15 && rectBounds.height >= 15) finalizeSelection();
+            }
+        }
+
+        function handleGlobalMouseUp(e) { if (!isSelecting || e.button !== 2) return; isSelecting = false; document.removeEventListener('mouseup', handleGlobalMouseUp); finalizeSelection(); }
+        overlay.addEventListener('contextmenu', function(e) { e.preventDefault(); e.stopPropagation(); });
+
+        map.on('contextmenu', function(e) {
+            L.DomEvent.preventDefault(e); 
+            document.getElementById('resultsFrame').style.display = 'none';
+            startX = e.originalEvent.offsetX; startY = e.originalEvent.offsetY;
+            isSelecting = true;
+            overlay.style.display = 'block'; rect.style.display = 'block';
+            rect.style.left = startX + 'px'; rect.style.top = startY + 'px';
+            rect.style.width = '0px'; rect.style.height = '0px';
+            menu.style.display = 'none'; countdownLabel.style.display = 'none';
+            document.addEventListener('mouseup', handleGlobalMouseUp);
+        });
+
+        overlay.addEventListener('mousemove', function(e) {
+            if (!isSelecting) return;
+            const width = Math.abs(e.offsetX - startX), height = Math.abs(e.offsetY - startY);
+            rect.style.width = width + 'px'; rect.style.height = height + 'px';
+            rect.style.left = Math.min(e.offsetX, startX) + 'px'; rect.style.top = Math.min(e.offsetY, startY) + 'px';
+        });
+
+        function finalizeSelection() {
+            const rectBounds = rect.getBoundingClientRect();
+            if (rectBounds.width < 15 || rectBounds.height < 15) { clearScreenshotUI(); return; }
+            rect.style.display = 'none'; menu.style.display = 'none';
+            domtoimage.toPng(document.getElementById('map'), { bgcolor: '#ffffff' }).then(function (dataUrl) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = rectBounds.width; canvas.height = rectBounds.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, rectBounds.left, rectBounds.top, rectBounds.width, rectBounds.height, 0, 0, rectBounds.width, rectBounds.height);
+                    capturedImageData = canvas.toDataURL('image/png');
+                    canvas.toBlob(blob => { capturedBlob = blob; }, 'image/png');
+                    rect.style.display = 'block';
+                    menu.style.left = rectBounds.left + 'px'; 
+                    menu.style.top = (rectBounds.bottom + 5) + 'px';
+                    menu.style.display = 'block';
+                    if (screenshotSettings.autoScreenshotEnabled) startAutoSaveCountdown();
+                };
+                img.src = dataUrl;
+            }).catch(function (err) { console.error("Ошибка dom-to-image:", err); showToast('Не удалось сделать скриншот', 'error', 5000); clearScreenshotUI(); });
+        }
+
+        function startScreenshotMode() {
+            document.getElementById('resultsFrame').style.display = 'none';
+            if (!redPointMarker) { showToast('Сначала выберите точку на карте', 'error'); return; }
+            const pointPixel = map.latLngToContainerPoint(redPointMarker.getLatLng());
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            const halfSize = 200;
+            rect.style.display = 'block';
+            rect.style.left = Math.max(10, pointPixel.x - halfSize) + 'px';
+            rect.style.top = Math.max(10, pointPixel.y - halfSize) + 'px';
+            rect.style.width = Math.min(400, mapRect.width - 20) + 'px';
+            rect.style.height = Math.min(400, mapRect.height - 20) + 'px';
+            overlay.style.display = 'block'; menu.style.display = 'none'; countdownLabel.style.display = 'none';
+            showToast('📸 Выделите область. Перетаскивайте за середину или края. Enter = сохранить', 'info', 3000);
+        }
+
+        // === ГОРЯЧИЕ КЛАВИШИ ===
+        document.addEventListener('keydown', function(e) {
+            const activeEl = document.activeElement;
+            const isInInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+            
+            if (e.key === 'Escape') { cancelAutoSave(); clearScreenshotUI(); return; }
+            
+            if (e.key === 'Enter' && capturedImageData && !isInInput) { 
+                e.preventDefault(); saveScreenshot(); return;
+            }
+            
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                startScreenshotMode();
+                return;
+            }
+            
+            if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+                e.preventDefault();
+                clearSelectedPoint();
+                return;
+            }
+        });
+
+        function startAutoSaveCountdown() {
+            cancelAutoSave();
+            let remaining = screenshotSettings.delay;
+            countdownValue.textContent = remaining; countdownLabel.style.display = 'block';
+            countdownInterval = setInterval(() => {
+                remaining--; countdownValue.textContent = remaining;
+                if (remaining <= 0) { clearInterval(countdownInterval); countdownInterval = null; performAutoSave(); }
+            }, 1000);
+        }
+        
+        function cancelAutoSave() { if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; } countdownLabel.style.display = 'none'; }
+        
+        async function saveImageToOS(filename, blob, dataUrl) {
+            if (window.showSaveFilePicker) {
+                try {
+                    const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'PNG Изображение', accept: {'image/png': ['.png']} }] });
+                    const writable = await handle.createWritable();
+                    await writable.write(blob); await writable.close();
+                    showToast(`✅ Сохранено: ${filename}`, 'success');
+                    return true;
+                } catch (err) { if (err.name === 'AbortError') return false; console.warn('showSaveFilePicker failed', err); }
+            }
+            const link = document.createElement('a'); link.download = filename; link.href = dataUrl;
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            showToast(`💾 Сохранено в "Загрузки": ${filename}`, 'success');
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                    showToast('📋 Также скопировано в буфер', 'info', 2000);
+                }
+            } catch (e) { console.warn('Не удалось скопировать в буфер:', e); }
+            return true;
+        }
+
+        async function performAutoSave() {
+            if (!capturedImageData || !capturedBlob) return;
+            const filename = getSafeFilename(); countdownLabel.style.display = 'none';
+            await saveImageToOS(filename, capturedBlob, capturedImageData);
+            clearScreenshotUI();
+        }
+        
+        async function saveScreenshot() {
+            if (!capturedImageData || !capturedBlob) return;
+            cancelAutoSave();
+            const filename = getSafeFilename();
+            const success = await saveImageToOS(filename, capturedBlob, capturedImageData);
+            if (success) {
+                const saveBtn = document.getElementById('menuSaveBtn');
+                if (saveBtn) { saveBtn.innerHTML = '✅ Сохранено'; saveBtn.style.pointerEvents = 'none'; saveBtn.style.color = '#28a745'; saveBtn.style.fontWeight = 'bold'; }
+                setTimeout(() => {
+                    clearScreenshotUI();
+                    if (saveBtn) { saveBtn.innerHTML = '💾 Сохранить <span style="margin-left:auto;font-size:11px;color:var(--text-subtle);">Enter</span>'; saveBtn.style.pointerEvents = 'auto'; saveBtn.style.color = 'var(--text-main)'; saveBtn.style.fontWeight = 'normal'; }
+                }, 1500);
+            }
+        }
+
+        function clearScreenshotUI() { menu.style.display = 'none'; rect.style.display = 'none'; overlay.style.display = 'none'; countdownLabel.style.display = 'none'; capturedImageData = null; capturedBlob = null; }
+        function goToRostov() { map.setView([47.23, 39.72], 7); }
+        
+        function parseCoords(input) {
+            if (!input || !input.trim()) return null;
+            let s = input.trim().replace(/,/g, '.').replace(/[°′'"\s]+/g, ' ').replace(/[NSEW]/gi, ' ').replace(/\s+/g, ' ').trim();
+            const parts = s.split(/[\s;]+/).filter(x => x && !isNaN(parseFloat(x)));
+            if (parts.length >= 2) {
+                const a = parseFloat(parts[0]), b = parseFloat(parts[1]);
+                if (!isNaN(a) && !isNaN(b)) return Math.abs(a) > 90 && Math.abs(b) <= 90 ? { lat: b, lon: a } : { lat: a, lon: b };
+            }
+            return null;
+        }
+        
+        function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
+        function showError(msg) { const c = document.getElementById('errorContainer'); c.innerHTML = `<div class="error-msg">⚠️ ${msg}</div>`; setTimeout(() => { c.innerHTML = ''; }, 5000); }
+        function handleEnter(event) { if (event.key === 'Enter') { event.preventDefault(); locateByCoords(); } }
+
+        function getSafeFilename() {
+            let text = window.currentRoadCopyText;
+            if (!text || text.trim() === '') {
+                if (redPointMarker) { const latlng = redPointMarker.getLatLng(); text = `albion_${latlng.lat.toFixed(4)}_${latlng.lng.toFixed(4)}`; }
+                else text = `albion-screenshot_${Date.now()}`;
+            }
+            let safeName = text.replace(/[«»""'"]/g, '').replace(/[^\wа-яА-ЯёЁ\s\-+]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+            if (safeName.length > 50) { safeName = safeName.substring(safeName.length - 50); safeName = safeName.replace(/^_+/, ''); }
+            if (!safeName || safeName.length < 3) safeName = `albion_${Date.now()}`;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+            return `${safeName}_${timestamp}.png`;
+        }
+
+        function renderResultsHTML(data) {
+            const { road, side } = data;
+            let html = '', copyText = '';
+            if (road && side && !side.error) {
+                const sideText = side.side === 1 ? 'справа по ходу движения' : (side.side === -1 ? 'слева по ходу движения' : 'на оси дороги');
+                const kmText = formatKm(side.km_estimate);
+                copyText = `${road.full_name}, ${kmText}, ${sideText}`;
+                html += `<div class="result-card">
+                    <p class="no-select">Из СКДФ:</p>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; padding: 6px; background: var(--bg-muted); border-radius: 4px;">${road.skdf_name}</p>
+                    <p class="no-select">Из справочника:</p>
+                    <p style="font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 10px; line-height: 1.4; word-wrap: break-word;">${road.full_name}</p>
+                    <p style="font-size: 13px; color: var(--text-main); margin-bottom: 8px;">${kmText}</p>
+                    <p style="font-size: 13px; color: var(--text-main); margin-bottom: 8px;">${sideText}</p>
+                    <p class="no-select" style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px;">${side.perpendicular_m} м до оси дороги</p>
+                    <div class="action-btns">
+                        <button class="btn btn-screenshot" onclick="startScreenshotMode()">📸 Скриншот</button>
+                        <button class="btn btn-copy" onclick="copyRoadInfo(this)">📋 Скопировать</button>
+                    </div>
+                </div>`;
+            } else {
+                html = `<div class="result-card"><p style="color: #856404; font-weight: 600; margin: 0 0 5px 0;">Дорога не найдена</p><p style="font-size: 13px; color: #856404; margin: 0;">В заданном радиусе нет данных о дорогах в ФГИС СКДФ.</p></div>`;
+            }
+            window.currentRoadCopyText = copyText;
+            return html;
+        }
+
+        function copyRoadInfo(buttonElement) {
+            const text = window.currentRoadCopyText;
+            if (!text) { showToast('❌ Нет данных для копирования', 'error'); return; }
+            const originalText = buttonElement.textContent, originalBg = buttonElement.style.background, originalColor = buttonElement.style.color;
+            const doCopy = () => {
+                buttonElement.textContent = '✅ Скопировано'; buttonElement.classList.add('copied'); buttonElement.disabled = true;
+                showToast('📋 Информация скопирована в буфер', 'success');
+                setTimeout(() => { buttonElement.textContent = originalText; buttonElement.classList.remove('copied'); buttonElement.disabled = false; buttonElement.style.background = originalBg; buttonElement.style.color = originalColor; }, 2000);
+            };
+            if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(doCopy).catch(() => fallbackCopy(text, doCopy));
+            else fallbackCopy(text, doCopy);
+        }
+
+        function fallbackCopy(text, onSuccess) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text; textArea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+            document.body.appendChild(textArea); textArea.focus(); textArea.select();
+            try { const successful = document.execCommand('copy'); if (successful) onSuccess(); else showToast('❌ Не удалось скопировать', 'error'); }
+            catch (err) { console.error('Fallback copy error:', err); showToast('❌ Не удалось скопировать', 'error'); }
+            document.body.removeChild(textArea);
+        }
+
+        function clearSelectedPoint() {
+            if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
+            if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
+            if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
+            if (redPointMarker) { map.removeLayer(redPointMarker); redPointMarker = null; }
+            document.getElementById('selectedCoords').innerHTML = '';
+            document.getElementById('clearPointBtn').style.display = 'none';
+            document.getElementById('resultsFrame').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('coordSingle').value = '';
+            window.currentRoadCopyText = '';
+            document.getElementById('addBookmarkBtn').disabled = true;
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('hover'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('hover');
+        dropZone.ondrop = (e) => { 
+            e.preventDefault(); 
+            dropZone.classList.remove('hover'); 
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]); 
+        };
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+        // === ЗАГРУЗКА ФОТО (с очисткой предыдущих точек) ===
+        async function handleFile(file) {
+            if (!file) return;
+            
+            // ЯВНАЯ очистка всех предыдущих точек и результатов
+            clearSelectedPoint();
+            
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            
+            try {
+                const form = new FormData();
+                form.append('photo', file);
+                const exifRes = await fetch('/api/exif', { method: 'POST', body: form });
+                if (!exifRes.ok) throw new Error(`Ошибка сервера ${exifRes.status}`);
+                const exif = await exifRes.json();
+                if (!exif || typeof exif.lat !== 'number' || typeof exif.lon !== 'number') {
+                    throw new Error('Не удалось извлечь координаты из EXIF');
+                }
+                await locate(exif.lat, exif.lon, null, true);
+            } catch (e) {
+                showError(e.message);
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+
+        function locateByCoords() {
+            const coords = parseCoords(document.getElementById('coordSingle').value);
+            if (!coords || typeof coords.lat !== 'number' || typeof coords.lon !== 'number' || Math.abs(coords.lat) > 90 || Math.abs(coords.lon) > 180) return showError('Неверные координаты. Пример: 47.23, 39.72');
+            clearSelectedPoint();
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            locate(coords.lat, coords.lon, null, true);
+        }
+
+        async function locate(lat, lon, marker = null, isPhotoOrManual = false) {
+            try {
+                const radius = parseInt(document.getElementById('radius').value) || 2000;
+                const excludeMinor = document.getElementById('excludeMinor').checked;
+                const excludeCategories = excludeMinor ? [6] : [];
+                const res = await fetch('/api/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: parseFloat(lat), lon: parseFloat(lon), radius: radius, exclude_categories: excludeCategories }) });
+                if (!res.ok) throw new Error(`Ошибка сервера ${res.status}`);
+                const data = await res.json();
+                document.getElementById('loader').style.display = 'none';
+                
+                addToHistory(lat, lon);
+                
+                const resultsHTML = renderResultsHTML(data);
+                if (marker) { marker.setPopupContent(resultsHTML).openPopup(); }
+                else if (isPhotoOrManual) {
+                    if (photoMarker) map.removeLayer(photoMarker);
+                    photoMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'custom-photo-marker', html: '<div style="background-color: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map).bindPopup(resultsHTML).openPopup();
+                    map.setView([lat, lon], 15);
+                }
+                document.getElementById('results').innerHTML = resultsHTML;
+                document.getElementById('addBookmarkBtn').disabled = false;
+                
+                if (data.road && data.side && !data.side.error) {
+                    if (roadLine) map.removeLayer(roadLine);
+                    roadLine = L.polyline([[lat, lon], [data.side.projected_lat, data.side.projected_lon]], { color: '#dc3545', weight: 2, dashArray: '5, 5' }).addTo(map);
+                }
+            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; if (marker) marker.setPopupContent('❌ Ошибка загрузки данных'); }
+        }
+
+        // === ИНИЦИАЛИЗАЦИЯ ===
+        loadScreenshotSettings();
+        loadHistory();
+        loadBookmarks();
+    </script>
+</body>
+</html>

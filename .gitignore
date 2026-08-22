@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+.mamba/
+.condarc
+
+# Личные данные и генерируемые файлы
+user_settings.json
+bookmarks.json
+screenshots/
+*.log
+backups/
+
+# Утилиты (не нужны в репозитории)
+fix_boundary.py
+convert_boundary.py
+convert_ro_boundary.py
+raw_ro.json
+
+# IDE и ОС
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

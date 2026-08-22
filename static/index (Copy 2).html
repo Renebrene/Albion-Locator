@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>АЛЬБИОН: Локатор</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dom-to-image-more@3.4.5/dist/dom-to-image-more.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f5f7; }
+        
+        #sidebar { width: 360px; padding: 20px; overflow-y: auto; background: #fff; box-shadow: 2px 0 10px rgba(0,0,0,0.1); z-index: 2; display: flex; flex-direction: column; }
+        #sidebar-content { flex: 1; overflow-y: auto; }
+        #sidebar-footer { border-top: 1px solid #eee; padding-top: 15px; margin-top: 15px; }
+        
+        #map { flex: 1; z-index: 1; cursor: crosshair; position: relative; }
+
+        #help-frame {
+            width: 0; background: #fff; box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            z-index: 2; overflow: hidden; transition: width 0.3s ease;
+            display: flex; flex-direction: column;
+        }
+        #help-frame.open { width: 380px; }
+        #help-frame-header {
+            padding: 12px 16px; background: #1a3a5c; color: white;
+            font-weight: 600; font-size: 14px; display: flex;
+            justify-content: space-between; align-items: center; white-space: nowrap;
+        }
+        #help-frame-close {
+            background: none; border: none; color: white;
+            font-size: 20px; cursor: pointer; padding: 0 4px;
+        }
+        #help-frame-content {
+            flex: 1; overflow-y: auto; padding: 16px;
+            font-size: 13px; line-height: 1.6; color: #555;
+        }
+        #help-frame-content h4 {
+            margin: 16px 0 8px 0; color: #1a3a5c;
+            font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        #help-frame-content h4:first-child { margin-top: 0; }
+        #help-frame-content ul { margin: 4px 0 12px 0; padding-left: 20px; }
+        #help-frame-content li { margin-bottom: 4px; }
+        #help-frame-content kbd {
+            background: #f0f0f0; border: 1px solid #ccc;
+            border-radius: 3px; padding: 1px 5px; font-size: 11px; font-family: monospace;
+        }
+
+        h2 { margin: 0 0 5px 0; color: #1a3a5c; font-size: 20px; }
+        .subtitle { font-size: 12px; color: #888; margin-bottom: 15px; }
+        h3 { margin: 20px 0 10px 0; color: #555; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .drop-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 25px; text-align: center; cursor: pointer; transition: 0.2s; margin-bottom: 5px; color: #666; }
+        .drop-zone:hover, .drop-zone.hover { border-color: #1a3a5c; background: #e0e8f0; }
+        .drop-hint { font-size: 11px; color: #999; margin-bottom: 15px; text-align: center; }
+        
+        .coord-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-bottom: 8px; }
+        .coord-input:focus { outline: none; border-color: #1a3a5c; }
+        
+        .btn { width: 100%; padding: 10px; background: #ff8c00; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .btn:hover { background: #e67e00; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #545b62; }
+        .btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .btn-small { padding: 6px 12px; font-size: 12px; }
+        
+        .results-frame { margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; display: none; }
+        .radius-row { display: flex; align-items: center; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6; }
+        .radius-row input { width: 80px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+        
+        .result-card { background: #fff; border-radius: 6px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #1a3a5c; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .result-card p { margin: 4px 0; font-size: 13px; color: #555; }
+        .no-select { user-select: none; -webkit-user-select: none; color: #888; font-size: 12px; font-style: italic; pointer-events: none; }
+        
+        .action-btns { display: flex; gap: 8px; margin-top: 12px; }
+        .action-btns .btn { flex: 1; padding: 8px; font-size: 13px; }
+        .btn-screenshot { background: #1a3a5c; }
+        .btn-screenshot:hover { background: #2a5a8c; }
+        .btn-copy { background: #28a745; }
+        .btn-copy:hover { background: #218838; }
+        .btn-copy.copied { background: #6c757d; cursor: default; }
+
+        #loader { text-align: center; padding: 10px; color: #666; font-size: 13px; }
+        .hint { font-size: 12px; color: #888; margin-top: 5px; }
+        .region-btn { display: inline-block; padding: 6px 12px; background: #e9ecef; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 10px; margin-right: 5px; }
+        .region-btn:hover { background: #dee2e6; }
+        .help-btn { background: #2a5a8c; color: white; }
+        .help-btn:hover { background: #3570a8; }
+        .error-msg { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #856404; }
+        .selected-coords { background: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 13px; color: #155724; }
+        .selected-coords strong { display: block; margin-bottom: 5px; }
+        .leaflet-control-attribution { display: none !important; }
+
+        #screenshot-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 998; cursor: crosshair; display: none; 
+            background: transparent; pointer-events: auto;
+        }
+        #selection-rect { 
+            position: absolute; border: 2px dashed #ff8c00; background: rgba(255, 255, 255, 0.05); 
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); 
+            pointer-events: none; display: none; z-index: 999; cursor: move;
+        }
+        .resize-handle { position: absolute; width: 10px; height: 10px; background: #ff8c00; border: 1px solid #fff; border-radius: 2px; z-index: 1000; pointer-events: auto; }
+        .resize-handle.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+        .resize-handle.n  { top: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+        .resize-handle.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+        .resize-handle.e  { top: calc(50% - 5px); right: -6px; cursor: ew-resize; }
+        .resize-handle.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .resize-handle.s  { bottom: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+        .resize-handle.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .resize-handle.w  { top: calc(50% - 5px); left: -6px; cursor: ew-resize; }
+
+        #screenshot-menu { position: absolute; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); padding: 8px 0; z-index: 1001; display: none; min-width: 220px; }
+        .screenshot-menu-item { padding: 8px 16px; cursor: pointer; font-size: 13px; color: #333; display: flex; align-items: center; gap: 8px; }
+        .screenshot-menu-item:hover { background: #f0f0f0; }
+        .screenshot-menu-divider { height: 1px; background: #eee; margin: 4px 0; }
+        .countdown-label { padding: 6px 16px; font-size: 11px; color: #888; font-style: italic; display: none; }
+
+        .settings-block { background: #f8f9fa; border-radius: 6px; padding: 12px; }
+        .settings-block h4 { margin: 0 0 10px 0; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+        .settings-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #666; }
+        .settings-row:last-child { margin-bottom: 0; }
+        .settings-row input[type="number"] { width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 3px; font-size: 12px; }
+        .settings-row input[type="text"] { flex: 1; padding: 4px; border: 1px solid #ddd; border-radius: 3px; font-size: 12px; }
+        .folder-status { font-size: 11px; color: #28a745; margin-top: 4px; font-style: italic; }
+        .folder-status.warning { color: #dc3545; }
+        
+        .toast { position: fixed; bottom: 20px; right: 20px; background: #1a3a5c; color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 3000; font-size: 13px; opacity: 0; transform: translateY(20px); transition: opacity 0.3s, transform 0.3s; pointer-events: none; }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: #28a745; }
+        .toast.error { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="sidebar-content">
+            <h2>АЛЬБИОН: Локатор</h2>
+            <div class="subtitle">Поиск ближайшей дороги ФГИС СКДФ</div>
+            <div>
+                <button class="region-btn" onclick="goToRostov()">📍 Ростовская область</button>
+                <button class="region-btn help-btn" onclick="toggleHelpFrame()">❓ Справка</button>
+            </div>
+            
+            <h3>1. Загрузить фото</h3>
+            <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
+            <div class="drop-hint">Координаты будут взяты из EXIF</div>
+            
+            <h3>2. Ввести координаты</h3>
+            <input type="text" id="coordSingle" class="coord-input" placeholder="47.23, 39.72" onkeypress="handleEnter(event)">
+            <div class="hint">Десятичные градусы через запятую или пробел</div>
+            <button class="btn" onclick="locateByCoords()" style="margin-top: 10px;"> Найти ближайшую дорогу</button>
+            
+            <h3>3. Работа с картой</h3>
+            <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
+            <div id="selectedCoords"></div>
+            <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 10px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
+            
+            <div id="resultsFrame" class="results-frame">
+                <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
+                <div id="errorContainer"></div>
+                <div id="results"></div>
+                <div class="radius-row">
+                    <label style="font-size: 13px; color: #555; font-weight: 500;">Радиус поиска (м):</label>
+                    <input type="number" id="radius" value="2000" min="10" max="5000">
+                </div>
+                <div class="radius-row" style="border-top: none; padding-top: 5px;">
+                    <label style="font-size: 13px; color: #555; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="excludeMinor" checked style="cursor: pointer;">
+                        Искать только основные дороги
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div id="sidebar-footer">
+            <div class="settings-block">
+                <h4>⏱ Автоскриншот</h4>
+                <div class="settings-row">
+                    <label>Задержка (сек):</label>
+                    <input type="number" id="settingDelay" min="1" max="30" value="3">
+                </div>
+                <div class="settings-row">
+                    <label>Каталог на сервере:</label>
+                    <input type="text" id="serverPath" placeholder="screenshots" value="screenshots">
+                </div>
+                <div class="settings-row">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="autoScreenshotCheckbox" style="cursor: pointer;">
+                        <span>Включить автоскриншот</span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <button class="btn btn-small" onclick="saveScreenshotSettings()" style="flex:1;">💾 Сохранить настройки</button>
+                </div>
+                <div class="folder-status" id="folderStatus">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="map">
+        <div id="screenshot-overlay"></div>
+        <div id="selection-rect">
+            <div class="resize-handle nw" data-handle="nw"></div>
+            <div class="resize-handle n" data-handle="n"></div>
+            <div class="resize-handle ne" data-handle="ne"></div>
+            <div class="resize-handle e" data-handle="e"></div>
+            <div class="resize-handle se" data-handle="se"></div>
+            <div class="resize-handle s" data-handle="s"></div>
+            <div class="resize-handle sw" data-handle="sw"></div>
+            <div class="resize-handle w" data-handle="w"></div>
+        </div>
+        <div id="screenshot-menu">
+            <div class="screenshot-menu-item" id="menuSaveBtn" onclick="saveScreenshot()">💾 Сохранить <span style="margin-left:auto;font-size:11px;color:#aaa;">Enter</span></div>
+            <div class="screenshot-menu-divider"></div>
+            <div class="countdown-label" id="countdownLabel">Автосохранение через <span id="countdownValue">3</span> сек...</div>
+        </div>
+    </div>
+
+    <div id="help-frame">
+        <div id="help-frame-header">
+            <span>📖 Справка по интерфейсу</span>
+            <button id="help-frame-close" onclick="toggleHelpFrame()" title="Закрыть">&times;</button>
+        </div>
+        <div id="help-frame-content">
+            <h4>🖱️ Работа с картой</h4>
+            <ul>
+                <li><b>Одинарный клик ЛКМ</b> — скрыть панель результатов</li>
+                <li><b>Двойной клик ЛКМ</b> — поставить точку и найти дорогу</li>
+                <li><b>Перетаскивание ЛКМ</b> — перемещение карты</li>
+                <li><b>Колёсико мыши</b> / кнопки <kbd>+</kbd> <kbd>-</kbd> — масштабирование</li>
+            </ul>
+            
+            <h4>📸 Создание скриншотов</h4>
+            <ul>
+                <li><b>Правый клик + перетаскивание</b> — выделить область</li>
+                <li><b>Кнопка «📸 Скриншот»</b> в карточке — запустить скриншот вокруг точки</li>
+                <li>После выделения появится меню сохранения</li>
+            </ul>
+            
+            <h4>✋ Редактирование выделения</h4>
+            <ul>
+                <li><b>Перетаскивание за середину</b> (ЛКМ) — переместить</li>
+                <li><b>Перетаскивание за маркеры</b> — изменить размер</li>
+                <li><kbd>Enter</kbd> — быстрое сохранение</li>
+                <li><kbd>Esc</kbd> — отменить</li>
+            </ul>
+            
+            <h4>⏱ Автоскриншот</h4>
+            <ul>
+                <li>Включите чек-бокс «Автоскриншот» в настройках слева</li>
+                <li>После выделения скриншот автоматически сохранится через N секунд</li>
+                <li>Нажмите <kbd>Esc</kbd> во время обратного отсчёта, чтобы отменить</li>
+            </ul>
+            
+            <h4>💾 Сохранение файлов</h4>
+            <ul>
+                <li>При нажатии «💾 Сохранить» файл сохраняется на сервер, в «Загрузки» и копируется в буфер обмена</li>
+                <li>Серверный каталог по умолчанию: <code>screenshots/</code></li>
+            </ul>
+            
+            <h4>⚙️ Настройки</h4>
+            <ul>
+                <li>Задержка автоскриншота (1–30 секунд)</li>
+                <li>Путь к папке на сервере</li>
+                <li>Состояние чекбокса «Автоскриншот»</li>
+                <li>Все настройки сохраняются на сервере и восстанавливаются при загрузке</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const DEFAULT_CENTER = [47.23, 39.72];
+        const map = L.map('map', { attributionControl: false, doubleClickZoom: false }).setView(DEFAULT_CENTER, 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { crossOrigin: 'anonymous' }).addTo(map);
+        setTimeout(() => map.invalidateSize(), 100);
+        
+        let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
+        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false };
+
+        // === ГРАНИЦЫ РО ===
+        async function loadRostovBoundary() {
+            try {
+                const overpassQuery = `[out:json][timeout:25]; relation["name"="Ростовская область"]["boundary"="administrative"]; out geom;`;
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: overpassQuery,
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                if (data.elements && data.elements.length > 0) {
+                    const relation = data.elements[0];
+                    const coordinates = relation.members
+                        .filter(m => m.type === 'way' && m.geometry)
+                        .flatMap(m => m.geometry.map(g => [g.lat, g.lon]));
+                    
+                    if (coordinates.length > 0) {
+                        const outerRing = [[-90, -180], [-90, 180], [90, 180], [90, -180], [-90, -180]];
+                        const holeRing = [...coordinates].reverse();
+                        
+                        L.polygon([outerRing, holeRing], {
+                            color: 'transparent', fillColor: '#000000', fillOpacity: 0.5, interactive: false
+                        }).addTo(map);
+                        
+                        L.polyline(coordinates, {
+                            color: '#ffffff', weight: 2, opacity: 0.8, interactive: false
+                        }).addTo(map);
+                        console.log(`✅ Контур РО загружен (${coordinates.length} точек)`);
+                        return;
+                    }
+                }
+                throw new Error("Нет данных в ответе Overpass");
+            } catch (error) {
+                console.warn("⚠️ Overpass API недоступен, используется фоллбэк:", error.message);
+                const fallbackBounds = [[45.55, 38.20], [49.95, 38.20], [49.95, 44.15], [45.55, 44.15], [45.55, 38.20]];
+                const outerRing = [[-90, -180], [-90, 180], [90, 180], [90, -180], [-90, -180]];
+                const holeRing = [...fallbackBounds].reverse();
+                L.polygon([outerRing, holeRing], { color: 'transparent', fillColor: '#000000', fillOpacity: 0.5, interactive: false }).addTo(map);
+                L.polyline(fallbackBounds, { color: '#ffffff', weight: 2, interactive: false }).addTo(map);
+            }
+        }
+        loadRostovBoundary();
+
+        function toggleHelpFrame() {
+            document.getElementById('help-frame').classList.toggle('open');
+        }
+
+        map.on('dblclick', function(e) {
+            L.DomEvent.stopPropagation(e); 
+            const lat = e.latlng.lat, lon = e.latlng.lng;
+            if (redPointMarker) map.removeLayer(redPointMarker);
+            
+            redPointMarker = L.circleMarker([lat, lon], {
+                radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1
+            }).addTo(map).bindPopup(' Поиск...').openPopup();
+            
+            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>✅ Точка выбрана:</strong>Широта: ${lat.toFixed(6)}<br>Долгота: ${lon.toFixed(6)}</div>`;
+            document.getElementById('clearPointBtn').style.display = 'block';
+            document.getElementById('resultsFrame').style.display = 'block';
+            locate(lat, lon, redPointMarker);
+        });
+
+        map.on('click', function() { document.getElementById('resultsFrame').style.display = 'none'; });
+
+        async function loadScreenshotSettings() {
+            try {
+                const response = await fetch('/api/screenshot-settings');
+                if (response.ok) {
+                    const data = await response.json();
+                    screenshotSettings.delay = data.delay || 3;
+                    screenshotSettings.savePath = data.save_path || 'screenshots';
+                    screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
+                    
+                    document.getElementById('settingDelay').value = screenshotSettings.delay;
+                    document.getElementById('serverPath').value = screenshotSettings.savePath;
+                    document.getElementById('autoScreenshotCheckbox').checked = screenshotSettings.autoScreenshotEnabled;
+                    updateFolderStatus();
+
+                    if (data.last_point && data.last_point.lat && data.last_point.lon) {
+                        map.setView([data.last_point.lat, data.last_point.lon], 14);
+                    }
+                }
+            } catch (e) { console.error('Ошибка загрузки настроек:', e); }
+        }
+        
+        async function saveScreenshotSettings() {
+            const delay = parseInt(document.getElementById('settingDelay').value);
+            if (isNaN(delay) || delay < 1 || delay > 30) {
+                showToast('Задержка должна быть от 1 до 30 секунд', 'error');
+                return;
+            }
+            const savePath = document.getElementById('serverPath').value.trim() || 'screenshots';
+            const autoEnabled = document.getElementById('autoScreenshotCheckbox').checked;
+            
+            screenshotSettings.delay = delay;
+            screenshotSettings.savePath = savePath;
+            screenshotSettings.autoScreenshotEnabled = autoEnabled;
+            
+            try {
+                const response = await fetch('/api/screenshot-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delay, save_path: savePath, auto_enabled: autoEnabled })
+                });
+                if (!response.ok) throw new Error('Ошибка сервера');
+                showToast('✅ Настройки сохранены', 'success');
+                updateFolderStatus();
+            } catch (error) {
+                showToast('❌ Ошибка сохранения: ' + error.message, 'error');
+            }
+        }
+        
+        function updateFolderStatus() {
+            const status = document.getElementById('folderStatus');
+            status.textContent = '🖥️ Сервер: ' + (screenshotSettings.savePath || 'screenshots');
+            status.className = 'folder-status';
+        }
+
+        function showToast(message, type = 'info', duration = 3000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => { toast.className = 'toast'; }, duration);
+        }
+
+        if (typeof domtoimage === 'undefined') {
+            console.error(" dom-to-image не загружен!");
+        }
+
+        let isSelecting = false, startX = 0, startY = 0;
+        const overlay = document.getElementById('screenshot-overlay');
+        const rect = document.getElementById('selection-rect');
+        const menu = document.getElementById('screenshot-menu');
+        const countdownLabel = document.getElementById('countdownLabel');
+        const countdownValue = document.getElementById('countdownValue');
+        let capturedImageData = null, capturedBlob = null, countdownInterval = null;
+        let editMode = null, editStartX = 0, editStartY = 0, editStartRect = null;
+
+        document.querySelectorAll('.resize-handle').forEach(handle => {
+            handle.addEventListener('mousedown', function(e) {
+                e.stopPropagation(); e.preventDefault();
+                startEditMode('resize-' + this.getAttribute('data-handle'), e);
+            });
+        });
+
+        rect.addEventListener('mousedown', function(e) {
+            if (e.target.classList.contains('resize-handle')) return;
+            e.stopPropagation(); e.preventDefault();
+            startEditMode('move', e);
+        });
+
+        function startEditMode(mode, e) {
+            editMode = mode;
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            editStartX = e.clientX - mapRect.left;
+            editStartY = e.clientY - mapRect.top;
+            editStartRect = { left: parseInt(rect.style.left), top: parseInt(rect.style.top), width: parseInt(rect.style.width), height: parseInt(rect.style.height) };
+            document.addEventListener('mousemove', handleEditMove);
+            document.addEventListener('mouseup', handleEditEnd);
+        }
+
+        function handleEditMove(e) {
+            if (!editMode) return;
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            const dx = (e.clientX - mapRect.left) - editStartX;
+            const dy = (e.clientY - mapRect.top) - editStartY;
+            let newLeft = editStartRect.left, newTop = editStartRect.top, newWidth = editStartRect.width, newHeight = editStartRect.height;
+
+            if (editMode === 'move') { newLeft += dx; newTop += dy; } 
+            else {
+                const dir = editMode.replace('resize-', '');
+                if (dir.includes('w')) { newLeft += dx; newWidth -= dx; }
+                if (dir.includes('e')) { newWidth += dx; }
+                if (dir.includes('n')) { newTop += dy; newHeight -= dy; }
+                if (dir.includes('s')) { newHeight += dy; }
+                if (newWidth < 20) { newWidth = 20; if (dir.includes('w')) newLeft = editStartRect.left + editStartRect.width - 20; }
+                if (newHeight < 20) { newHeight = 20; if (dir.includes('n')) newTop = editStartRect.top + editStartRect.height - 20; }
+            }
+            rect.style.left = newLeft + 'px'; rect.style.top = newTop + 'px';
+            rect.style.width = newWidth + 'px'; rect.style.height = newHeight + 'px';
+        }
+
+        function handleEditEnd() {
+            editMode = null;
+            document.removeEventListener('mousemove', handleEditMove);
+            document.removeEventListener('mouseup', handleEditEnd);
+            if (rect.style.display === 'block' && menu.style.display !== 'block') {
+                const rectBounds = rect.getBoundingClientRect();
+                if (rectBounds.width >= 15 && rectBounds.height >= 15) finalizeSelection();
+            }
+        }
+
+        function handleGlobalMouseUp(e) {
+            if (!isSelecting || e.button !== 2) return;
+            isSelecting = false;
+            document.removeEventListener('mouseup', handleGlobalMouseUp);
+            finalizeSelection();
+        }
+
+        overlay.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        map.on('contextmenu', function(e) {
+            L.DomEvent.preventDefault(e); 
+            document.getElementById('resultsFrame').style.display = 'none';
+            startX = e.originalEvent.offsetX; startY = e.originalEvent.offsetY;
+            isSelecting = true;
+            overlay.style.display = 'block'; rect.style.display = 'block';
+            rect.style.left = startX + 'px'; rect.style.top = startY + 'px';
+            rect.style.width = '0px'; rect.style.height = '0px';
+            menu.style.display = 'none'; countdownLabel.style.display = 'none';
+            document.addEventListener('mouseup', handleGlobalMouseUp);
+        });
+
+        overlay.addEventListener('mousemove', function(e) {
+            if (!isSelecting) return;
+            const width = Math.abs(e.offsetX - startX), height = Math.abs(e.offsetY - startY);
+            rect.style.width = width + 'px'; rect.style.height = height + 'px';
+            rect.style.left = Math.min(e.offsetX, startX) + 'px'; rect.style.top = Math.min(e.offsetY, startY) + 'px';
+        });
+
+        function finalizeSelection() {
+            const rectBounds = rect.getBoundingClientRect();
+            if (rectBounds.width < 15 || rectBounds.height < 15) { clearScreenshotUI(); return; }
+            
+            rect.style.display = 'none'; menu.style.display = 'none';
+
+            domtoimage.toPng(document.getElementById('map'), { bgcolor: '#ffffff' }).then(function (dataUrl) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = rectBounds.width; canvas.height = rectBounds.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, rectBounds.left, rectBounds.top, rectBounds.width, rectBounds.height, 0, 0, rectBounds.width, rectBounds.height);
+                    capturedImageData = canvas.toDataURL('image/png');
+                    canvas.toBlob(blob => { capturedBlob = blob; }, 'image/png');
+                    
+                    rect.style.display = 'block';
+                    menu.style.left = rectBounds.left + 'px'; 
+                    menu.style.top = (rectBounds.bottom + 5) + 'px';
+                    menu.style.display = 'block';
+                    
+                    if (screenshotSettings.autoScreenshotEnabled) {
+                        startAutoSaveCountdown();
+                    }
+                };
+                img.src = dataUrl;
+            }).catch(function (err) { 
+                console.error("Ошибка dom-to-image:", err);
+                showToast('Не удалось сделать скриншот', 'error', 5000); 
+                clearScreenshotUI(); 
+            });
+        }
+
+        function startScreenshotMode() {
+            document.getElementById('resultsFrame').style.display = 'none';
+            if (!redPointMarker) { showToast('Сначала выберите точку на карте', 'error'); return; }
+            const pointPixel = map.latLngToContainerPoint(redPointMarker.getLatLng());
+            const mapRect = document.getElementById('map').getBoundingClientRect();
+            const halfSize = 200;
+            
+            rect.style.display = 'block';
+            rect.style.left = Math.max(10, pointPixel.x - halfSize) + 'px';
+            rect.style.top = Math.max(10, pointPixel.y - halfSize) + 'px';
+            rect.style.width = Math.min(400, mapRect.width - 20) + 'px';
+            rect.style.height = Math.min(400, mapRect.height - 20) + 'px';
+            overlay.style.display = 'block'; menu.style.display = 'none'; countdownLabel.style.display = 'none';
+            showToast(' Выделите область. Перетаскивайте за середину или края. Enter = сохранить', 'info', 3000);
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { cancelAutoSave(); clearScreenshotUI(); }
+            if (e.key === 'Enter' && menu.style.display === 'block' && capturedImageData) { 
+                e.preventDefault(); 
+                saveScreenshot(); 
+            }
+        });
+
+        function startAutoSaveCountdown() {
+            cancelAutoSave();
+            let remaining = screenshotSettings.delay;
+            countdownValue.textContent = remaining; countdownLabel.style.display = 'block';
+            countdownInterval = setInterval(() => {
+                remaining--; countdownValue.textContent = remaining;
+                if (remaining <= 0) { clearInterval(countdownInterval); countdownInterval = null; performAutoSave(); }
+            }, 1000);
+        }
+        
+        function cancelAutoSave() {
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+            countdownLabel.style.display = 'none';
+        }
+        
+        async function performAutoSave() {
+            if (!capturedImageData) return;
+            const filename = 'albion-screenshot_' + Date.now() + '.png';
+            countdownLabel.style.display = 'none';
+            
+            try {
+                const blob = await (await fetch(capturedImageData)).blob();
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            } catch (e) { console.warn('Не удалось скопировать в буфер: ', e); }
+            
+            try {
+                const response = await fetch('/api/save-screenshot', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: capturedImageData, filename: filename, save_path: screenshotSettings.savePath })
+                });
+                if (!response.ok) throw new Error(`Ошибка сервера: ${response.status}`);
+            } catch (error) {
+                showToast(' Ошибка автосохранения: ' + error.message, 'error', 5000);
+                clearScreenshotUI();
+                return;
+            }
+            
+            const link = document.createElement('a'); link.download = filename; link.href = capturedImageData; link.click();
+            showToast(`✅ Автосохранено: ${filename}`, 'success', 4000);
+            clearScreenshotUI();
+        }
+        
+        async function saveScreenshot() {
+            if (!capturedImageData) return;
+            cancelAutoSave();
+            const filename = 'albion-screenshot_' + Date.now() + '.png';
+            
+            try {
+                const blob = await (await fetch(capturedImageData)).blob();
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            } catch (e) { console.warn('Не удалось скопировать в буфер: ', e); }
+            
+            try {
+                const response = await fetch('/api/save-screenshot', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: capturedImageData, filename: filename, save_path: screenshotSettings.savePath })
+                });
+                if (!response.ok) throw new Error(`Ошибка сервера: ${response.status}`);
+            } catch (error) {
+                showToast('❌ Ошибка сохранения: ' + error.message, 'error', 5000);
+            }
+            
+            const link = document.createElement('a'); link.download = filename; link.href = capturedImageData; link.click();
+            
+            const saveBtn = document.getElementById('menuSaveBtn');
+            saveBtn.innerHTML = '✅ Сохранено';
+            saveBtn.style.pointerEvents = 'none';
+            saveBtn.style.color = '#28a745';
+            saveBtn.style.fontWeight = 'bold';
+            
+            showToast('💾 Сохранено на сервер, в "Загрузки" и в буфер', 'success', 4000);
+            
+            setTimeout(() => {
+                clearScreenshotUI();
+                saveBtn.innerHTML = '💾 Сохранить <span style="margin-left:auto;font-size:11px;color:#aaa;">Enter</span>';
+                saveBtn.style.pointerEvents = 'auto';
+                saveBtn.style.color = '#333';
+                saveBtn.style.fontWeight = 'normal';
+            }, 1500);
+        }
+
+        function clearScreenshotUI() {
+            menu.style.display = 'none'; rect.style.display = 'none'; overlay.style.display = 'none';
+            countdownLabel.style.display = 'none';
+        }
+
+        function goToRostov() { map.setView([47.23, 39.72], 7); }
+        
+        function parseCoords(input) {
+            if (!input || !input.trim()) return null;
+            let s = input.trim().replace(/,/g, '.').replace(/[°′'"\s]+/g, ' ').replace(/[NSEW]/gi, ' ').replace(/\s+/g, ' ').trim();
+            const parts = s.split(/[\s;]+/).filter(x => x && !isNaN(parseFloat(x)));
+            if (parts.length >= 2) {
+                const a = parseFloat(parts[0]), b = parseFloat(parts[1]);
+                if (!isNaN(a) && !isNaN(b)) return Math.abs(a) > 90 && Math.abs(b) <= 90 ? { lat: b, lon: a } : { lat: a, lon: b };
+            }
+            return null;
+        }
+        
+        function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
+        function showError(msg) { const c = document.getElementById('errorContainer'); c.innerHTML = `<div class="error-msg">️ ${msg}</div>`; setTimeout(() => { c.innerHTML = ''; }, 5000); }
+        function handleEnter(event) { if (event.key === 'Enter') { event.preventDefault(); locateByCoords(); } }
+
+        function renderResultsHTML(data) {
+            const { road, side } = data;
+            let html = '', copyText = '';
+            if (road && side && !side.error) {
+                const sideText = side.side === 1 ? 'справа по ходу движения' : (side.side === -1 ? 'слева по ходу движения' : 'на оси дороги');
+                const kmText = formatKm(side.km_estimate);
+                copyText = `${road.full_name}, ${kmText}, ${sideText}`;
+                html += `<div class="result-card">
+                    <p class="no-select">Из СКДФ:</p>
+                    <p style="font-size: 13px; color: #555; margin-bottom: 12px; padding: 6px; background: #f8f9fa; border-radius: 4px;">${road.skdf_name}</p>
+                    <p class="no-select">Из справочника:</p>
+                    <p style="font-size: 14px; font-weight: 600; color: #1a3a5c; margin-bottom: 10px; line-height: 1.4; word-wrap: break-word;">${road.full_name}</p>
+                    <p style="font-size: 13px; color: #333; margin-bottom: 8px;">${kmText}</p>
+                    <p style="font-size: 13px; color: #333; margin-bottom: 8px;">${sideText}</p>
+                    <p class="no-select" style="border-top: 1px solid #eee; padding-top: 6px; margin-top: 6px;">${side.perpendicular_m} м до оси дороги</p>
+                    <div class="action-btns">
+                        <button class="btn btn-screenshot" onclick="startScreenshotMode()">📸 Скриншот</button>
+                        <button class="btn btn-copy" id="copyBtn" onclick="copyRoadInfo()"> Скопировать</button>
+                    </div>
+                </div>`;
+            } else {
+                html = `<div class="result-card"><p style="color: #856404; font-weight: 600; margin: 0 0 5px 0;">Дорога не найдена</p><p style="font-size: 13px; color: #856404; margin: 0;">В заданном радиусе нет данных о дорогах в ФГИС СКДФ.</p></div>`;
+            }
+            window.currentRoadCopyText = copyText;
+            return html;
+        }
+
+        // === ИСПРАВЛЕНИЕ: Надёжное копирование с fallback ===
+        function copyToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                return successful ? Promise.resolve() : Promise.reject(new Error('execCommand failed'));
+            } catch (err) {
+                document.body.removeChild(textArea);
+                return Promise.reject(err);
+            }
+        }
+
+        function copyRoadInfo() {
+            const text = window.currentRoadCopyText;
+            if (!text) {
+                showToast('❌ Нет данных для копирования', 'error');
+                return;
+            }
+            const btn = document.getElementById('copyBtn');
+            if (!btn) return;
+            
+            copyToClipboard(text).then(() => {
+                btn.textContent = '✅ Скопировано';
+                btn.classList.add('copied');
+                btn.disabled = true;
+                showToast(' Информация скопирована в буфер', 'success');
+                setTimeout(() => {
+                    btn.textContent = '📋 Скопировать';
+                    btn.classList.remove('copied');
+                    btn.disabled = false;
+                }, 2000);
+            }).catch(err => {
+                console.error('Ошибка копирования:', err);
+                showToast('❌ Не удалось скопировать', 'error');
+            });
+        }
+
+        function clearSelectedPoint() {
+            if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
+            if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
+            if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
+            if (redPointMarker) { map.removeLayer(redPointMarker); redPointMarker = null; }
+            document.getElementById('selectedCoords').innerHTML = '';
+            document.getElementById('clearPointBtn').style.display = 'none';
+            document.getElementById('resultsFrame').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('coordSingle').value = '';
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('hover'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('hover');
+        dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('hover'); handleFile(e.dataTransfer.files[0]); };
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+        async function handleFile(file) {
+            if (!file) return;
+            clearSelectedPoint();
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            try {
+                const form = new FormData(); form.append('photo', file);
+                const exifRes = await fetch('/api/exif', { method: 'POST', body: form });
+                if (!exifRes.ok) throw new Error(`Ошибка сервера ${exifRes.status}`);
+                const exif = await exifRes.json();
+                if (!exif || typeof exif.lat !== 'number' || typeof exif.lon !== 'number') throw new Error('Не удалось извлечь координаты из EXIF');
+                await locate(exif.lat, exif.lon, null, true);
+            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; }
+        }
+
+        function locateByCoords() {
+            const coords = parseCoords(document.getElementById('coordSingle').value);
+            if (!coords || typeof coords.lat !== 'number' || typeof coords.lon !== 'number' || Math.abs(coords.lat) > 90 || Math.abs(coords.lon) > 180) return showError('Неверные координаты. Пример: 47.23, 39.72');
+            clearSelectedPoint();
+            document.getElementById('resultsFrame').style.display = 'block';
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            locate(coords.lat, coords.lon, null, true);
+        }
+
+        async function locate(lat, lon, marker = null, isPhotoOrManual = false) {
+            try {
+                const radius = parseInt(document.getElementById('radius').value) || 2000;
+                const excludeMinor = document.getElementById('excludeMinor').checked;
+                const excludeCategories = excludeMinor ? [6] : [];
+                const res = await fetch('/api/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: parseFloat(lat), lon: parseFloat(lon), radius: radius, exclude_categories: excludeCategories }) });
+                if (!res.ok) throw new Error(`Ошибка сервера ${res.status}`);
+                const data = await res.json();
+                document.getElementById('loader').style.display = 'none';
+                const resultsHTML = renderResultsHTML(data);
+                if (marker) { marker.setPopupContent(resultsHTML).openPopup(); }
+                else if (isPhotoOrManual) {
+                    if (photoMarker) map.removeLayer(photoMarker);
+                    photoMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'custom-photo-marker', html: '<div style="background-color: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map).bindPopup(resultsHTML).openPopup();
+                    map.setView([lat, lon], 15);
+                }
+                document.getElementById('results').innerHTML = resultsHTML;
+                if (data.road && data.side && !data.side.error) {
+                    if (roadLine) map.removeLayer(roadLine);
+                    roadLine = L.polyline([[lat, lon], [data.side.projected_lat, data.side.projected_lon]], { color: '#dc3545', weight: 2, dashArray: '5, 5' }).addTo(map);
+                }
+            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; if (marker) marker.setPopupContent('❌ Ошибка загрузки данных'); }
+        }
+
+        loadScreenshotSettings();
+    </script>
+</body>
+</html>
