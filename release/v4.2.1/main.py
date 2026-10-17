@@ -30,7 +30,7 @@ OLLAMA_TIMEOUT = 20.0
 _llm_cache: dict[str, str | None] = {}
 
 # --- ЯНДЕКС ГЕОКОДЕР ---
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "440cc39f-a2e1-4562-8c52-6d1c406ca018")
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 
 FEDERAL_ROADS = {
     "М-4": {"skdf_name": "М-4 «Дон»", "full_name": "М-4 «Дон» Москва - Воронеж - Ростов-на-Дону - Краснодар - Новороссийск"},

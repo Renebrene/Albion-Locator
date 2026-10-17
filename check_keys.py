@@ -1,14 +1,10 @@
-import httpx
 import asyncio
+import os
 
-# Вставьте ваши ключи сюда
-API_KEYS = [
-    "1991c890-cb4c-42e4-86be-f81348013342",
-    "892d3b65-eb5c-4c57-92d8-666266f880fa",
-    "440cc39f-a2e1-4562-8c52-6d1c406ca018",
-    "d69ffe17-b984-45d3-b435-f06bdb8853f6"
-    # ... добавьте остальные
-]
+import httpx
+
+# Optional: set YANDEX_API_KEY in the environment; never store credentials here.
+API_KEYS = [key for key in [os.getenv("YANDEX_API_KEY")] if key]
 
 async def check_key(client, key):
     url = "https://geocode-maps.yandex.ru/1.x/"
@@ -33,11 +29,13 @@ async def check_key(client, key):
         return f"🔥 Сетевая ошибка: {e}"
 
 async def main():
-    print("🔍 Проверка ключей Яндекс.Геокодера...\n")
+    if not API_KEYS:
+        print("YANDEX_API_KEY is not set; no key was checked.")
+        return
+    print("🔍 Проверка ключа Яндекс.Геокодера...\n")
     async with httpx.AsyncClient() as client:
-        for i, key in enumerate(API_KEYS, 1):
-            result = await check_key(client, key)
-            print(f"[{i}] {key[:10]}...{key[-6:]} -> {result}")
+        result = await check_key(client, API_KEYS[0])
+        print(result)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -341,6 +341,24 @@
         .road-tooltip::before {
             content: '📍 ';
         }
+    
+        .batch-drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 10px;
+        }
+        .batch-drop-zone:hover, .batch-drop-zone.hover {
+            border-color: var(--accent);
+            background: rgba(26, 58, 92, 0.05);
+        }
+    
+        .batch-item { cursor: pointer; transition: background 0.2s; padding: 6px 8px; border-radius: 4px; }
+        .batch-item:hover { background: rgba(26, 58, 92, 0.08); }
+        .batch-item.active { background: rgba(26, 58, 92, 0.15); border-left: 3px solid var(--accent); }
     </style>
 </head>
 <body>
@@ -355,9 +373,9 @@
             <div>
 <div>
     <button class="region-btn" onclick="goToRostov()">📍 Ростовская область</button>
-    <button class="region-btn geo-btn" onclick="goToMyLocation()">📡 Моё место</button>
+    
     <button class="region-btn help-btn" onclick="toggleHelpFrame()">❓ Справка</button>
-    <button class="region-btn batch-btn" onclick="openBatchPanel()">📦 Пакет</button>
+    <button class="btn" onclick="openBatchPanel()" style="background:#dc3545; color:white; border-color:#dc3545;">📦 Пакетная загрузка</button>
 </div>
             </div>
             
@@ -537,7 +555,7 @@
                 </div>
                 <div class="settings-row">
                     <label>Каталог на сервере:</label>
-                    <input type="text" id="serverPath" placeholder="screenshots" value="screenshots">
+                    <input type="text" id="serverPath" placeholder="screenshots" value="screenshots" readonly aria-label="Папка сохранения на сервере">
                 </div>
                 <div class="settings-row">
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
@@ -582,7 +600,7 @@
         setTimeout(() => map.invalidateSize(), 100);
         
         let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
-        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: false };
+        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: true };
         let pointHistory = [];
         let bookmarks = [];
 
@@ -663,13 +681,27 @@
         }
         function renderHistory() {
             const list = document.getElementById('historyList');
-            if (pointHistory.length === 0) { list.innerHTML = '<div class="history-empty">История пуста</div>'; return; }
-            list.innerHTML = pointHistory.map((h, i) => `
-                <div class="history-item" onclick="goToHistoryPoint(${i})">
-                    <span class="coords">${h.lat}, ${h.lon}</span>
-                    <span class="time">${h.time}</span>
-                </div>
-            `).join('');
+            if (pointHistory.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'history-empty';
+                empty.textContent = 'История пуста';
+                list.replaceChildren(empty);
+                return;
+            }
+            const items = pointHistory.map((point, index) => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.addEventListener('click', () => goToHistoryPoint(index));
+                const coords = document.createElement('span');
+                coords.className = 'coords';
+                coords.textContent = `${Number(point.lat)}, ${Number(point.lon)}`;
+                const time = document.createElement('span');
+                time.className = 'time';
+                time.textContent = String(point.time || '');
+                item.append(coords, time);
+                return item;
+            });
+            list.replaceChildren(...items);
         }
         function goToHistoryPoint(index) {
             const h = pointHistory[index];
@@ -701,16 +733,35 @@
             const list = document.getElementById('bookmarkList');
             const addBtn = document.getElementById('addBookmarkBtn');
             addBtn.disabled = !redPointMarker;
-            if (bookmarks.length === 0) { list.innerHTML = '<div class="bookmark-empty">Нет закладок</div>'; return; }
-            list.innerHTML = bookmarks.map(b => `
-                <div class="bookmark-item">
-                    <div class="bookmark-info" onclick="goToBookmark('${b.id}')">
-                        <div class="bookmark-name">⭐ ${escapeHtml(b.name)}</div>
-                        <div class="bookmark-meta">${b.lat.toFixed(4)}, ${b.lon.toFixed(4)} · ${b.created_at}</div>
-                    </div>
-                    <button class="bookmark-delete" onclick="deleteBookmark('${b.id}')" title="Удалить">×</button>
-                </div>
-            `).join('');
+            if (bookmarks.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'bookmark-empty';
+                empty.textContent = 'Нет закладок';
+                list.replaceChildren(empty);
+                return;
+            }
+            const items = bookmarks.map(b => {
+                const item = document.createElement('div');
+                item.className = 'bookmark-item';
+                const info = document.createElement('div');
+                info.className = 'bookmark-info';
+                info.addEventListener('click', () => goToBookmark(b.id));
+                const name = document.createElement('div');
+                name.className = 'bookmark-name';
+                name.textContent = `⭐ ${b.name}`;
+                const meta = document.createElement('div');
+                meta.className = 'bookmark-meta';
+                meta.textContent = `${Number(b.lat).toFixed(4)}, ${Number(b.lon).toFixed(4)} · ${b.created_at || ''}`;
+                info.append(name, meta);
+                const remove = document.createElement('button');
+                remove.className = 'bookmark-delete';
+                remove.title = 'Удалить';
+                remove.textContent = '×';
+                remove.addEventListener('click', () => deleteBookmark(b.id));
+                item.append(info, remove);
+                return item;
+            });
+            list.replaceChildren(...items);
         }
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -758,25 +809,30 @@
         }
 
 // === ГРАНИЦЫ РО (с переключателем) ===
+async function loadLocalRostovBoundary() {
+    try {
+        const response = await fetch('/static/rostov_boundary.geojson');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        drawBoundaryFromGeoJSON(data);
+        const checkbox = document.getElementById('localBoundaryCheckbox');
+        if (checkbox) checkbox.checked = true;
+        screenshotSettings.localBoundary = true;
+        console.log("✅ Локальный контур РО отрисован");
+        updateFolderStatus("🗺️ Локальный контур");
+        return true;
+    } catch (error) {
+        console.error("❌ Ошибка локального контура:", error);
+        showToast('⚠️ Локальный файл не найден, переключите на Overpass', 'error', 5000);
+        return false;
+    }
+}
+
 async function loadRostovBoundary() {
-    const useLocal = document.getElementById('localBoundaryCheckbox').checked;
-    
-    if (useLocal) {
-        // === ЛОКАЛЬНЫЙ ФАЙЛ ===
-        try {
-            const response = await fetch('/static/rostov_boundary.geojson');
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
-            const data = await response.json();
-            drawBoundaryFromGeoJSON(data);
-            console.log("✅ Локальный контур РО отрисован");
-            updateFolderStatus("🗺️ Локальный контур");
-        } catch (error) {
-            console.error("❌ Ошибка локального контура:", error);
-            showToast('⚠️ Локальный файл не найден, переключите на Overpass', 'error', 5000);
-        }
-    } else {
-        // === OVERPASS API ===
+    // Приоритет — скачанный локальный GeoJSON; Overpass только как резерв.
+    const localOk = await loadLocalRostovBoundary();
+    if (!localOk) {
         await loadRostovBoundaryOverpass();
     }
 }
@@ -804,7 +860,7 @@ async function loadRostovBoundaryOverpass() {
         const relation = data.elements[0];
         const coordinates = relation.members
             .filter(m => m.type === 'way' && m.geometry)
-            .flatMap(m => m.geometry.map(g => [g.lat, g.lon]));
+            .flatMap(m => m.geometry.map(g => [g.lon, g.lat]));
         
         if (coordinates.length === 0) {
             throw new Error("Не удалось извлечь координаты");
@@ -826,69 +882,87 @@ async function loadRostovBoundaryOverpass() {
         drawBoundaryFromGeoJSON(geoJSON);
         console.log(`✅ Контур РО через Overpass (${coordinates.length} точек)`);
         updateFolderStatus("🌐 Overpass API");
-        
+        return true;
     } catch (error) {
         console.warn("⚠️ Overpass недоступен:", error.message);
-        showToast('⚠️ Overpass API недоступен. Переключите на локальный контур.', 'error', 5000);
+        return false;
     }
 }
 
 // === УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ОТРИСОВКИ ГРАНИЦЫ ===
+let boundaryMaskLayer = null;
+let boundaryLineLayer = null;
+
 function drawBoundaryFromGeoJSON(data) {
     const maskFeatures = [], borderFeatures = [];
-    
-    for (const feature of data.features) {
+    // L.geoJSON ожидает координаты GeoJSON в порядке [lng, lat].
+    const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
+    const features = data.type === 'FeatureCollection'
+        ? (data.features || [])
+        : data.type === 'Feature'
+            ? [data]
+            : data.type
+                ? [{ type: 'Feature', geometry: data, properties: {} }]
+                : [];
+
+    for (const feature of features) {
         const geom = feature.geometry;
-        
+        if (!geom) continue;
+
         if (geom.type === 'Polygon') {
-            // Внешний прямоугольник во весь мир
-            const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
-            // Дырка в форме области (инвертируем направление обхода)
-            const holeRing = [...geom.coordinates[0]].reverse().map(c => [c[1], c[0]]);
-            
-            maskFeatures.push({ 
-                type: "Feature", 
-                geometry: { type: "Polygon", coordinates: [worldRing, holeRing] }, 
-                properties: {} 
+            const holeRing = [...geom.coordinates[0]].reverse();
+
+            maskFeatures.push({
+                type: "Feature",
+                geometry: { type: "Polygon", coordinates: [worldRing, holeRing] },
+                properties: {}
             });
-            
-            borderFeatures.push({ 
-                type: "Feature", 
-                geometry: { type: "LineString", coordinates: geom.coordinates[0].map(c => [c[1], c[0]]) }, 
-                properties: {} 
+
+            borderFeatures.push({
+                type: "Feature",
+                geometry: { type: "LineString", coordinates: geom.coordinates[0] },
+                properties: {}
             });
-            
         } else if (geom.type === 'MultiPolygon') {
-            // Для областей с несколькими полигонами (острова, анклавы)
             for (const polygon of geom.coordinates) {
-                const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
-                const holeRing = [...polygon[0]].reverse().map(c => [c[1], c[0]]);
-                
-                maskFeatures.push({ 
-                    type: "Feature", 
-                    geometry: { type: "Polygon", coordinates: [worldRing, holeRing] }, 
-                    properties: {} 
+                const holeRing = [...polygon[0]].reverse();
+
+                maskFeatures.push({
+                    type: "Feature",
+                    geometry: { type: "Polygon", coordinates: [worldRing, holeRing] },
+                    properties: {}
                 });
-                
-                borderFeatures.push({ 
-                    type: "Feature", 
-                    geometry: { type: "LineString", coordinates: polygon[0].map(c => [c[1], c[0]]) }, 
-                    properties: {} 
+
+                borderFeatures.push({
+                    type: "Feature",
+                    geometry: { type: "LineString", coordinates: polygon[0] },
+                    properties: {}
                 });
             }
         }
     }
-    
+
+    if (boundaryMaskLayer) map.removeLayer(boundaryMaskLayer);
+    if (boundaryLineLayer) map.removeLayer(boundaryLineLayer);
+
     // Рисуем маску (затемнение за пределами области)
-    L.geoJSON({ type: "FeatureCollection", features: maskFeatures }, { 
-        style: { color: 'transparent', fillColor: '#000000', fillOpacity: 0.6, interactive: false }, 
-        pane: 'overlayPane' 
+    boundaryMaskLayer = L.geoJSON({ type: "FeatureCollection", features: maskFeatures }, {
+        style: {
+            color: 'transparent',
+            fillColor: '#2f383f',
+            fillOpacity: 0.82,
+            fillRule: 'evenodd',
+            interactive: false
+        },
+        interactive: false,
+        pane: 'overlayPane'
     }).addTo(map);
-    
+
     // Рисуем белую границу
-    L.geoJSON({ type: "FeatureCollection", features: borderFeatures }, { 
-        style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false }, 
-        pane: 'overlayPane' 
+    boundaryLineLayer = L.geoJSON({ type: "FeatureCollection", features: borderFeatures }, {
+        style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false },
+        interactive: false,
+        pane: 'overlayPane'
     }).addTo(map);
 }
 
@@ -907,9 +981,9 @@ function drawBoundaryFromGeoJSON(data) {
                 if (response.ok) {
                     const data = await response.json();
                     screenshotSettings.delay = data.delay || 3;
-                    screenshotSettings.savePath = data.save_path || 'screenshots';
+                    screenshotSettings.savePath = 'screenshots';
                     screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
-                    screenshotSettings.localBoundary = data.local_boundary || false;
+                    screenshotSettings.localBoundary = data.local_boundary !== false;
                     document.getElementById('settingDelay').value = screenshotSettings.delay;
                     document.getElementById('serverPath').value = screenshotSettings.savePath;
                     document.getElementById('autoScreenshotCheckbox').checked = screenshotSettings.autoScreenshotEnabled;
@@ -926,7 +1000,7 @@ function drawBoundaryFromGeoJSON(data) {
         async function saveScreenshotSettings() {
             const delay = parseInt(document.getElementById('settingDelay').value);
             if (isNaN(delay) || delay < 1 || delay > 30) { showToast('Задержка: 1-30 сек', 'error'); return; }
-            const savePath = document.getElementById('serverPath').value.trim() || 'screenshots';
+            const savePath = 'screenshots';
             const autoEnabled = document.getElementById('autoScreenshotCheckbox').checked;
             const localBoundary = document.getElementById('localBoundaryCheckbox').checked;
             screenshotSettings.delay = delay;
@@ -1184,7 +1258,7 @@ function drawBoundaryFromGeoJSON(data) {
         }
         
         function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
-        function showError(msg) { const c = document.getElementById('errorContainer'); c.innerHTML = `<div class="error-msg">⚠️ ${msg}</div>`; setTimeout(() => { c.innerHTML = ''; }, 5000); }
+        function showError(msg) { const c = document.getElementById('errorContainer'); const box = document.createElement('div'); box.className = 'error-msg'; box.textContent = `⚠️ ${msg}`; c.replaceChildren(box); setTimeout(() => { c.replaceChildren(); }, 5000); }
         function handleEnter(event) { if (event.key === 'Enter') { event.preventDefault(); locateByCoords(); } }
 
         function getSafeFilename() {
@@ -1209,9 +1283,9 @@ function drawBoundaryFromGeoJSON(data) {
                 copyText = `${road.full_name}, ${kmText}, ${sideText}`;
                 html += `<div class="result-card">
                     <p class="no-select">Из СКДФ:</p>
-                    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; padding: 6px; background: var(--bg-muted); border-radius: 4px;">${road.skdf_name}</p>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; padding: 6px; background: var(--bg-muted); border-radius: 4px;">${escapeHtml(road.skdf_name)}</p>
                     <p class="no-select">Из справочника:</p>
-                    <p style="font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 10px; line-height: 1.4; word-wrap: break-word;">${road.full_name}</p>
+                    <p style="font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 10px; line-height: 1.4; word-wrap: break-word;">${escapeHtml(road.full_name)}</p>
                     <p style="font-size: 13px; color: var(--text-main); margin-bottom: 8px;">${kmText}</p>
                     <p style="font-size: 13px; color: var(--text-main); margin-bottom: 8px;">${sideText}</p>
                     <p class="no-select" style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px;">${side.perpendicular_m} м до оси дороги</p>
@@ -1435,18 +1509,17 @@ function clearSelectedPoint() {
                 roadTooltip = null;
             }
             
-            if (!road || !road.geometry || !road.geometry.coordinates || road.geometry.coordinates.length < 2) {
-                return; // Нет геометрии для отрисовки
-            }
-            
-            const coords = road.geometry.coordinates;
+            if (!road || !road.geometry || !road.geometry.coordinates) return;
+            const geometry = road.geometry;
+            const lineCoords = geometry.type === 'LineString' ? [geometry.coordinates]
+                : geometry.type === 'MultiLineString' ? geometry.coordinates : [];
+            const validLines = lineCoords.filter(line => Array.isArray(line) && line.length >= 2);
+            if (validLines.length === 0) return;
             const startKm = road.start_km || 0;
             const finishKm = road.finish_km || 0;
-            
-            // Конвертируем координаты из [lon, lat] в [lat, lon] для Leaflet
-            const latlngs = coords.map(c => [c[1], c[0]]);
-            
-            // Рисуем линию дороги (тонкая, полупрозрачная)
+            const latlngs = geometry.type === 'LineString'
+                ? validLines[0].map(c => [c[1], c[0]])
+                : validLines.map(line => line.map(c => [c[1], c[0]]));
             roadVectorLine = L.polyline(latlngs, {
                 color: '#1a3a5c',
                 weight: 4,
@@ -1489,59 +1562,34 @@ function clearSelectedPoint() {
             });
         }
 
-        function interpolateKm(latlng, latlngs, startKm, finishKm) {
-            if (!latlngs || latlngs.length < 2 || (startKm === 0 && finishKm === 0)) {
-                return null;
-            }
-            
-            // Находим ближайший сегмент линии
-            let minDist = Infinity;
-            let bestSegment = 0;
-            let bestT = 0;
-            
-            for (let i = 0; i < latlngs.length - 1; i++) {
-                const p1 = latlngs[i];
-                const p2 = latlngs[i + 1];
-                
-                // Проекция точки на сегмент
-                const dx = p2[1] - p1[1];
-                const dy = p2[0] - p1[0];
-                const lenSq = dx * dx + dy * dy;
-                
-                if (lenSq === 0) continue;
-                
-                let t = ((latlng.lng - p1[1]) * dx + (latlng.lat - p1[0]) * dy) / lenSq;
-                t = Math.max(0, Math.min(1, t));
-                
-                const projLat = p1[0] + t * dy;
-                const projLng = p1[1] + t * dx;
-                
-                const dist = Math.sqrt(
-                    Math.pow(latlng.lat - projLat, 2) + 
-                    Math.pow(latlng.lng - projLng, 2)
-                );
-                
-                if (dist < minDist) {
-                    minDist = dist;
-                    bestSegment = i;
-                    bestT = t;
+        function interpolateKm(latlng, lines, startKm, finishKm) {
+            if (!Array.isArray(lines) || (startKm === 0 && finishKm === 0)) return null;
+            if (lines.length && typeof lines[0][0] === 'number') lines = [lines];
+            let minDist = Infinity, bestDistance = 0, totalLength = 0;
+            const segments = [];
+            for (const line of lines) {
+                if (!Array.isArray(line) || line.length < 2) continue;
+                for (let i = 0; i < line.length - 1; i++) {
+                    const p1 = line[i], p2 = line[i + 1];
+                    const dx = p2[1] - p1[1], dy = p2[0] - p1[0];
+                    const length = Math.hypot(dx, dy), lengthSq = dx * dx + dy * dy;
+                    if (!lengthSq) continue;
+                    let t = ((latlng.lng - p1[1]) * dx + (latlng.lat - p1[0]) * dy) / lengthSq;
+                    t = Math.max(0, Math.min(1, t));
+                    const projLat = p1[0] + t * dy, projLng = p1[1] + t * dx;
+                    const dist = Math.hypot(latlng.lat - projLat, latlng.lng - projLng);
+                    const cumulative = totalLength;
+                    segments.push({dist, length, progress: cumulative + length * t});
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestDistance = totalLength + length * t;
+                    }
+                    totalLength += length;
                 }
             }
-            
-            // Интерполируем километраж
-            if (finishKm > startKm) {
-                // Нормальное направление: start_km < finish_km
-                const totalSegments = latlngs.length - 1;
-                const segmentProgress = (bestSegment + bestT) / totalSegments;
-                return startKm + (finishKm - startKm) * segmentProgress;
-            } else if (startKm > finishKm) {
-                // Обратное направление: start_km > finish_km
-                const totalSegments = latlngs.length - 1;
-                const segmentProgress = (bestSegment + bestT) / totalSegments;
-                return startKm - (startKm - finishKm) * segmentProgress;
-            }
-            
-            return null;
+            if (!segments.length || !totalLength) return null;
+            const fraction = bestDistance / totalLength;
+            return startKm + (finishKm - startKm) * fraction;
         }
 
         // === ИНИЦИАЛИЗАЦИЯ ===
@@ -1549,7 +1597,7 @@ function clearSelectedPoint() {
         loadHistory();
         loadBookmarks();
         // === ПАКЕТНАЯ ОБРАБОТКА ===
-let batchLayerGroup = L.layerGroup().addTo(map);
+let batchLayerGroup = L.featureGroup().addTo(map);
 
 function openBatchPanel() {
     document.getElementById('batch-panel').classList.add('open');
@@ -1563,9 +1611,13 @@ function closeBatchPanel() {
 
 function clearBatchPoints() {
     batchLayerGroup.clearLayers();
+    window.batchPendingPoints = [];
+    document.querySelectorAll('.batch-item.active').forEach(el => el.classList.remove('active'));
     document.getElementById('batchList').innerHTML = '';
     document.getElementById('batchStatus').textContent = '';
     document.getElementById('batchFileInput').value = '';
+    const showBtn = document.getElementById('batchShowBtn');
+    if (showBtn) showBtn.style.display = 'none';
     showToast('🗑 Пакетные точки очищены', 'success');
 }
 
@@ -1575,8 +1627,9 @@ async function handleBatchFiles(input) {
 
     const status = document.getElementById('batchStatus');
     const list = document.getElementById('batchList');
-    status.innerHTML = `<span style="color:var(--text-muted)">⏳ Загрузка ${files.length} файлов...</span>`;
-    list.innerHTML = '';
+    status.textContent = `⏳ Загрузка ${files.length} файлов...`;
+    list.replaceChildren();
+    batchLayerGroup.clearLayers();
 
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
@@ -1588,13 +1641,10 @@ async function handleBatchFiles(input) {
         if (!res.ok) throw new Error('Ошибка сервера');
         const data = await res.json();
 
-        // Очищаем старые точки перед добавлением новых
-        batchLayerGroup.clearLayers();
-        list.innerHTML = '';
-        
+        // Сохраняем валидные точки для последующего отображения
+        window.batchPendingPoints = [];
         let successCount = 0;
         let errorCount = 0;
-        const validPoints = [];
 
         data.forEach(item => {
             const row = document.createElement('div');
@@ -1602,53 +1652,134 @@ async function handleBatchFiles(input) {
             
             if (item.error) {
                 errorCount++;
-                row.innerHTML = `<span class="batch-filename" title="${item.filename}">❌ ${item.filename}</span><span class="batch-status-err">${item.error}</span>`;
+                const fileName = document.createElement('span');
+                fileName.className = 'batch-filename';
+                fileName.title = item.filename || '';
+                fileName.textContent = `❌ ${item.filename || 'Файл'}`;
+                const errorText = document.createElement('span');
+                errorText.className = 'batch-status-err';
+                errorText.textContent = item.error || 'Ошибка обработки';
+                row.append(fileName, errorText);
             } else {
                 successCount++;
-                validPoints.push(item);
-                row.innerHTML = `<span class="batch-filename" title="${item.filename}">✅ ${item.filename}</span><span class="batch-status-ok">${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}</span>`;
-                
-                // Создаём маркер без автоматического открытия popup
-                const marker = L.circleMarker([item.lat, item.lon], {
-                    radius: 7, fillColor: "#17a2b8", color: "#ffffff", weight: 2, fillOpacity: 0.9
-                });
-                
-                // Контент popup: имя, координаты и кнопка поиска дороги
-                const popupContent = `
-                    <div style="min-width: 220px;">
-                        <b style="font-size:13px;">📷 ${item.filename}</b><br>
-                        <span style="font-size:11px; color:#666;">${item.lat.toFixed(6)}, ${item.lon.toFixed(6)}</span><br>
-                        <button class="batch-popup-btn" onclick="findRoadForBatchPoint(${item.lat}, ${item.lon}, this)">🔍 Найти дорогу</button>
-                        <div class="batch-road-info" style="display:none;"></div>
-                    </div>
-                `;
-                marker.bindPopup(popupContent);
-                batchLayerGroup.addLayer(marker);
+                window.batchPendingPoints.push(item);
+                row.dataset.lat = item.lat;
+                row.dataset.lon = item.lon;
+                row.dataset.filename = item.filename;
+                row.onclick = function() { selectBatchPoint(this, item.lat, item.lon); };
+                const fileName = document.createElement('span');
+                fileName.className = 'batch-filename';
+                fileName.title = item.filename || '';
+                fileName.textContent = `✅ ${item.filename || 'Файл'}`;
+                const coordinates = document.createElement('span');
+                coordinates.className = 'batch-status-ok';
+                coordinates.textContent = `${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}`;
+                row.append(fileName, coordinates);
             }
             list.appendChild(row);
         });
 
-        status.innerHTML = `<span style="color:var(--success)">✅ Успешно: ${successCount}</span> | <span style="color:var(--danger)">❌ Ошибок: ${errorCount}</span>`;
+        status.textContent = `✅ Успешно: ${successCount} | ❌ Ошибок: ${errorCount}`;
         
-        // Подгоняем карту под все точки, если они есть
-        if (validPoints.length > 0) {
-            const bounds = batchLayerGroup.getBounds();
-            if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
-            showToast(`📦 Загружено точек: ${successCount}`, 'success');
+        // Показываем кнопку "Отобразить на карте" только если есть валидные точки
+        const showBtn = document.getElementById('batchShowBtn');
+        if (showBtn) {
+            showBtn.style.display = successCount > 0 ? 'inline-block' : 'none';
+            showBtn.textContent = `🗺️ Отобразить ${successCount} точек`;
+        }
+        
+        if (successCount > 0) {
+            showToast(`📦 Загружено точек: ${successCount}. Нажмите «Отобразить»`, 'info');
         } else {
             showToast('⚠️ Ни в одном файле не найдены GPS-координаты', 'error');
         }
 
     } catch (e) {
         console.error(e);
-        status.innerHTML = `<span style="color:var(--danger)">❌ Ошибка: ${e.message}</span>`;
+        status.textContent = `❌ Ошибка: ${e.message}`;
     }
+}
+
+
+
+function selectBatchPoint(element, lat, lon) {
+    // Убираем подсветку со всех элементов
+    document.querySelectorAll('.batch-item.active').forEach(el => el.classList.remove('active'));
+    
+    // Подсвечиваем текущий
+    element.classList.add('active');
+    
+    // Центрируем карту на точке
+    map.setView([lat, lon], 16);
+    
+    // Находим маркер на карте и открываем его popup
+    let found = false;
+    batchLayerGroup.eachLayer(function(layer) {
+        if (layer.getLatLng && 
+            Math.abs(layer.getLatLng().lat - lat) < 0.0001 && 
+            Math.abs(layer.getLatLng().lng - lon) < 0.0001) {
+            layer.openPopup();
+            found = true;
+        }
+    });
+    
+    if (!found) {
+        showToast(`📍 ${element.dataset.filename}: ${lat.toFixed(6)}, ${lon.toFixed(6)}`, 'info');
+    }
+}
+
+function showBatchPointsOnMap() {
+    const points = window.batchPendingPoints;
+    if (!points || points.length === 0) {
+        showToast('Нет точек для отображения', 'error');
+        return;
+    }
+
+    // Исправление 4: Очищаем СТАРЫЕ точки перед добавлением новых
+    batchLayerGroup.clearLayers();
+    
+    const list = document.getElementById('batchList');
+    
+    points.forEach(item => {
+        const marker = L.circleMarker([item.lat, item.lon], {
+            radius: 7, fillColor: "#17a2b8", color: "#ffffff", weight: 2, fillOpacity: 0.9
+        });
+        
+        const popupContent = document.createElement('div');
+        popupContent.style.minWidth = '220px';
+        const title = document.createElement('b');
+        title.style.fontSize = '13px';
+        title.textContent = `📷 ${item.filename || 'Файл'}`;
+        const coords = document.createElement('span');
+        coords.style.cssText = 'font-size:11px;color:#666';
+        coords.textContent = `${item.lat.toFixed(6)}, ${item.lon.toFixed(6)}`;
+        const searchButton = document.createElement('button');
+        searchButton.className = 'batch-popup-btn';
+        searchButton.textContent = '🔍 Найти дорогу';
+        searchButton.addEventListener('click', () => findRoadForBatchPoint(item.lat, item.lon, searchButton));
+        const info = document.createElement('div');
+        info.className = 'batch-road-info';
+        info.style.display = 'none';
+        popupContent.append(title, document.createElement('br'), coords, document.createElement('br'), searchButton, info);
+        marker.bindPopup(popupContent);
+        batchLayerGroup.addLayer(marker);
+    });
+
+    // Подгоняем карту под все точки
+    const bounds = batchLayerGroup.getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+    
+    showToast(`🗺️ Отображено точек: ${points.length}`, 'success');
+    
+    // Скрываем кнопку после отображения
+    const showBtn = document.getElementById('batchShowBtn');
+    if (showBtn) showBtn.style.display = 'none';
 }
 
 async function findRoadForBatchPoint(lat, lon, btn) {
     btn.disabled = true;
     btn.textContent = '⏳ Поиск...';
-    const infoDiv = btn.nextElementSibling;
+    const infoDiv = btn.parentElement.querySelector('.batch-road-info');
     
     try {
         const radius = parseInt(document.getElementById('radius').value) || 2000;
@@ -1666,21 +1797,20 @@ async function findRoadForBatchPoint(lat, lon, btn) {
         
         if (data.road && data.side && !data.side.error) {
             const sideText = data.side.side === 1 ? 'справа по ходу движения' : (data.side.side === -1 ? 'слева по ходу движения' : 'на оси дороги');
-            infoDiv.innerHTML = `
-                <b>${data.road.full_name}</b><br>
-                ${formatKm(data.side.km_estimate)}<br>
-                ${sideText}<br>
-                <span style="color:var(--text-subtle); font-size:11px;">${data.side.perpendicular_m} м до оси</span>
-            `;
+            const roadName = document.createElement('b');
+            roadName.textContent = data.road.full_name || 'Дорога';
+            const details = document.createElement('span');
+            details.textContent = `${formatKm(data.side.km_estimate)} · ${sideText} · ${data.side.perpendicular_m} м до оси`;
+            infoDiv.replaceChildren(roadName, document.createElement('br'), details);
             infoDiv.style.display = 'block';
             btn.style.display = 'none';
         } else {
-            infoDiv.innerHTML = `<span style="color:var(--warning)">⚠️ Дорога не найдена в радиусе поиска</span>`;
+            infoDiv.textContent = '⚠️ Дорога не найдена в радиусе поиска';
             infoDiv.style.display = 'block';
             btn.style.display = 'none';
         }
     } catch (e) {
-        infoDiv.innerHTML = `<span style="color:var(--danger)">❌ Ошибка поиска</span>`;
+        infoDiv.textContent = '❌ Ошибка поиска';
         infoDiv.style.display = 'block';
         btn.disabled = false;
         btn.textContent = '🔄 Повторить';
@@ -1699,8 +1829,17 @@ async function findRoadForBatchPoint(lat, lon, btn) {
             Выберите несколько фото для извлечения GPS-точек. Точки появятся на карте без всплывающих окон.
         </p>
         
+        <div id="batchDropZone" class="batch-drop-zone" 
+             ondragover="event.preventDefault(); this.classList.add('hover');"
+             ondragleave="this.classList.remove('hover');"
+             ondrop="event.preventDefault(); this.classList.remove('hover'); if(event.dataTransfer.files.length > 0) handleBatchFiles({files: event.dataTransfer.files});">
+            <p style="margin:0; font-size:13px; color:var(--text-muted);">📂 Перетащите фото сюда или нажмите кнопку ниже</p>
+        </div>
         <input type="file" id="batchFileInput" multiple accept="image/*" style="display: none" onchange="handleBatchFiles(this)">
-        <button class="btn" onclick="document.getElementById('batchFileInput').click()">📂 Выбрать файлы</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn" onclick="document.getElementById('batchFileInput').click()">📂 Выбрать файлы</button>
+            <button class="btn" id="batchShowBtn" onclick="showBatchPointsOnMap()" style="display:none; background:var(--accent); color:white;">🗺️ Отобразить точки</button>
+        </div>
         
         <div id="batchStatus" class="hint" style="margin-top:15px;"></div>
         <div class="batch-list" id="batchList"></div>
