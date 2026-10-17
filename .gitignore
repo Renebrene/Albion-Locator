@@ -10,6 +10,9 @@ env/
 # Личные данные и генерируемые файлы
 user_settings.json
 bookmarks.json
+users.db
+users.db-wal
+users.db-shm
 screenshots/
 *.log
 backups/

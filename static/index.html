@@ -359,9 +359,101 @@
         .batch-item { cursor: pointer; transition: background 0.2s; padding: 6px 8px; border-radius: 4px; }
         .batch-item:hover { background: rgba(26, 58, 92, 0.08); }
         .batch-item.active { background: rgba(26, 58, 92, 0.15); border-left: 3px solid var(--accent); }
+
+        /* === АВТОРИЗАЦИЯ === */
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: #f3f4f6;
+        }
+        .auth-overlay.visible { display: flex; }
+        .auth-card {
+            width: min(420px, 100%);
+            padding: 36px;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+        }
+        .auth-card h2 {
+            margin: 0 0 24px;
+            text-align: center;
+            font-size: 24px;
+            color: #1e3a8a;
+        }
+        .auth-field {
+            width: 100%;
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #eff6ff;
+            color: #0f172a;
+            font-size: 15px;
+            box-sizing: border-box;
+        }
+        .auth-field:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+        .auth-submit {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: #2563eb;
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .auth-submit:disabled { opacity: .6; cursor: default; }
+        .auth-error {
+            min-height: 20px;
+            margin: 4px 0 8px;
+            color: #dc2626;
+            font-size: 13px;
+            text-align: center;
+        }
+        .auth-hint { margin-top: 12px; color: #64748b; font-size: 12px; text-align: center; }
+        .users-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+        .user-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-muted);
+            font-size: 12px;
+        }
+        .user-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+        .user-row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+        .user-row-actions button {
+            padding: 4px 8px;
+            border: 1px solid var(--border-strong);
+            border-radius: 4px;
+            background: var(--bg-card);
+            color: var(--text-main);
+            font-size: 11px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+    <div id="authOverlay" class="auth-overlay">
+        <form id="authForm" class="auth-card">
+            <h2>🔒 АЛЬБИОН: Вход</h2>
+            <input id="authLogin" class="auth-field" type="text" value="админ"
+                   placeholder="Логин" autocomplete="username" required>
+            <input id="authPassword" class="auth-field" type="password"
+                   placeholder="Пароль" autocomplete="current-password" required>
+            <div id="authError" class="auth-error"></div>
+            <button id="authSubmit" type="submit" class="auth-submit">Войти</button>
+            <div class="auth-hint">По умолчанию: админ / альбион</div>
+        </form>
+    </div>
     <!-- ЛЕВЫЙ ФРЕЙМ -->
     <div id="sidebar-left">
         <div class="panel-header">
@@ -582,6 +674,46 @@
                     <span>🌙 Тёмная тема</span>
                     <div class="theme-switch" id="themeSwitch" onclick="toggleTheme()"></div>
                 </div>
+            </div>
+
+            <div class="settings-block">
+                <h4>👤 Мой аккаунт</h4>
+                <div class="settings-row">
+                    <label>Текущий логин:</label>
+                    <b id="currentUserLogin">—</b>
+                </div>
+                <div class="settings-row">
+                    <input type="text" id="newOwnLogin" placeholder="Новый логин (необязательно)">
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="currentPassword" placeholder="Текущий пароль" autocomplete="current-password">
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="newOwnPassword" placeholder="Новый пароль (необязательно)" autocomplete="new-password">
+                </div>
+                <button class="btn btn-small" onclick="changeOwnCredentials()">💾 Сохранить логин/пароль</button>
+                <button class="btn btn-small btn-secondary" onclick="logoutUser()" style="margin-top: 6px;">🚪 Выйти</button>
+            </div>
+
+            <div class="settings-block" id="usersSettingsBlock" style="display: none;">
+                <h4>👥 Пользователи</h4>
+                <div class="users-list" id="usersList"></div>
+                <div class="settings-row">
+                    <input type="text" id="newUserName" placeholder="Имя">
+                </div>
+                <div class="settings-row">
+                    <input type="text" id="newUserLogin" placeholder="Логин">
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="newUserPassword" placeholder="Пароль" autocomplete="new-password">
+                </div>
+                <div class="settings-row">
+                    <select id="newUserRole" style="flex: 1; padding: 6px; border: 1px solid var(--border-strong); border-radius: 4px;">
+                        <option value="admin">Администратор</option>
+                        <option value="editor" selected>Редактор</option>
+                    </select>
+                </div>
+                <button class="btn btn-small" onclick="createUser()">➕ Создать пользователя</button>
             </div>
 
             <button class="btn btn-small" onclick="saveScreenshotSettings()">💾 Сохранить все настройки</button>
@@ -1034,6 +1166,231 @@ function drawBoundaryFromGeoJSON(data) {
             toast.textContent = message;
             toast.className = 'toast show ' + type;
             setTimeout(() => { toast.className = 'toast'; }, duration);
+        }
+
+        // === АВТОРИЗАЦИЯ И ПОЛЬЗОВАТЕЛИ ===
+        let currentUser = null;
+
+        function showAuthOverlay(message = '') {
+            document.getElementById('authOverlay').classList.add('visible');
+            document.getElementById('authError').textContent = message;
+            setTimeout(() => document.getElementById('authPassword').focus(), 50);
+        }
+
+        function hideAuthOverlay() {
+            document.getElementById('authOverlay').classList.remove('visible');
+        }
+
+        async function initApp() {
+            try {
+                const response = await fetch('/api/auth/me');
+                if (!response.ok) {
+                    showAuthOverlay(response.status === 401 ? '' : 'Сервер недоступен');
+                    return;
+                }
+                const data = await response.json();
+                currentUser = data.user;
+                hideAuthOverlay();
+                document.getElementById('currentUserLogin').textContent = currentUser.login;
+                document.getElementById('usersSettingsBlock').style.display =
+                    currentUser.role === 'admin' ? '' : 'none';
+                if (currentUser.role === 'admin') loadUsers();
+                await loadScreenshotSettings();
+                loadHistory();
+                loadBookmarks();
+            } catch (error) {
+                showAuthOverlay('Сервер недоступен');
+            }
+        }
+
+        document.getElementById('authForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const button = document.getElementById('authSubmit');
+            const errorBox = document.getElementById('authError');
+            button.disabled = true;
+            errorBox.textContent = '';
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        login: document.getElementById('authLogin').value.trim(),
+                        password: document.getElementById('authPassword').value
+                    })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Не удалось войти');
+                location.reload();
+            } catch (error) {
+                errorBox.textContent = error.message;
+                button.disabled = false;
+            }
+        });
+
+        async function changeOwnCredentials() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newLogin = document.getElementById('newOwnLogin').value.trim();
+            const newPassword = document.getElementById('newOwnPassword').value;
+            if (!currentPassword) { showToast('Укажите текущий пароль', 'error'); return; }
+            if (!newLogin && !newPassword) { showToast('Укажите новый логин или пароль', 'error'); return; }
+            try {
+                const response = await fetch('/api/auth/change-credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        login: newLogin || null,
+                        password: newPassword || null
+                    })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Не удалось сохранить');
+                currentUser = data.user;
+                document.getElementById('currentUserLogin').textContent = currentUser.login;
+                document.getElementById('newOwnLogin').value = '';
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newOwnPassword').value = '';
+                showToast('Логин/пароль обновлены', 'success');
+            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
+        }
+
+        async function logoutUser() {
+            try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (error) { /* ignore */ }
+            location.reload();
+        }
+
+        const ROLE_LABELS = { admin: 'Администратор', editor: 'Редактор' };
+
+        function renderUsers(users) {
+            const list = document.getElementById('usersList');
+            list.replaceChildren();
+            if (!users.length) {
+                const empty = document.createElement('div');
+                empty.className = 'hint';
+                empty.textContent = 'Пользователей нет';
+                list.appendChild(empty);
+                return;
+            }
+            users.forEach(user => {
+                const row = document.createElement('div');
+                row.className = 'user-row';
+
+                const head = document.createElement('div');
+                head.className = 'user-row-head';
+                const title = document.createElement('b');
+                title.textContent = `${user.login} · ${user.name}`;
+                const role = document.createElement('span');
+                role.textContent = `${ROLE_LABELS[user.role] || user.role}${user.is_active ? '' : ' · отключён'}`;
+                head.append(title, role);
+
+                const actions = document.createElement('div');
+                actions.className = 'user-row-actions';
+
+                const editButton = document.createElement('button');
+                editButton.textContent = 'Логин/имя';
+                editButton.addEventListener('click', () => editUser(user));
+                actions.appendChild(editButton);
+
+                const passwordButton = document.createElement('button');
+                passwordButton.textContent = 'Пароль';
+                passwordButton.addEventListener('click', () => resetUserPassword(user));
+                actions.appendChild(passwordButton);
+
+                const activeButton = document.createElement('button');
+                activeButton.textContent = user.is_active ? 'Отключить' : 'Включить';
+                activeButton.addEventListener('click', () => toggleUserActive(user));
+                actions.appendChild(activeButton);
+
+                row.append(head, actions);
+                list.appendChild(row);
+            });
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                if (!response.ok) return;
+                const data = await response.json();
+                renderUsers(data.users || []);
+            } catch (error) { /* ignore */ }
+        }
+
+        async function createUser() {
+            const payload = {
+                name: document.getElementById('newUserName').value.trim(),
+                login: document.getElementById('newUserLogin').value.trim(),
+                password: document.getElementById('newUserPassword').value,
+                role: document.getElementById('newUserRole').value
+            };
+            if (!payload.login || !payload.password) {
+                showToast('Укажите логин и пароль', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Ошибка создания');
+                document.getElementById('newUserName').value = '';
+                document.getElementById('newUserLogin').value = '';
+                document.getElementById('newUserPassword').value = '';
+                showToast(`Пользователь «${payload.login}» создан`, 'success');
+                await loadUsers();
+            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
+        }
+
+        async function editUser(user) {
+            const login = prompt('Логин:', user.login);
+            if (login === null) return;
+            const name = prompt('Имя:', user.name);
+            if (name === null) return;
+            const payload = {};
+            if (login.trim() && login.trim() !== user.login) payload.login = login.trim();
+            if (name.trim() && name.trim() !== user.name) payload.name = name.trim();
+            if (!Object.keys(payload).length) return;
+            try {
+                const response = await fetch(`/api/users/${user.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Ошибка сохранения');
+                showToast('Пользователь обновлён', 'success');
+                await loadUsers();
+            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
+        }
+
+        async function resetUserPassword(user) {
+            const password = prompt(`Новый пароль для «${user.login}»:`);
+            if (!password) return;
+            try {
+                const response = await fetch(`/api/users/${user.id}/password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Ошибка смены пароля');
+                showToast('Пароль обновлён', 'success');
+            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
+        }
+
+        async function toggleUserActive(user) {
+            try {
+                const response = await fetch(`/api/users/${user.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: !user.is_active })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Ошибка сохранения');
+                showToast(user.is_active ? 'Пользователь отключён' : 'Пользователь включён', 'success');
+                await loadUsers();
+            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
         }
 
         if (typeof domtoimage === 'undefined') console.error("❌ dom-to-image не загружен!");
@@ -1593,9 +1950,7 @@ function clearSelectedPoint() {
         }
 
         // === ИНИЦИАЛИЗАЦИЯ ===
-        loadScreenshotSettings();
-        loadHistory();
-        loadBookmarks();
+        initApp();
         // === ПАКЕТНАЯ ОБРАБОТКА ===
 let batchLayerGroup = L.featureGroup().addTo(map);
 

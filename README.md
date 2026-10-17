@@ -33,6 +33,14 @@
 | Метод и путь | Вход | Назначение / ответ |
 |---|---|---|
 | `GET /api/health` | — | Минимальный статус `{status: "ok"}`; **не** проверяет доступность внешних зависимостей. |
+| `POST /api/auth/login` | JSON `login`, `password` | Вход; устанавливает HttpOnly cookie `albion_session`. |
+| `POST /api/auth/logout` | cookie | Завершить сессию и очистить cookie. |
+| `GET /api/auth/me` | cookie | Текущий пользователь. |
+| `POST /api/auth/change-credentials` | JSON `current_password`, `login?`, `password?` | Сменить собственные логин/пароль. |
+| `GET /api/users` | cookie администратора | Список пользователей. |
+| `POST /api/users` | JSON `login`, `password`, `name`, `role` | Создать пользователя (`admin`/`editor`). |
+| `PATCH /api/users/{id}` | JSON `login?`, `name?`, `role?`, `is_active?` | Изменить пользователя. |
+| `POST /api/users/{id}/password` | JSON `password` | Сменить пароль пользователя. |
 | `GET /api/screenshot-settings` | — | Прочитать настройки снимков из JSON (либо значения по умолчанию); `save_path` всегда возвращается как `screenshots`. |
 | `POST /api/screenshot-settings` | JSON `delay` (0–60), `save_path`, `auto_enabled`, `local_boundary` | Изменить настройки; сервер принудительно фиксирует `save_path` в `screenshots`. |
 | `POST /api/save-screenshot` | JSON `image` (PNG data URL/base64, ≤6 МБ), `filename` (имя `.png`) | Проверить и сохранить скриншот только в `src/screenshots`; удаляет старые PNG старше 7 дней. |
@@ -46,6 +54,14 @@
 | `GET /static/rostov_boundary.geojson` | — | Единственный явно доступный статический ресурс; прочие файлы корневого `static/` не раздаются через это приложение. |
 
 Ответ `/api/locate` включает геометрию выбранной дороги для векторного отображения в интерфейсе.
+
+## Авторизация
+
+Все `/api/*`, кроме `/api/health` и `/api/auth/login`, требуют cookie-сессию. Логин по умолчанию: **`админ` / `альбион`**; после первого входа пароль рекомендуется сменить в правой панели «Мой аккаунт».
+
+Пользователи и сессии хранятся в SQLite `src/users.db` (путь можно переопределить через `ALBION_USERS_DB`). Пароли — PBKDF2-HMAC-SHA256 с солью; в базе хранятся только хэши. Cookie `albion_session` — HttpOnly, SameSite=Lax, срок 30 дней. Администратор может создавать пользователей и менять им логин, пароль, роль и активность; роль `editor` не имеет доступа к управлению пользователями.
+
+При работе через reverse proxy (например, CloudPub) Origin сверяется с `Host`/`X-Forwarded-Host`; дополнительные разрешённые источники можно перечислить через запятую в `ALBION_ALLOWED_ORIGINS`.
 
 ## Ключевые функции
 

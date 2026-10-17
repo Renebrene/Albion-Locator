@@ -15,8 +15,10 @@ import re
 import time
 import uuid
 from fractions import Fraction
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import piexif
@@ -26,6 +28,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image
 from pydantic import BaseModel, Field, FiniteFloat, field_validator
 from batch import router as batch_router
+
+import auth
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 MAX_REQUEST_BODY_BYTES = 110 * 1024 * 1024
@@ -89,6 +93,36 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
                     "type": error.get("type", "value_error")} for error in exc.errors()]
     return JSONResponse(status_code=422, content={"detail": safe_errors})
 
+def _origin_allowed(origin: bytes, headers: dict[bytes, bytes]) -> bool:
+    try:
+        origin_text = origin.decode("latin-1")
+        parsed = urlsplit(origin_text)
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+
+    host = headers.get(b"x-forwarded-host") or headers.get(b"host") or b""
+    host = host.decode("latin-1").split(",")[0].strip().lower()
+    netloc = parsed.netloc.lower()
+    if host and netloc == host:
+        return True
+    if netloc in {"127.0.0.1:8019", "localhost:8019"}:
+        return True
+
+    extra = os.getenv("ALBION_ALLOWED_ORIGINS", "")
+    for item in extra.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            if urlsplit(item).netloc.lower() == netloc:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 class RequestBodyLimitMiddleware:
     def __init__(self, app, max_body_size: int):
         self.app = app
@@ -111,8 +145,7 @@ class RequestBodyLimitMiddleware:
         origin = headers.get(b"origin")
         method = scope.get("method", "GET")
         if method in {"POST", "PUT", "PATCH", "DELETE"} and origin:
-            allowed_origins = {b"http://127.0.0.1:8019", b"http://localhost:8019"}
-            if origin.rstrip(b"/") not in allowed_origins:
+            if not _origin_allowed(origin, headers):
                 await self._send_error(send, 403, "Cross-origin request denied")
                 return
         received = 0
@@ -150,6 +183,73 @@ class RequestBodyTooLarge(Exception):
     pass
 
 app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_BYTES)
+
+# ========== АВТОРИЗАЦИЯ ==========
+PUBLIC_API_PATHS = {"/api/health", "/api/auth/login"}
+
+
+def _cookie_token(scope) -> str | None:
+    headers = {key.lower(): value for key, value in scope.get("headers", [])}
+    raw_cookie = headers.get(b"cookie")
+    if not raw_cookie:
+        return None
+    cookie = SimpleCookie()
+    try:
+        cookie.load(raw_cookie.decode("latin-1"))
+    except Exception:
+        return None
+    morsel = cookie.get(auth.SESSION_COOKIE)
+    return morsel.value if morsel else None
+
+
+async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status_code,
+        "headers": [
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+class SessionAuthMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path.startswith("/api/") and path not in PUBLIC_API_PATHS:
+            user = auth.get_user_by_token(_cookie_token(scope))
+            if user is None:
+                await _send_json(send, 401, {"detail": "Требуется авторизация"})
+                return
+            scope.setdefault("state", {})["user"] = user
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(SessionAuthMiddleware)
+
+
+def _request_user(request: Request) -> dict[str, Any]:
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(401, "Требуется авторизация")
+    return user
+
+
+def _require_admin(request: Request) -> dict[str, Any]:
+    user = _request_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Недостаточно прав")
+    return user
 
 # ========== ГЕОМЕТРИЯ ==========
 def _dms_to_dd(dms: tuple, ref: bytes) -> float:
@@ -424,6 +524,30 @@ class BookmarkCreate(BaseModel):
     lat: FiniteFloat = Field(ge=-90, le=90)
     lon: FiniteFloat = Field(ge=-180, le=180)
 
+class LoginPayload(BaseModel):
+    login: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=200)
+
+class CredentialsPayload(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    login: str | None = Field(default=None, max_length=120)
+    password: str | None = Field(default=None, max_length=200)
+
+class UserCreatePayload(BaseModel):
+    login: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=200)
+    name: str = Field(default="", max_length=120)
+    role: str = Field(default="editor", pattern="^(admin|editor)$")
+
+class UserUpdatePayload(BaseModel):
+    login: str | None = Field(default=None, max_length=120)
+    name: str | None = Field(default=None, max_length=120)
+    role: str | None = Field(default=None, pattern="^(admin|editor)$")
+    is_active: bool | None = None
+
+class UserPasswordPayload(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
 # ========== НАСТРОЙКИ ==========
 SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
 BOOKMARKS_FILE = PROJECT_DIR / "bookmarks.json"
@@ -489,6 +613,94 @@ def cleanup_old_screenshots(save_dir: Path, days: int = 7):
 # ========== ЭНДПОИНТЫ ==========
 @app.get("/api/health")
 async def health():
+    return {"status": "ok"}
+
+@app.post("/api/auth/login")
+async def auth_login(payload: LoginPayload):
+    user = auth.authenticate(payload.login, payload.password)
+    if user is None:
+        raise HTTPException(401, "Неверный логин или пароль")
+
+    token = auth.create_session(user["id"])
+    response = JSONResponse({"status": "ok", "user": user})
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        token,
+        max_age=auth.SESSION_TTL,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    auth.delete_session(_cookie_token(request.scope))
+    response = JSONResponse({"status": "ok"})
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    return {"user": _request_user(request)}
+
+@app.post("/api/auth/change-credentials")
+async def auth_change_credentials(payload: CredentialsPayload, request: Request):
+    user = _request_user(request)
+    try:
+        updated = auth.change_credentials(
+            user["id"],
+            payload.current_password,
+            payload.login,
+            payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    auth.delete_user_sessions(user["id"], keep_token=_cookie_token(request.scope))
+    return {"status": "ok", "user": updated}
+
+@app.get("/api/users")
+async def users_list(request: Request):
+    _require_admin(request)
+    return {"users": auth.list_users()}
+
+@app.post("/api/users")
+async def users_create(payload: UserCreatePayload, request: Request):
+    _require_admin(request)
+    try:
+        user = auth.create_user(payload.login, payload.password, payload.name, payload.role)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"status": "ok", "user": user}
+
+@app.patch("/api/users/{user_id}")
+async def users_update(user_id: int, payload: UserUpdatePayload, request: Request):
+    _require_admin(request)
+    try:
+        user = auth.update_user(
+            user_id,
+            login=payload.login,
+            name=payload.name,
+            role=payload.role,
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"status": "ok", "user": user}
+
+@app.post("/api/users/{user_id}/password")
+async def users_set_password(user_id: int, payload: UserPasswordPayload, request: Request):
+    current = _require_admin(request)
+    try:
+        auth.set_password(user_id, payload.password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    auth.delete_user_sessions(
+        user_id,
+        keep_token=_cookie_token(request.scope) if user_id == current["id"] else None,
+    )
     return {"status": "ok"}
 
 @app.get("/api/screenshot-settings")

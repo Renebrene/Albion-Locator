@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import main
 
 client = TestClient(main.app)
+_login = client.post("/api/auth/login", json={"login": "админ", "password": "альбион"})
+assert _login.status_code == 200, _login.text
 
 
 def test_project_linestring_projects_to_nearest_segment():
