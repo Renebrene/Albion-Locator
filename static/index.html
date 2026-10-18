@@ -758,7 +758,6 @@
                 </div>
 
                 <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
-                <div id="selectedCoords"></div>
                 <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 6px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
             </div>
 
@@ -1583,7 +1582,10 @@ function drawBoundaryFromGeoJSON(data) {
                 return;
             }
             L.DomEvent.stopPropagation(e);
-            commitPoint(e.latlng.lat, e.latlng.lng, 'click');
+            // Режим клика по карте: выводим разный результат
+            const source = searchDraft.mode === 'address' ? 'address'
+                : searchDraft.mode === 'road' ? 'road-km' : 'click';
+            commitPoint(e.latlng.lat, e.latlng.lng, source);
         });
 
         map.on('click', function() {
@@ -1876,6 +1878,12 @@ function drawBoundaryFromGeoJSON(data) {
         const searchArmCheckbox = document.getElementById('searchArmCheckbox');
         const placePointBtn = document.getElementById('placePointBtn');
         let yandexSuggestInitPromise = null;
+        function resetSuggestViews() {
+            yandexSuggestInitPromise = null;
+            yandexAddressSuggestView = null;
+            yandexRoadSuggestView = null;
+            yandexSuggestApiPromise = null;
+        }
 
         function loadYandexMapsApi(config) {
             if (window.ymaps?.SuggestView) {
@@ -1943,6 +1951,7 @@ function drawBoundaryFromGeoJSON(data) {
                                 || (typeof item.displayName === 'string' && item.displayName.trim())
                                 || modeInput1.value.trim();
                             if (!selectedText) return;
+                            if (searchDraft.mode !== 'address') return;
                             modeInput1.value = selectedText;
                             modeInput2.disabled = false;
                             modeInput2.focus();
@@ -1954,29 +1963,13 @@ function drawBoundaryFromGeoJSON(data) {
                             updatePlacePointButton();
                         });
                     }
-                    if (!yandexStreetSuggestView) {
-                        yandexStreetSuggestView = new ymaps.SuggestView(modeInput2, {
-                            boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
-                            strictBounds: true,
-                            results: 8,
-                        });
-                        yandexStreetSuggestView.events.add('select', event => {
-                            const item = event.get('item') || {};
-                            const streetText = (typeof item.value === 'string' && item.value.trim())
-                                || (typeof item.displayName === 'string' && item.displayName.trim())
-                                || modeInput2.value.trim();
-                            if (!streetText) return;
-                            modeInput2.value = streetText;
-                            resolveAddressCandidate(`${modeInput1.value}, ${streetText}`);
-                        });
-                    }
-                    setupRoadSuggestView(ymaps);
+                    // SuggestView на modeInput2 (улица/дом) убран намеренно:
+                    // Яндекс не гарантирует, что подсказка улицы за bounds даст
+                    // адрес, относящийся к выбранному городу. Пользователь вводит
+                    // улицу и дом, а «Поставить точку» геокодирует "Город, Улица".
                     modeStatus.textContent = config.geocoder_available
-                        ? 'Введите населённый пункт, затем улицу и дом.'
+                        ? 'Выберите населённый пункт, затем введите улицу и дом.'
                         : 'Подсказки загружены, но не настроен YANDEX_API_KEY для координат.';
-                    modeStatus.textContent = config.geocoder_available
-                        ? 'Введите название трассы/дороги или код и выберите подсказку.'
-                        : 'Подсказки дорог загружены, но не настроен YANDEX_API_KEY.';
                 } catch (error) {
                     modeStatus.textContent = error.message || 'Не удалось инициализировать онлайн-подсказки';
                     modeStatus.textContent = 'Не удалось инициализировать онлайн-поиск дорог.';
@@ -1985,8 +1978,7 @@ function drawBoundaryFromGeoJSON(data) {
             return yandexSuggestInitPromise;
         }
 
-        // Определяет координаты выбранного адреса, но НЕ ставит точку: точка
-        // появляется только по кнопке «Поставить точку».
+        // Определяет координаты выбранного адреса, но НЕ ставит точку.
         async function resolveAddressCandidate(query) {
             const sequence = ++addressSuggestionSequence;
             modeStatus.textContent = 'Определяю координаты выбранного адреса…';
@@ -2243,8 +2235,7 @@ function drawBoundaryFromGeoJSON(data) {
             const relativeKm = relativeKmForOfficialKm(state, officialKm);
             if (relativeKm !== null) roadKmSlider.value = String(relativeKm);
             roadKmNumber.value = formatRoadKmNumber(officialKm);
-            // В режиме поиска километраж показывает значение, но не фиксирует точку.
-            setRoadKmControlsEnabled(!searchArmCheckbox.checked);
+            setRoadKmControlsEnabled(true);
         }
 
         async function loadRoadSections(road) {
@@ -2395,7 +2386,7 @@ function drawBoundaryFromGeoJSON(data) {
 
         function setupRoadSuggestView(ymaps) {
             if (yandexRoadSuggestView) return;
-            yandexRoadSuggestView = new ymaps.SuggestView(modeInput2, {
+            yandexRoadSuggestView = new ymaps.SuggestView(modeInput1, {
                 boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
                 strictBounds: true,
                 results: 8,
@@ -2545,7 +2536,7 @@ function drawBoundaryFromGeoJSON(data) {
                 warning.className = 'hint';
                 warning.textContent = 'Не использовать как кадастрово-точную координату без сверки с официальной контрольной точкой.';
                 document.getElementById('selectedCoords').appendChild(warning);
-            } catch { /* coordinate display remains WGS84 if converter unavailable */ }
+            } catch { /* MSK display unavailable — right pane still shows WGS84 */ }
         }
 
         // === ПОИСК: ЧЕРНОВИК И ФИКСАЦИЯ ТОЧКИ ===
@@ -2585,12 +2576,24 @@ function drawBoundaryFromGeoJSON(data) {
             for (const button of document.querySelectorAll('.mode-btn')) {
                 button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
             }
+            modeInput1.value = '';
+            modeInput2.value = '';
             modeInput2.disabled = false;
             modeInput2.removeAttribute('disabled');
             modeInput1.readOnly = false;
             modeActionBtn.hidden = false;
             modeActionBtn.style.display = '';
             modeStatus.textContent = '';
+            // Сброс черновика при смене режима
+            searchDraft.addressLat = null;
+            searchDraft.addressLon = null;
+            searchDraft.addressLabel = '';
+            searchDraft.addressCity = '';
+            searchDraft.road = null;
+            searchDraft.roadKm = null;
+            searchDraft.roadLat = null;
+            searchDraft.roadLon = null;
+            searchDraft.previewVersion += 1;
             if (mode === 'address') {
                 modeLabel1.textContent = 'Населённый пункт';
                 modeLabel2.textContent = 'Улица и дом';
@@ -2607,6 +2610,8 @@ function drawBoundaryFromGeoJSON(data) {
                 modeInput1.placeholder = "47.23, 39.72 или 47°14'42.2\"N 39°40'03.2\"E";
                 modeInput2.placeholder = 'X (север), Y (восток)';
                 modeActionBtn.dataset.mode = 'coords';
+                modeActionBtn.textContent = ({msk1:'МСК-61-1',msk2:'МСК-61-2',msk3:'МСК-61-3',gps:'GPS (WGS84)'})[crsState]||'МСК-61-2';
+                void initializeYandexAddressSuggest();
                 updateCrsLabel();
             } else if (mode === 'road') {
                 modeLabel1.textContent = 'Дорога или трасса';
@@ -2838,17 +2843,19 @@ function drawBoundaryFromGeoJSON(data) {
         // === ЗАХВАТ РЕЖИМА ПОИСКА ===
         function applySearchArmState() {
             const armed = searchArmCheckbox.checked;
-            const roadCard = document.getElementById('roadKmPanel');
             document.getElementById('sidebar-left').classList.toggle('search-armed', armed);
-            // Пока поиск активен, километраж и обычные клики карты не должны
-            // менять активную точку — их фиксирует только кнопка.
-            if (roadKmState) {
-                setRoadKmControlsEnabled(!armed && !roadKmPanel.hidden);
-                roadKmPanel.classList.toggle('locked', armed);
-            } else {
-                setRoadKmControlsEnabled(false);
-            }
+            // Поля поиска блокируются, когда чекбокс ВЫКЛЮЧЕН.
+            // Ползунок километража — всегда активен (он в правом фрейме).
+            const fields = [modeInput1, modeInput2, modeActionBtn];
+            fields.forEach(f => {
+                f.disabled = !armed;
+                if (!armed) f.classList.add('mode-disabled');
+                else f.classList.remove('mode-disabled');
+            });
             updatePlacePointButton();
+            // Кнопка «Поставить точку» доступна только когда поиск активен.
+            // При выключенном поиске точка ставится сразу dblclick/ползунком.
+            placePointBtn.disabled = !armed || !readDraftCoordinates();
             if (armed) showHotkeyHint('Режим поиска: клики по карте и километраж заблокированы');
             scheduleStateSave();
         }
@@ -3841,7 +3848,6 @@ function drawBoundaryFromGeoJSON(data) {
             if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
             if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
             if (redPointMarker) { map.removeLayer(redPointMarker); redPointMarker = null; }
-            document.getElementById('selectedCoords').innerHTML = '';
             document.getElementById('clearPointBtn').style.display = 'none';
             document.getElementById('resultsFrame').style.display = 'none';
             document.getElementById('results').innerHTML = '';
@@ -3900,15 +3906,6 @@ function drawBoundaryFromGeoJSON(data) {
                 radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1
             }).addTo(map);
 
-            const label = SOURCE_LABELS[source] || '✅ Точка выбрана';
-            document.getElementById('selectedCoords').innerHTML = `
-                <div class="selected-coords">
-                    <strong>${label}:</strong>
-                    Широта: ${lat.toFixed(6)}<br>
-                    Долгота: ${lon.toFixed(6)}
-                </div>
-            `;
-
             // Поле WGS синхронизируется с поставленной точкой.
             modeInput1.value = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
@@ -3954,7 +3951,16 @@ function drawBoundaryFromGeoJSON(data) {
                     : activePoint?.address) || '';
                 const historySource = activePoint?.source || 'manual';
                 addToHistory(lat, lon, historySource, historyLabel);
-                document.getElementById('results').innerHTML = renderResultsHTML(data);
+                // Обновляем результат «на месте», не перерисовывая весь блок,
+                // чтобы не сбрасывать неизменные элементы интерфейса.
+                const resultCard = document.querySelector('#results .result-card');
+                const newHTML = renderResultsHTML(data);
+                if (resultCard && window._lastResultHtml === newHTML) {
+                    // Ничего не изменилось — пропускаем
+                } else {
+                    document.getElementById('results').innerHTML = newHTML;
+                }
+                window._lastResultHtml = newHTML;
                 document.getElementById('addBookmarkBtn').disabled = false;
 
                 if (data.road && data.side && !data.side.error) {
@@ -4133,7 +4139,7 @@ function renderBatchList({ removeMarkers = false } = {}) {
         body.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;';
         const name = document.createElement('span');
         name.className = 'batch-filename';
-        name.textContent = point.name || `Точка ${index + 1}`;
+        name.textContent = point.name;
         const coords = document.createElement('span');
         coords.className = 'batch-status-ok';
         coords.textContent = `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
