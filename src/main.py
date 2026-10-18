@@ -836,6 +836,11 @@ class BookmarkCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     lat: FiniteFloat = Field(ge=-90, le=90)
     lon: FiniteFloat = Field(ge=-180, le=180)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class BookmarkUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
 
 class MSK61ToGeographicPayload(BaseModel):
     x: FiniteFloat
@@ -923,6 +928,16 @@ class UserUpdatePayload(BaseModel):
 class UserPasswordPayload(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
+class StateDocument(BaseModel):
+    """Персональный документ состояния (preferences/workspace).
+
+    Размер ограничен, чтобы одна вкладка не могла раздуть БД; структура полей
+    намеренно свободная — состав состояния меняется вместе с интерфейсом.
+    """
+    payload: dict[str, Any] = Field(default_factory=dict)
+    version: int | None = Field(default=None, ge=0)
+
+
 class Msk61ConvertPayload(BaseModel):
     direction: str = Field(pattern="^(to_geographic|from_geographic)$")
     zone: int = Field(ge=1, le=3)
@@ -934,7 +949,6 @@ class Msk61ConvertPayload(BaseModel):
 
 # ========== НАСТРОЙКИ ==========
 SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
-BOOKMARKS_FILE = PROJECT_DIR / "bookmarks.json"
 
 def load_settings() -> dict:
     defaults = {"delay": 3, "save_path": "screenshots", "auto_enabled": False,
@@ -950,7 +964,6 @@ def load_settings() -> dict:
     return defaults
 
 _SETTINGS_LOCK = asyncio.Lock()
-_BOOKMARKS_LOCK = asyncio.Lock()
 
 def _write_json_atomic(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -963,18 +976,6 @@ def _write_json_atomic(path: Path, data: Any) -> None:
 
 def save_settings(data: dict):
     _write_json_atomic(SETTINGS_FILE, data)
-
-# ========== ЗАКЛАДКИ ==========
-def load_bookmarks() -> list:
-    if BOOKMARKS_FILE.exists():
-        try:
-            return json.loads(BOOKMARKS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
-
-def save_bookmarks(data: list):
-    _write_json_atomic(BOOKMARKS_FILE, data)
 
 # ========== ОЧИСТКА СТАРЫХ СКРИНШОТОВ ==========
 def cleanup_old_screenshots(save_dir: Path, days: int = 7):
@@ -1756,27 +1757,95 @@ async def offline_raster_tile(z: int, x: int, y: int):
     return Response(content=row[0], media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.get("/api/bookmarks")
-async def get_bookmarks():
+MAX_STATE_PAYLOAD_BYTES = 256 * 1024
 
-    return load_bookmarks()
+
+def _state_payload_too_large(payload: dict[str, Any]) -> bool:
+    try:
+        encoded = json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return True
+    return len(encoded.encode("utf-8")) > MAX_STATE_PAYLOAD_BYTES
+
+
+@app.get("/api/user/preferences")
+async def get_user_preferences(request: Request):
+    user = _request_user(request)
+    return auth.get_preferences(user["id"]) or {"payload": {}, "version": 0}
+
+
+@app.put("/api/user/preferences")
+async def put_user_preferences(payload: StateDocument, request: Request):
+    user = _request_user(request)
+    if _state_payload_too_large(payload.payload):
+        raise HTTPException(413, "Состояние настроек слишком большое")
+    try:
+        return auth.save_preferences(user["id"], payload.payload, payload.version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.delete("/api/user/preferences")
+async def delete_user_preferences(request: Request):
+    user = _request_user(request)
+    auth.clear_preferences(user["id"])
+    return {"status": "ok"}
+
+
+@app.get("/api/user/workspace")
+async def get_user_workspace(request: Request):
+    user = _request_user(request)
+    return auth.get_workspace(user["id"]) or {"payload": {}, "version": 0}
+
+
+@app.put("/api/user/workspace")
+async def put_user_workspace(payload: StateDocument, request: Request):
+    user = _request_user(request)
+    if _state_payload_too_large(payload.payload):
+        raise HTTPException(413, "Состояние рабочей сессии слишком большое")
+    try:
+        return auth.save_workspace(user["id"], payload.payload, payload.version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.delete("/api/user/workspace")
+async def delete_user_workspace(request: Request):
+    user = _request_user(request)
+    auth.clear_workspace(user["id"])
+    return {"status": "ok"}
+
+
+@app.get("/api/bookmarks")
+async def get_bookmarks(request: Request):
+    user = _request_user(request)
+    return {"bookmarks": auth.list_bookmarks(user["id"])}
 
 @app.post("/api/bookmarks")
-async def add_bookmark(payload: BookmarkCreate):
-    new_bm = {"id": uuid.uuid4().hex, "name": payload.name.strip() or "Без имени",
-              "lat": payload.lat, "lon": payload.lon,
-              "created_at": time.strftime("%Y-%m-%d %H:%M")}
-    async with _BOOKMARKS_LOCK:
-        bookmarks = load_bookmarks()
-        bookmarks.insert(0, new_bm)
-        save_bookmarks(bookmarks[:50])
-    return {"status": "ok", "bookmark": new_bm}
+async def add_bookmark(payload: BookmarkCreate, request: Request):
+    user = _request_user(request)
+    bookmark = auth.add_bookmark(
+        user["id"],
+        payload.name.strip() or "Без имени",
+        payload.lat,
+        payload.lon,
+        payload.metadata,
+    )
+    return {"status": "ok", "bookmark": bookmark}
+
+@app.patch("/api/bookmarks/{bookmark_id}")
+async def update_bookmark(bookmark_id: str, payload: BookmarkUpdate, request: Request):
+    user = _request_user(request)
+    try:
+        bookmark = auth.update_bookmark(user["id"], bookmark_id, payload.name.strip())
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"status": "ok", "bookmark": bookmark}
 
 @app.delete("/api/bookmarks/{bookmark_id}")
-async def delete_bookmark(bookmark_id: str):
-    async with _BOOKMARKS_LOCK:
-        bookmarks = load_bookmarks()
-        save_bookmarks([bookmark for bookmark in bookmarks if bookmark.get("id") != bookmark_id])
+async def delete_bookmark(bookmark_id: str, request: Request):
+    user = _request_user(request)
+    auth.delete_bookmark(user["id"], bookmark_id)
     return {"status": "ok"}
 
 # ========== СТАТИКА ==========

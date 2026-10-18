@@ -150,8 +150,7 @@ def test_mutating_api_rejects_cross_origin_requests():
     assert response.status_code == 403
 
 
-def test_mutating_api_allows_same_origin_requests(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "BOOKMARKS_FILE", tmp_path / "bookmarks.json")
+def test_mutating_api_allows_same_origin_requests():
     response = client.post("/api/bookmarks", json={"name": "test", "lat": 47.2, "lon": 39.7},
                            headers={"origin": "http://127.0.0.1:8019"})
     assert response.status_code == 200

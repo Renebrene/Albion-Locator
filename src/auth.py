@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -65,6 +66,38 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id
                 ON sessions(user_id);
+
+            -- Персональное состояние интерфейса. Хранится одним JSON-документом
+            -- на пользователя: состав полей меняется вместе с UI и не должен
+            -- требовать миграции схемы на каждое новое поле.
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                payload TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_workspace (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                payload TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                updated_at REAL NOT NULL
+            );
+
+            -- Избранное персонально: раньше это был общий JSON-файл на всех.
+            CREATE TABLE IF NOT EXISTS user_bookmarks (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                lat REAL NOT NULL,
+                lon REAL NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_bookmarks_user
+                ON user_bookmarks(user_id, created_at DESC);
             """
         )
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -443,6 +476,179 @@ def set_password(user_id: int, password: str) -> None:
         if result.rowcount == 0:
             raise ValueError("Пользователь не найден.")
         conn.commit()
+
+
+# ========== ПЕРСОНАЛЬНОЕ СОСТОЯНИЕ ==========
+# Документы preferences/workspace читаются и пишутся целиком. Версия растёт на
+# каждой записи; клиент передаёт ожидаемую версию, чтобы две открытые вкладки
+# не затирали друг друга молча.
+
+def _read_document(table: str, user_id: int) -> dict[str, Any] | None:
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            f"SELECT payload, version, updated_at FROM {table} WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except (TypeError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "payload": payload,
+        "version": row["version"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _write_document(
+    table: str,
+    user_id: int,
+    payload: dict[str, Any],
+    expected_version: int | None = None,
+) -> dict[str, Any]:
+    encoded = json.dumps(payload, ensure_ascii=False)
+    now = time.time()
+    with closing(_connect()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            f"SELECT version FROM {table} WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        current_version = row["version"] if row else 0
+        if expected_version is not None and expected_version != current_version:
+            conn.rollback()
+            raise ValueError("Состояние изменено в другой вкладке; обновите страницу.")
+        next_version = current_version + 1
+        conn.execute(
+            f"""
+            INSERT INTO {table} (user_id, payload, version, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                payload = excluded.payload,
+                version = excluded.version,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, encoded, next_version, now),
+        )
+        conn.commit()
+    return {"payload": payload, "version": next_version, "updated_at": now}
+
+
+def get_preferences(user_id: int) -> dict[str, Any] | None:
+    return _read_document("user_preferences", user_id)
+
+
+def save_preferences(user_id: int, payload: dict[str, Any],
+                     expected_version: int | None = None) -> dict[str, Any]:
+    return _write_document("user_preferences", user_id, payload, expected_version)
+
+
+def clear_preferences(user_id: int) -> None:
+    with closing(_connect()) as conn:
+        conn.execute("DELETE FROM user_preferences WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def get_workspace(user_id: int) -> dict[str, Any] | None:
+    return _read_document("user_workspace", user_id)
+
+
+def save_workspace(user_id: int, payload: dict[str, Any],
+                   expected_version: int | None = None) -> dict[str, Any]:
+    return _write_document("user_workspace", user_id, payload, expected_version)
+
+
+def clear_workspace(user_id: int) -> None:
+    with closing(_connect()) as conn:
+        conn.execute("DELETE FROM user_workspace WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def list_bookmarks(user_id: int) -> list[dict[str, Any]]:
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, lat, lon, metadata, created_at
+            FROM user_bookmarks
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 200
+            """,
+            (user_id,),
+        ).fetchall()
+    bookmarks = []
+    for row in rows:
+        try:
+            metadata = json.loads(row["metadata"])
+        except (TypeError, ValueError):
+            metadata = {}
+        bookmarks.append({
+            "id": row["id"],
+            "name": row["name"],
+            "lat": row["lat"],
+            "lon": row["lon"],
+            "metadata": metadata if isinstance(metadata, dict) else {},
+            "created_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(row["created_at"])),
+        })
+    return bookmarks
+
+
+def add_bookmark(user_id: int, name: str, lat: float, lon: float,
+                 metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    bookmark_id = secrets.token_hex(16)
+    now = time.time()
+    encoded = json.dumps(metadata or {}, ensure_ascii=False)
+    with closing(_connect()) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_bookmarks
+                (id, user_id, name, lat, lon, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (bookmark_id, user_id, name, lat, lon, encoded, now, now),
+        )
+        conn.commit()
+    return {
+        "id": bookmark_id,
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "metadata": metadata or {},
+        "created_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(now)),
+    }
+
+
+def update_bookmark(user_id: int, bookmark_id: str, name: str) -> dict[str, Any]:
+    with closing(_connect()) as conn:
+        result = conn.execute(
+            "UPDATE user_bookmarks SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (name, time.time(), bookmark_id, user_id),
+        )
+        if result.rowcount == 0:
+            raise ValueError("Закладка не найдена.")
+        conn.commit()
+    return {"id": bookmark_id, "name": name}
+
+
+def delete_bookmark(user_id: int, bookmark_id: str) -> None:
+    with closing(_connect()) as conn:
+        conn.execute(
+            "DELETE FROM user_bookmarks WHERE id = ? AND user_id = ?",
+            (bookmark_id, user_id),
+        )
+        conn.commit()
+
+
+def count_bookmarks(user_id: int) -> int:
+    with closing(_connect()) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM user_bookmarks WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()[0]
 
 
 init_db()
