@@ -188,11 +188,13 @@
         .search-arm {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
             font-size: 12px;
             color: var(--text-muted);
             cursor: pointer;
+            flex: 0 0 auto;
             padding: 4px 2px;
+            white-space: nowrap;
         }
         .search-arm input { cursor: pointer; }
 
@@ -730,11 +732,12 @@
                         <button class="mode-btn" type="button" id="modeAddressBtn" data-mode="address" aria-pressed="false">🏠 Адрес</button>
                         <button class="mode-btn" type="button" id="modeCoordsBtn" data-mode="coords" aria-pressed="false">📐 Координаты</button>
                         <button class="mode-btn" type="button" id="modeRoadBtn" data-mode="road" aria-pressed="false">🛣️ Дороги</button>
+                        <label class="search-arm" for="searchArmCheckbox"
+                               title="Блокирует клики по карте и километраж до подтверждения точки">
+                            <input type="checkbox" id="searchArmCheckbox">
+                            <span>Поиск</span>
+                        </label>
                     </div>
-                    <label class="search-arm" for="searchArmCheckbox">
-                        <input type="checkbox" id="searchArmCheckbox">
-                        <span>Режим поиска (блокирует карту и километраж)</span>
-                    </label>
 
                     <div class="search-fields" id="addressFields" hidden>
                         <label class="field-label" for="addrCityInput">Населённый пункт</label>
@@ -1369,8 +1372,11 @@
         async function addBookmark() {
             if (!activePoint) { showToast('⚠️ Сначала выберите точку', 'error'); return; }
             const nameInput = document.getElementById('bookmarkName');
-            const name = nameInput.value.trim();
-            if (!name) { showToast('⚠️ Введите имя закладки', 'error'); return; }
+            // Звезда в правом фрейме сохраняет точку без ручного ввода имени:
+            // подставляем текущий объект (трасса/адрес/координаты).
+            const name = (nameInput.value.trim()
+                || currentStatusText().replace(/^Точка не выбрана$/, '').trim()
+                || `Точка ${activePoint.lat.toFixed(5)}, ${activePoint.lon.toFixed(5)}`).slice(0, 120);
             try {
                 const res = await apiFetch('/api/bookmarks', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1769,8 +1775,11 @@ function drawBoundaryFromGeoJSON(data) {
         function updateLocalRoadControls() {
             const button = document.getElementById('roadFindBtn');
             if (!button) return;
-            button.disabled = !useLocalRoadData;
-            button.title = useLocalRoadData ? '' : 'Поиск дороги и километража доступен только в локальной базе';
+            // Онлайн-участки тоже позволяют применить километр, поэтому кнопка
+            // активна, если загружен chainage или доступна локальная база.
+            const available = useLocalRoadData || Boolean(roadKmState);
+            button.disabled = !available;
+            button.title = available ? '' : 'Поиск дороги и километража доступен только в локальной базе';
         }
 
         function updateDataSourceStatus(tileStatus = '') {
@@ -2286,6 +2295,7 @@ function drawBoundaryFromGeoJSON(data) {
                 if (!state.sections.length) throw new Error('В ответе СКДФ нет пригодных участков трассы');
                 state.anchor = {lon: Number(road.lon), lat: Number(road.lat)};
                 roadKmState = state;
+                updateLocalRoadControls();
                 roadKmSlider.min = '0';
                 roadKmSlider.max = String(state.totalLengthKm);
                 roadKmSlider.step = state.totalLengthKm > 100 ? '0.01' : '0.001';
@@ -2303,6 +2313,7 @@ function drawBoundaryFromGeoJSON(data) {
                 roadKmStatus.textContent = `Километраж недоступен: ${error.message}`;
                 roadKmRange.textContent = `В СКДФ нет официальных участков для ${road.road_code} в Ростовской области.`;
                 setRoadKmControlsEnabled(false);
+                updateLocalRoadControls();
             }
         }
 
@@ -2322,6 +2333,13 @@ function drawBoundaryFromGeoJSON(data) {
             searchDraft.roadLon = point.lon;
             searchDraft.roadLabel = roadKmTitle.textContent || 'Дорога';
             searchDraft.previewVersion += 1;
+            // Ползунок километража синхронно отражается в левых полях: в режиме
+            // координат — в WGS, в режиме дорог — в поле километра.
+            if (searchDraft.mode === 'coords') {
+                wgsInput.value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+            } else if (searchDraft.mode === 'road') {
+                roadKmInput.value = formatRoadKmNumber(officialKm);
+            }
             renderRoadKmPreview(officialKm, point);
             return point;
         }
@@ -2381,6 +2399,9 @@ function drawBoundaryFromGeoJSON(data) {
             const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
             if (!Number.isFinite(officialKm)) return;
             const point = previewRoadKm(officialKm);
+            // В режиме координат поле МСК подтягивается после отпускания,
+            // чтобы не отправлять запрос на каждый пиксель движения.
+            if (point && searchDraft.mode === 'coords') void syncCoordsFromWgs();
             // В обычном режиме отпускание ползунка фиксирует точку, как раньше.
             if (point && !searchArmCheckbox.checked) {
                 commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
@@ -3051,9 +3072,26 @@ function drawBoundaryFromGeoJSON(data) {
             for (const button of document.querySelectorAll('.mode-btn')) {
                 button.addEventListener('click', () => setSearchMode(button.dataset.mode));
             }
-            roadFindBtn.addEventListener('click', searchLocalRoad);
+            // «Найти» в режиме дорог: если участки уже загружены — применяем
+            // введённый километр, иначе ищем дорогу в локальной базе.
+            const applyRoadSearch = () => {
+                if (roadKmState) {
+                    const officialKm = parseRoadKmNumber(roadKmInput.value);
+                    if (Number.isFinite(officialKm)) {
+                        const point = previewRoadKm(officialKm);
+                        if (point && !searchArmCheckbox.checked) {
+                            commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
+                        }
+                        return;
+                    }
+                    roadFieldsStatus.textContent = 'Введите километр в формате 915+000 или 915.5.';
+                    return;
+                }
+                void searchLocalRoad();
+            };
+            roadFindBtn.addEventListener('click', applyRoadSearch);
             roadKmInput.addEventListener('keydown', event => {
-                if (event.key === 'Enter') { event.preventDefault(); searchLocalRoad(); }
+                if (event.key === 'Enter') { event.preventDefault(); applyRoadSearch(); }
             });
             // Автосохранение настроек: чувствительные операции (аккаунт,
             // пользователи) по-прежнему отправляются кнопками.
