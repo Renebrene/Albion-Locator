@@ -40,11 +40,20 @@ def test_root_serves_login_gated_app_without_caching():
     assert 'id="authOverlay"' in response.text
     for element_id in (
         "map-search-toolbar", "searchModeSelect", "coordsSearchPanel",
-        "addressSearchPanel", "roadSearchPanel", "mskSearchPanel",
+        "addressSearchPanel", "addressQuery", "addressSuggestions",
+        "roadSearchPanel", "mskSearchPanel", "mskDirection", "wgsLat", "wgsLon",
+        "mskZoneHelpButton", "mskZoneTooltip",
         "sidebar-left", "sidebar-right", "resultsFrame", "batch-panel",
     ):
         assert f'id="{element_id}"' in response.text
     assert "setupSettingsModal()" in response.text
+    assert "🏠 Онлайн-поиск адреса" in response.text
+    assert "/api/address/online/suggest" in response.text
+    assert "/api/address/online/geocode" in response.text
+    assert "/api/msk61/to-geographic" in response.text
+    assert "/api/msk61/from-geographic" in response.text
+    assert "Это ориентир по долготе" in response.text
+    assert "Перечень районов намеренно не приводится" in response.text
 
 
 def test_protected_api_requires_auth():

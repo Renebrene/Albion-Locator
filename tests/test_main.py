@@ -326,6 +326,8 @@ def test_data_sources_reports_local_assets(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["local_available"] is False
     assert payload["local_tiles_available"] is False
+    assert payload["address_suggest_available"] is bool(main.YANDEX_SUGGEST_API_KEY)
+    assert payload["address_geocoder_available"] is bool(main.YANDEX_API_KEY)
     assert payload["fully_offline_ready"] is False
 
 
@@ -344,6 +346,148 @@ def test_offline_address_and_road_search_use_local_index(tmp_path, monkeypatch):
     assert houses.status_code == 200 and houses.json()["suggestions"][0]["lon"] == pytest.approx(39.71)
     assert roads.status_code == 200 and roads.json()["roads"][0]["km_provenance"] == "estimated from geometry"
     assert roads.json()["roads"][0]["selected_km"] == pytest.approx(5.0)
+
+
+def _stub_http_response(payload, status_code=200):
+    class Response:
+        def __init__(self):
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                request = main.httpx.Request("GET", "https://test.invalid")
+                response = main.httpx.Response(self.status_code, request=request)
+                raise main.httpx.HTTPStatusError("upstream error", request=request, response=response)
+
+        def json(self):
+            return payload
+
+    return Response()
+
+
+def _stub_http_client(monkeypatch, response=None, error=None, requests=None):
+    class HTTPClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url, *, params=None, **kwargs):
+            if requests is not None:
+                requests.append((url, params))
+            if error:
+                raise error
+            return response
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **kwargs: HTTPClient())
+
+
+def test_online_address_suggest_normalizes_and_bounds_yandex_results(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_SUGGEST_API_KEY", "test-suggest-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    requests = []
+    _stub_http_client(monkeypatch, _stub_http_response({"results": [
+        {"title": {"text": "Ростов-на-Дону"}, "subtitle": {"text": "Ростовская область, Россия"}, "uri": "ymapsbm1://town"},
+        {"title": {"text": "Батайск"}, "subtitle": {"text": "Ростовская область, Россия"}, "uri": "ymapsbm1://city"},
+        {"title": {"text": "Таганрог"}, "subtitle": {"text": "Ростовская область, Россия"}},
+    ]}), requests=requests)
+
+    response = client.post("/api/address/online/suggest", json={"query": "Ростов", "limit": 2})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["source"] == "Yandex Geosuggest"
+    assert [item["title"] for item in payload["suggestions"]] == ["Ростов-на-Дону", "Батайск"]
+    assert payload["suggestions"][0]["query"] == "Ростов-на-Дону, Ростовская область, Россия"
+    assert "test-suggest-key" not in response.text
+    assert requests[0][1]["bbox"] == main.ROSTOV_SEARCH_BBOX
+    assert requests[0][1]["results"] == 2
+
+
+def test_online_address_suggest_requires_key_and_valid_query(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_SUGGEST_API_KEY", "")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    missing_key = client.post("/api/address/online/suggest", json={"query": "Ростов"})
+    short_query = client.post("/api/address/online/suggest", json={"query": "Ро"})
+    assert missing_key.status_code == 503
+    assert "YANDEX_SUGGEST_API_KEY" in missing_key.json()["detail"]
+    assert short_query.status_code == 422
+
+
+def test_online_address_suggest_handles_yandex_timeout_and_rate_limit(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_SUGGEST_API_KEY", "test-suggest-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, error=main.httpx.TimeoutException("timeout"))
+    timeout = client.post("/api/address/online/suggest", json={"query": "Ростов"})
+    assert timeout.status_code == 504
+
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({}, status_code=429))
+    limited = client.post("/api/address/online/suggest", json={"query": "Ростов"})
+    assert limited.status_code == 429
+
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"unexpected": []}))
+    invalid = client.post("/api/address/online/suggest", json={"query": "Ростов"})
+    assert invalid.status_code == 502
+
+
+def test_online_address_suggest_is_throttled_per_user(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_SUGGEST_API_KEY", "test-suggest-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 10)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"results": []}))
+
+    first = client.post("/api/address/online/suggest", json={"query": "Ростов"})
+    second = client.post("/api/address/online/suggest", json={"query": "Ростов-на-Дону"})
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+def test_online_address_geocode_returns_only_rostov_region_points(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    requests = []
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [{
+        "GeoObject": {
+            "Point": {"pos": "39.701 47.218"},
+            "metaDataProperty": {"GeocoderMetaData": {
+                "text": "Ростов-на-Дону, улица, 1", "precision": "exact",
+                "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]},
+            }},
+        }
+    }]}}}), requests=requests)
+    response = client.post("/api/address/online/geocode", json={"query": "Ростов-на-Дону, улица, 1"})
+    assert response.status_code == 200, response.text
+    assert response.json()["lat"] == pytest.approx(47.218)
+    assert response.json()["lon"] == pytest.approx(39.701)
+    assert response.json()["precision"] == "exact"
+    assert requests[0][1]["bbox"] == main.ROSTOV_SEARCH_BBOX
+    assert requests[0][1]["rspn"] == 1
+    assert "Ростовская область" in requests[0][1]["geocode"]
+
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [{
+        "GeoObject": {"Point": {"pos": "30 55"}, "metaDataProperty": {"GeocoderMetaData": {"text": "Москва"}}}
+    }]}}}))
+    outside = client.post("/api/address/online/geocode", json={"query": "Москва"})
+    assert outside.status_code == 404
+
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [{
+        "GeoObject": {
+            "Point": {"pos": "39.1 47.2"},
+            "metaDataProperty": {"GeocoderMetaData": {
+                "text": "Соседний регион", "precision": "exact",
+                "Address": {"Components": [{"kind": "province", "name": "Краснодарский край"}]},
+            }},
+        }
+    }]}}}))
+    wrong_region = client.post("/api/address/online/geocode", json={"query": "Соседний регион"})
+    assert wrong_region.status_code == 404
 
 
 def test_offline_locate_does_not_fall_back_to_wfs(tmp_path, monkeypatch):
@@ -426,6 +570,8 @@ def test_protected_offline_data_endpoints_require_auth():
     unauthenticated = TestClient(main.app)
     assert unauthenticated.get("/api/data-sources").status_code == 401
     assert unauthenticated.get("/api/address/suggest", params={"q": "Рост"}).status_code == 401
+    assert unauthenticated.post("/api/address/online/suggest", json={"query": "Ростов"}).status_code == 401
+    assert unauthenticated.post("/api/address/online/geocode", json={"query": "Ростов-на-Дону"}).status_code == 401
     assert unauthenticated.get("/api/roads/search", params={"q": "М-4"}).status_code == 401
 
 

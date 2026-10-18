@@ -51,8 +51,16 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 OLLAMA_TIMEOUT = 20.0
 _llm_cache: dict[str, str | None] = {}
 
-# --- ЯНДЕКС ГЕОКОДЕР ---
+# --- ЯНДЕКС ГЕОКОДЕР И ПОДСКАЗКИ ---
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
+YANDEX_SUGGEST_API_KEY = os.getenv("YANDEX_SUGGEST_API_KEY", "")
+YANDEX_SUGGEST_URL = "https://suggest-maps.yandex.ru/v1/suggest"
+YANDEX_GEOCODER_URL = "https://geocode-maps.yandex.ru/v1/"
+ADDRESS_SUGGEST_TIMEOUT = 5.0
+ADDRESS_SUGGEST_MIN_INTERVAL = 0.25
+_ADDRESS_SUGGEST_LAST_REQUEST: dict[str, float] = {}
+_ADDRESS_SUGGEST_LAST_REQUEST_LOCK = asyncio.Lock()
+ROSTOV_SEARCH_BBOX = "38.0,45.8~44.5,50.4"
 
 FEDERAL_ROADS = {
     "М-4": {"skdf_name": "М-4 «Дон»", "full_name": "М-4 «Дон» Москва - Воронеж - Ростов-на-Дону - Краснодар - Новороссийск"},
@@ -699,6 +707,32 @@ class GeographicToMSK61Payload(BaseModel):
     zone: int = Field(ge=1, le=3)
     profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
 
+
+class OnlineAddressSuggestPayload(BaseModel):
+    query: str = Field(min_length=3, max_length=120)
+    limit: int = Field(default=8, ge=1, le=10)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        query = value.strip()
+        if len(query) < 3 or any(ord(char) < 32 for char in query):
+            raise ValueError("Введите не менее 3 символов")
+        return query
+
+
+class OnlineAddressGeocodePayload(BaseModel):
+    query: str = Field(min_length=3, max_length=320)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        query = value.strip()
+        if len(query) < 3 or any(ord(char) < 32 for char in query):
+            raise ValueError("Некорректный адрес")
+        return query
+
+
 class LoginPayload(BaseModel):
     login: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=200)
@@ -1107,6 +1141,8 @@ async def data_sources():
         "local_available": db.is_file(),
         "local_tiles_available": tiles.is_file(),
         "external_available": True,
+        "address_suggest_available": bool(YANDEX_SUGGEST_API_KEY),
+        "address_geocoder_available": bool(YANDEX_API_KEY),
         "fully_offline_ready": False,
         "note": "Local index and tile archive are separate generated datasets; missing local data will return an error, never fall back silently.",
     }
@@ -1122,6 +1158,171 @@ async def offline_address_suggest(
     with _open_geo_index() as index:
         results = index.suggest_context(q, settlement=settlement, street=street, limit=limit)
     return {"suggestions": results}
+
+
+async def _allow_address_suggest(user_id: Any, action: str = "suggest") -> bool:
+    now = time.monotonic()
+    key = f"{action}:{user_id}"
+    async with _ADDRESS_SUGGEST_LAST_REQUEST_LOCK:
+        previous = _ADDRESS_SUGGEST_LAST_REQUEST.get(key)
+        if previous is not None and now - previous < ADDRESS_SUGGEST_MIN_INTERVAL:
+            return False
+        if len(_ADDRESS_SUGGEST_LAST_REQUEST) >= 10_000:
+            cutoff = now - 60.0
+            for old_key, timestamp in list(_ADDRESS_SUGGEST_LAST_REQUEST.items()):
+                if timestamp < cutoff:
+                    _ADDRESS_SUGGEST_LAST_REQUEST.pop(old_key, None)
+            if len(_ADDRESS_SUGGEST_LAST_REQUEST) >= 10_000:
+                return False
+        _ADDRESS_SUGGEST_LAST_REQUEST[key] = now
+    return True
+
+
+def _yandex_suggest_text(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("text")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _normalize_yandex_suggestions(payload: Any, limit: int) -> list[dict[str, str]]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        raise HTTPException(502, "Сервис адресных подсказок вернул некорректный ответ")
+    suggestions: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in payload["results"]:
+        if not isinstance(item, dict):
+            continue
+        title = _yandex_suggest_text(item.get("title"))
+        subtitle = _yandex_suggest_text(item.get("subtitle"))
+        display_name = _yandex_suggest_text(item.get("displayText")) or ", ".join(
+            part for part in (title, subtitle) if part
+        )
+        if not display_name or display_name.casefold() in seen:
+            continue
+        seen.add(display_name.casefold())
+        uri = item.get("uri")
+        suggestion_id = uri.strip() if isinstance(uri, str) and uri.strip() else display_name
+        suggestions.append({
+            "id": suggestion_id[:240],
+            "title": title or display_name,
+            "subtitle": subtitle,
+            "display_name": display_name[:320],
+            "query": display_name[:320],
+        })
+        if len(suggestions) >= limit:
+            break
+    return suggestions
+
+
+async def _fetch_yandex_suggestions(query: str, limit: int) -> list[dict[str, str]]:
+    if not YANDEX_SUGGEST_API_KEY:
+        raise HTTPException(503, "Не настроен YANDEX_SUGGEST_API_KEY для онлайн-подсказок адреса")
+    params = {
+        "text": query,
+        "apikey": YANDEX_SUGGEST_API_KEY,
+        "lang": "ru_RU",
+        "results": limit,
+        "bbox": ROSTOV_SEARCH_BBOX,
+        "attrs": "uri",
+        "print_address": 1,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
+            response = await client.get(YANDEX_SUGGEST_URL, params=params)
+        if response.status_code == 429:
+            raise HTTPException(429, "Превышен лимит онлайн-подсказок Яндекса; повторите позже")
+        if response.status_code in {401, 403}:
+            raise HTTPException(503, "Ключ Яндекс Geosuggest не имеет доступа к API подсказок")
+        response.raise_for_status()
+        payload = response.json()
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "Сервис онлайн-подсказок Яндекса не ответил вовремя") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Не удалось связаться с сервисом онлайн-подсказок Яндекса") from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(502, "Сервис адресных подсказок вернул некорректный ответ") from exc
+    return _normalize_yandex_suggestions(payload, limit)
+
+
+@app.post("/api/address/online/suggest")
+async def online_address_suggest(payload: OnlineAddressSuggestPayload, request: Request):
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown")):
+        raise HTTPException(429, "Слишком частые запросы подсказок; подождите немного")
+    suggestions = await _fetch_yandex_suggestions(payload.query, payload.limit)
+    return {"suggestions": suggestions, "source": "Yandex Geosuggest"}
+
+
+@app.post("/api/address/online/geocode")
+async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: Request):
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown"), "geocode"):
+        raise HTTPException(429, "Слишком частые запросы адреса; подождите немного")
+    if not YANDEX_API_KEY:
+        raise HTTPException(503, "Не настроен YANDEX_API_KEY для определения координат адреса")
+    geocode_query = payload.query
+    normalized_query = geocode_query.casefold().replace("ё", "е")
+    if "ростовская область" not in normalized_query:
+        geocode_query += ", Ростовская область"
+    if "россия" not in normalized_query:
+        geocode_query += ", Россия"
+    params = {
+        "apikey": YANDEX_API_KEY,
+        "geocode": geocode_query,
+        "format": "json",
+        "lang": "ru_RU",
+        "results": 1,
+        "bbox": ROSTOV_SEARCH_BBOX,
+        "rspn": 1,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
+            response = await client.get(YANDEX_GEOCODER_URL, params=params)
+        if response.status_code == 429:
+            raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
+        if response.status_code in {401, 403}:
+            raise HTTPException(503, "Ключ Яндекс Геокодера не имеет доступа к этому API")
+        response.raise_for_status()
+        data = response.json()
+        members = data["response"]["GeoObjectCollection"]["featureMember"]
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "Сервис геокодирования Яндекса не ответил вовремя") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Не удалось связаться с сервисом геокодирования Яндекса") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(502, "Сервис геокодирования Яндекса вернул некорректный ответ") from exc
+    if not members:
+        raise HTTPException(404, "Для выбранной подсказки координаты не найдены")
+    try:
+        geo_object = members[0]["GeoObject"]
+        lon, lat = map(float, geo_object["Point"]["pos"].split())
+        metadata = geo_object["metaDataProperty"]["GeocoderMetaData"]
+        formatted_address = str(metadata.get("text") or payload.query)[:320]
+        precision = str(metadata.get("precision") or "unknown")[:40]
+        components = metadata.get("Address", {}).get("Components", [])
+        in_rostov_oblast = any(
+            isinstance(component, dict)
+            and component.get("kind") in {"province", "area"}
+            and str(component.get("name", "")).strip().casefold().replace("ё", "е") == "ростовская область"
+            for component in components
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(502, "Не удалось определить координаты выбранного адреса") from exc
+    if not (math.isfinite(lat) and math.isfinite(lon)
+            and 45.8 <= lat <= 50.4 and 38.0 <= lon <= 44.5
+            and in_rostov_oblast):
+        raise HTTPException(404, "Адрес не найден в Ростовской области; уточните адрес и регион")
+    return {
+        "lat": lat,
+        "lon": lon,
+        "address": formatted_address,
+        "precision": precision,
+        "source": "Yandex Geocoder",
+    }
 
 
 @app.get("/api/roads/search")
