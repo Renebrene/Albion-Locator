@@ -2723,7 +2723,7 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
-        async // Автоопределение зоны МСК-61: если координата уточняется, зона
+        // Автоопределение зоны МСК-61: если координата уточняется, зона
         // подсказывается на лету без ручного сброса.
         function autoMskZone(lat) {
             if (!Number.isFinite(lat)) return;
@@ -2738,18 +2738,16 @@ function drawBoundaryFromGeoJSON(data) {
 
         function refreshMskForActive(lat, lon) {
             const sequence = pointRevision;
-            try {
-                const response = await apiFetch('/api/msk61/from-geographic', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({lat, lon, zone: mskZone, profile: document.getElementById('mskProfile').value}),
-                });
-                const data = await response.json();
-                if (!response.ok || sequence !== pointRevision) return;
+            void fetch(`/api/msk61/from-geographic`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({lat, lon, zone: mskZone, profile: document.getElementById('mskProfile').value}),
+            }).then(response => response.ok ? response.json() : null).then(data => {
+                if (!data || sequence !== pointRevision) return;
                 document.getElementById('cpMsk').textContent =
                     `X ${data.x.toFixed(2)}, Y ${data.y.toFixed(2)} (зона ${data.zone}, предварительно)`;
-            } catch (e) {
+            }).catch(() => {
                 if (sequence === pointRevision) document.getElementById('cpMsk').textContent = 'не рассчитано';
-            }
+            });
         }
 
         // === СИНХРОНИЗАЦИЯ WGS ↔ МСК В РЕЖИМЕ КООРДИНАТ ===
