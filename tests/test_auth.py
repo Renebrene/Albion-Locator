@@ -30,6 +30,16 @@ def test_health_is_public():
     assert fresh_client().get("/api/health").status_code == 200
 
 
+def test_root_serves_login_gated_app_without_caching():
+    response = fresh_client().get("/")
+    assert response.status_code == 200
+    assert 'id="authOverlay"' in response.text
+    assert 'id="usersSettingsBlock"' in response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert 'id="authOverlay"' in response.text
+
+
 def test_protected_api_requires_auth():
     client = fresh_client()
     assert client.get("/api/auth/me").status_code == 401
@@ -80,6 +90,22 @@ def test_create_user_and_editor_cannot_manage_users():
     ).status_code == 200
     assert editor.get("/api/bookmarks").status_code == 200
     assert editor.get("/api/users").status_code == 403
+
+
+def test_admin_password_reset_revokes_existing_sessions():
+    admin = admin_client()
+    login = unique_login("reset")
+    created = admin.post("/api/users", json={"login": login, "password": "old-pass", "name": "Сброс", "role": "editor"})
+    assert created.status_code == 200
+
+    target = fresh_client()
+    assert target.post("/api/auth/login", json={"login": login, "password": "old-pass"}).status_code == 200
+    user_id = created.json()["user"]["id"]
+    changed = admin.post(f"/api/users/{user_id}/password", json={"password": "new-pass"})
+    assert changed.status_code == 200
+    assert target.get("/api/auth/me").status_code == 401
+    assert fresh_client().post("/api/auth/login", json={"login": login, "password": "old-pass"}).status_code == 401
+    assert fresh_client().post("/api/auth/login", json={"login": login, "password": "new-pass"}).status_code == 200
 
 
 def test_change_own_credentials():

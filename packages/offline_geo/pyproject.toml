@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "albion-offline-geo"
+version = "0.4.0"
+description = "Portable offline address and road search index for Python"
+requires-python = ">=3.11"
+license = { text = "No standalone license selected yet; see README before redistribution." }
+dependencies = []
+
+[project.optional-dependencies]
+osm = ["osmium>=4.0"]
+test = ["pytest>=8"]
+
+[project.scripts]
+offline-geo = "offline_geo.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.sqlite
+*.sqlite3
+*.db
+*.pbf
+*.osm.pbf
+*.mbtiles
+*.staging

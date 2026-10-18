@@ -7,11 +7,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import difflib
+import importlib
 import io
 import json
 import math
 import os
 import re
+import sqlite3
+import sys
 import time
 import uuid
 from fractions import Fraction
@@ -22,9 +25,9 @@ from urllib.parse import urlsplit
 
 import httpx
 import piexif
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from PIL import Image
 from pydantic import BaseModel, Field, FiniteFloat, field_validator
 from batch import router as batch_router
@@ -78,8 +81,62 @@ def find_federal_road(name: str) -> dict | None:
 
 WFS_BASE = "https://скдф.рф/api-geoserver/skdf_open/wfs"
 WFS_TIMEOUT = 15.0
+WFS_PAGE_SIZE = 500
+WFS_MAX_FEATURES = 10_000
 PROJECT_DIR = Path(__file__).parent
+GEO_PACKAGE_SRC = PROJECT_DIR.parent / "packages" / "offline_geo" / "src"
 ROAD_LAYER = "skdf_open:lyr_road_by_value_line"
+
+
+def offline_mode_enabled() -> bool:
+    """Return the explicit per-process default data source mode."""
+    configured = os.getenv("ALBION_OFFLINE")
+    return configured is not None and configured.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _geo_data_dir() -> Path:
+    configured = os.getenv("ALBION_GEO_DATA_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".local/share/albion-locator"
+
+
+def _geo_database_path() -> Path:
+    return _geo_data_dir() / "offline_geo.sqlite3"
+
+
+def _mbtiles_path() -> Path:
+    configured = os.getenv("ALBION_BASEMAP_MBTILES")
+    return Path(configured).expanduser() if configured else _geo_data_dir() / "basemap.mbtiles"
+
+
+def _load_offline_geo_package():
+    if not GEO_PACKAGE_SRC.is_dir():
+        raise HTTPException(503, "Локальные геоданные недоступны: пакет offline_geo не установлен")
+    package_src = str(GEO_PACKAGE_SRC)
+    if package_src not in sys.path:
+        sys.path.insert(0, package_src)
+    try:
+        return importlib.import_module("offline_geo")
+    except ImportError as exc:
+        raise HTTPException(503, "Локальные геоданные недоступны: пакет offline_geo не загружен") from exc
+
+
+def _open_geo_index():
+    package = _load_offline_geo_package()
+    path = _geo_database_path()
+    try:
+        return package.GeoIndex(path)
+    except FileNotFoundError as exc:
+        raise HTTPException(503, f"Локальная база адресов и дорог не установлена: {path}") from exc
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise HTTPException(503, f"Локальная база геоданных недоступна или повреждена: {path}") from exc
+
+
+def _msk61_module():
+    _load_offline_geo_package()
+    try:
+        return importlib.import_module("offline_geo.msk61")
+    except ImportError as exc:
+        raise HTTPException(503, "Модуль расчёта МСК-61 недоступен") from exc
 CATEGORY_MAP = {1: "Автомагистраль", 2: "I категория", 3: "II категория",
                 4: "III категория", 5: "IV категория", 6: "V категория"}
 COATING_MAP = {1: "Капитальный", 2: "Облегчённый", 3: "Переходный", 4: "Низший"}
@@ -367,21 +424,71 @@ def _road_side_info(road_feature, lon, lat):
     return best
 
 # ========== WFS ==========
-async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=50):
-    params = {"service": "WFS", "version": "1.0.0", "request": "GetFeature",
-              "typeName": type_name, "outputFormat": "application/json",
-              "srsname": "EPSG:4326", "maxFeatures": str(max_features)}
-    if bbox_deg:
-        params["bbox"] = f"{bbox_deg[0]},{bbox_deg[1]},{bbox_deg[2]},{bbox_deg[3]},EPSG:4326"
+async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None):
+    page_size = min(max_features or WFS_PAGE_SIZE, WFS_PAGE_SIZE)
+    features: list[dict] = []
+    start_index = 0
+
     try:
-        r = await client.get(WFS_BASE, params=params, timeout=WFS_TIMEOUT)
-        r.raise_for_status()
-        features = r.json().get("features", [])
-        if not isinstance(features, list):
-            raise ValueError("Invalid WFS feature collection")
-        return features
+        while True:
+            params = {
+                "service": "WFS",
+                "version": "2.0.0",
+                "request": "GetFeature",
+                "typeNames": type_name,
+                "outputFormat": "application/json",
+                "srsName": "EPSG:4326",
+                "count": str(min(page_size, WFS_MAX_FEATURES - len(features))),
+                "startIndex": str(start_index),
+                "sortBy": "id A",
+            }
+            if bbox_deg:
+                params["bbox"] = f"{bbox_deg[0]},{bbox_deg[1]},{bbox_deg[2]},{bbox_deg[3]},EPSG:4326"
+
+            response = await client.get(WFS_BASE, params=params, timeout=WFS_TIMEOUT)
+            response.raise_for_status()
+            collection = response.json()
+            if not isinstance(collection, dict):
+                raise ValueError("Invalid WFS feature collection")
+            page = collection.get("features", [])
+            if not isinstance(page, list):
+                raise ValueError("Invalid WFS feature list")
+
+            returned = collection.get("numberReturned")
+            if returned is not None and int(returned) != len(page):
+                raise ValueError("Inconsistent WFS numberReturned")
+            if not page:
+                return features
+            if len(features) + len(page) > WFS_MAX_FEATURES:
+                raise ValueError("WFS result exceeds the local feature limit")
+
+            # A full page that repeats a previous page means paging was ignored.
+            if len(page) == page_size and any(
+                page == features[offset:offset + len(page)]
+                for offset in range(0, len(features), page_size)
+            ):
+                raise ValueError("WFS pagination did not advance")
+
+            features.extend(page)
+            start_index += len(page)
+
+            matched = collection.get("numberMatched", collection.get("totalFeatures"))
+            if matched not in (None, "unknown"):
+                matched = int(matched)
+                if matched < start_index:
+                    raise ValueError("WFS numberMatched is smaller than returned offset")
+                if start_index >= matched:
+                    return features
+
+            if len(page) < page_size:
+                return features
+            if len(features) >= WFS_MAX_FEATURES:
+                raise ValueError("WFS result exceeds the local feature limit")
     except (httpx.HTTPError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=502, detail="Сервис дорожных данных временно недоступен") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось получить полный список дорог из сервиса СКДФ",
+        ) from exc
 
 def get_first_point(geometry: dict) -> tuple[float | None, float | None]:
     coords = (geometry or {}).get("coordinates")
@@ -410,22 +517,67 @@ def normalize_text(text: str) -> str:
     text = re.sub(r'[^\w\s]', '', text)
     return re.sub(r'\s+', ' ', text).strip()
 
+ROAD_NAME_MATCH_THRESHOLD = 0.82
+ROAD_NAME_MATCH_MARGIN = 0.12
+ROAD_NAME_STOPWORDS = {
+    "автомобильная", "дорога", "а", "д", "г", "город", "сл", "слобода",
+    "ст", "станица", "х", "хутор", "пос", "поселок", "п", "с", "село",
+}
+
+
+def _road_name_tokens(value: str) -> set[str]:
+    return {
+        token for token in normalize_text(value).split()
+        if len(token) > 1 and token not in ROAD_NAME_STOPWORDS
+    }
+
+
+def _explicit_road_code(value: str) -> str | None:
+    """Return a recognized road-code token only when it is the whole input."""
+    code = canonical_road_code(value)
+    if not code:
+        return None
+    remainder = re.sub(r"(?<![\w])(?:[0-9]{1,3}[А-Я]-[0-9]+(?:\.[0-9]+)?|[А-Я]-[0-9]+(?:\.[0-9]+)?)(?![\w])", "", value.upper().translate(_ROAD_TRANSLATION))
+    return code if not remainder.strip(" \t\r\n,.;:()[]{}«»\"'—–-") else None
+
+
 def find_road_id_by_name(road_name: str) -> str | None:
     norm_input = normalize_text(road_name)
     if not norm_input:
         return None
-    input_code = canonical_road_code(road_name)
-    if input_code in ROADS:
-        return input_code
-    best_match, best_score = None, 0.0
-    for road_id, name_in_db in ROADS.items():
-        norm_db = normalize_text(name_in_db)
-        if norm_db and (norm_input in norm_db or norm_db in norm_input):
-            return road_id
-        score = difflib.SequenceMatcher(None, norm_input, norm_db).ratio() if norm_db else 0.0
-        if score > best_score:
-            best_score, best_match = score, road_id
-    return best_match if best_score > 0.65 else None
+
+    input_code = _explicit_road_code(road_name)
+    if input_code:
+        return input_code if input_code in ROADS else None
+
+    normalized_names = {
+        road_id: normalize_text(name)
+        for road_id, name in ROADS.items()
+    }
+    exact = [road_id for road_id, name in normalized_names.items() if name == norm_input]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None
+
+    input_tokens = _road_name_tokens(road_name)
+    if len(input_tokens) < 2:
+        return None
+
+    scored: list[tuple[float, str]] = []
+    for road_id, normalized_name in normalized_names.items():
+        candidate_tokens = _road_name_tokens(normalized_name)
+        if len(candidate_tokens) < 2 or not (input_tokens & candidate_tokens):
+            continue
+        score = difflib.SequenceMatcher(None, norm_input, normalized_name).ratio()
+        scored.append((score, road_id))
+
+    scored.sort(reverse=True)
+    if not scored or scored[0][0] < ROAD_NAME_MATCH_THRESHOLD:
+        return None
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < ROAD_NAME_MATCH_MARGIN:
+        return None
+    return scored[0][1]
 
 async def find_road_id_with_llm(road_name: str) -> str | None:
     if not road_name:
@@ -460,15 +612,25 @@ async def find_road_id_with_llm(road_name: str) -> str | None:
 async def format_road_names(props: dict) -> dict[str, str]:
     road_name_from_skdf = (props.get("road_name") or "").strip()
     value_of_the_road = (props.get("value_of_the_road") or "").strip()
-    road_id = canonical_road_code(value_of_the_road) or canonical_road_code(road_name_from_skdf)
-    if road_id not in ROADS:
+
+    value_code = canonical_road_code(value_of_the_road) if value_of_the_road else None
+    name_code = canonical_road_code(road_name_from_skdf) if road_name_from_skdf else None
+    has_unknown_explicit_code = any(
+        code and code not in ROADS for code in (value_code, name_code)
+    )
+
+    road_id = next(
+        (code for code in (value_code, name_code) if code in ROADS),
+        None,
+    )
+    if road_id is None and not has_unknown_explicit_code:
         road_id = find_road_id_by_name(road_name_from_skdf)
-    if not road_id and road_name_from_skdf:
-        road_id = await find_road_id_with_llm(road_name_from_skdf)
-    if road_id and road_id in ROADS:
-        full_name = f"{road_id}, {ROADS[road_id]}"
-    else:
-        full_name = road_name_from_skdf or "Дорога без названия"
+
+    full_name = (
+        f"{road_id}, {ROADS[road_id]}"
+        if road_id in ROADS
+        else road_name_from_skdf or "Дорога без названия"
+    )
     return {"skdf_name": road_name_from_skdf or "Нет данных", "full_name": full_name}
 
 async def get_yandex_road_name(lat: float, lon: float) -> dict | None:
@@ -496,6 +658,7 @@ class LocateRequest(BaseModel):
     lon: FiniteFloat = Field(ge=-180, le=180)
     radius: int = Field(default=2000, ge=10, le=5000)
     exclude_categories: list[int] = Field(default_factory=lambda: [6], max_length=10)
+    use_local: bool | None = None
 
     @field_validator("exclude_categories")
     @classmethod
@@ -524,6 +687,18 @@ class BookmarkCreate(BaseModel):
     lat: FiniteFloat = Field(ge=-90, le=90)
     lon: FiniteFloat = Field(ge=-180, le=180)
 
+class MSK61ToGeographicPayload(BaseModel):
+    x: FiniteFloat
+    y: FiniteFloat
+    zone: int = Field(ge=1, le=3)
+    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+
+class GeographicToMSK61Payload(BaseModel):
+    lat: FiniteFloat = Field(ge=-90, le=90)
+    lon: FiniteFloat = Field(ge=-180, le=180)
+    zone: int = Field(ge=1, le=3)
+    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+
 class LoginPayload(BaseModel):
     login: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=200)
@@ -547,6 +722,15 @@ class UserUpdatePayload(BaseModel):
 
 class UserPasswordPayload(BaseModel):
     password: str = Field(min_length=1, max_length=200)
+
+class Msk61ConvertPayload(BaseModel):
+    direction: str = Field(pattern="^(to_geographic|from_geographic)$")
+    zone: int = Field(ge=1, le=3)
+    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+    x: FiniteFloat | None = None
+    y: FiniteFloat | None = None
+    latitude: FiniteFloat | None = Field(default=None, ge=-90, le=90)
+    longitude: FiniteFloat | None = Field(default=None, ge=-180, le=180)
 
 # ========== НАСТРОЙКИ ==========
 SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
@@ -781,6 +965,9 @@ async def api_exif(photo: UploadFile = File(...)):
 @app.post("/api/locate", response_model=LocateResponse)
 async def api_locate(req: LocateRequest):
     lat, lon, radius = req.lat, req.lon, req.radius
+    use_local = offline_mode_enabled() if req.use_local is None else req.use_local
+    if use_local:
+        return await _api_locate_offline(req)
 
     async with _SETTINGS_LOCK:
         settings = load_settings()
@@ -846,6 +1033,7 @@ async def api_locate(req: LocateRequest):
     return LocateResponse(
         point={"lat": lat, "lon": lon, "bearing": None},
         road={"skdf_name": names["skdf_name"], "full_name": names["full_name"],
+              "source": "СКДФ WFS",
               "distance_m": (road_info or {}).get("_distance_m"),
               "category": cat, "coating": coat,
               "start_km": sk if road_info else None,
@@ -855,8 +1043,161 @@ async def api_locate(req: LocateRequest):
     )
 
 # ========== ЗАКЛАДКИ: ЭНДПОИНТЫ ==========
+def _offline_nearest_response(lat: float, lon: float, radius: int, exclude_categories: list[int]) -> dict[str, Any]:
+    with _open_geo_index() as index:
+        nearest = index.nearest_road(lon, lat, max_distance_m=radius)
+    async_value = nearest
+    if async_value is None:
+        return LocateResponse(
+            point={"lat": lat, "lon": lon, "bearing": None},
+            road=None,
+            side=None,
+        ).model_dump()
+    km = nearest.get("km")
+    side = {
+        "side": None,
+        "side_unknown": True,
+        "perpendicular_m": round(nearest["distance_m"], 1),
+        "distance_m": round(nearest["distance_m"], 1),
+        "km_estimate": round(km, 3) if km is not None else None,
+        "km_provenance": nearest.get("km_provenance", "estimated from geometry"),
+        "source": nearest.get("source", "offline"),
+        "projected_lon": nearest.get("snapped_lon"),
+        "projected_lat": nearest.get("snapped_lat"),
+    }
+    geometry = nearest.get("geometry")
+    if geometry is None and nearest.get("coordinates") is not None:
+        geometry = {"type": "LineString", "coordinates": nearest["coordinates"]}
+    road = {
+        "skdf_name": nearest.get("name") or nearest.get("ref") or "Локальная дорога",
+        "full_name": nearest.get("name") or nearest.get("ref") or "Локальная дорога",
+        "source": nearest.get("source", "локальная база"),
+        "distance_m": side["distance_m"],
+        "category": "",
+        "coating": "",
+        "start_km": nearest.get("km_start"),
+        "finish_km": nearest.get("km_end"),
+        "geometry": geometry,
+        "source": nearest.get("source", "offline"),
+        "km_provenance": side["km_provenance"],
+        "category_filter_applied": not bool(exclude_categories),
+    }
+    return LocateResponse(
+        point={"lat": lat, "lon": lon, "bearing": None},
+        road=road,
+        side=side,
+    ).model_dump()
+
+
+async def _api_locate_offline(req: LocateRequest):
+    result = _offline_nearest_response(req.lat, req.lon, req.radius, req.exclude_categories)
+    async with _SETTINGS_LOCK:
+        settings = load_settings()
+        settings["last_point"] = {"lat": req.lat, "lon": req.lon}
+        save_settings(settings)
+    return result
+
+
+@app.get("/api/data-sources")
+async def data_sources():
+    db = _geo_database_path()
+    tiles = _mbtiles_path()
+    return {
+        "default_source": "local" if offline_mode_enabled() else "external",
+        "local_available": db.is_file(),
+        "local_tiles_available": tiles.is_file(),
+        "external_available": True,
+        "fully_offline_ready": False,
+        "note": "Local index and tile archive are separate generated datasets; missing local data will return an error, never fall back silently.",
+    }
+
+
+@app.get("/api/address/suggest")
+async def offline_address_suggest(
+    q: str = Query(default="", max_length=120),
+    settlement: str | None = Query(default=None, max_length=160),
+    street: str | None = Query(default=None, max_length=160),
+    limit: int = Query(default=10, ge=1, le=20),
+):
+    with _open_geo_index() as index:
+        results = index.suggest_context(q, settlement=settlement, street=street, limit=limit)
+    return {"suggestions": results}
+
+
+@app.get("/api/roads/search")
+async def offline_roads_search(
+    q: str | None = Query(default=None, max_length=160),
+    ref: str | None = Query(default=None, max_length=80),
+    km: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=10, ge=1, le=20),
+):
+    try:
+        with _open_geo_index() as index:
+            results = index.search_roads(q, ref=ref, km=km, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"roads": results}
+
+
+@app.post("/api/msk61/to-geographic")
+async def msk61_to_geographic(payload: MSK61ToGeographicPayload):
+    module = _msk61_module()
+    try:
+        result = module.msk61_to_latlon(payload.x, payload.y, zone=payload.zone, profile=payload.profile)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "lat": result.latitude,
+        "lon": result.longitude,
+        "zone": result.zone,
+        "profile": result.profile.value,
+        "status": result.status,
+        "warning": result.warning,
+        "requires_confirmation": True,
+        "can_place_on_map": result.profile.value == "gost_51794_2008",
+    }
+
+
+@app.post("/api/msk61/from-geographic")
+async def geographic_to_msk61(payload: GeographicToMSK61Payload):
+    module = _msk61_module()
+    try:
+        result = module.latlon_to_msk61(payload.lat, payload.lon, zone=payload.zone, profile=payload.profile)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "x": result.x,
+        "y": result.y,
+        "zone": result.zone,
+        "profile": result.profile.value,
+        "status": result.status,
+        "warning": result.warning,
+    }
+
+
+@app.get("/tiles/{z}/{x}/{y}.png", include_in_schema=False)
+async def offline_raster_tile(z: int, x: int, y: int):
+    if not (0 <= z <= 20 and 0 <= x < (1 << z) and 0 <= y < (1 << z)):
+        raise HTTPException(404, "tile not found")
+    path = _mbtiles_path()
+    if not path.is_file():
+        raise HTTPException(503, "Offline tile archive is not installed")
+    try:
+        with sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True) as connection:
+            row = connection.execute(
+                "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?",
+                (z, x, (1 << z) - 1 - y),
+            ).fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Offline tile archive is unreadable") from exc
+    if row is None:
+        raise HTTPException(404, "tile not found")
+    return Response(content=row[0], media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api/bookmarks")
 async def get_bookmarks():
+
     return load_bookmarks()
 
 @app.post("/api/bookmarks")
@@ -886,7 +1227,11 @@ async def boundary_geojson():
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return FileResponse(_STATIC_DIR / "index.html")
+    response = FileResponse(_STATIC_DIR / "index.html")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 if __name__ == "__main__":
     import uvicorn
