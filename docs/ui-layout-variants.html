@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Альбион: Локатор — варианты компоновки интерфейса</title>
+<style>
+  :root {
+    --ink: #14293f;
+    --muted: #6b7a88;
+    --line: #d9dee3;
+    --card: #ffffff;
+    --bg: #eef1f4;
+    --accent: #1a3a5c;
+    --accent-2: #2a5a8c;
+    --orange: #f28c28;
+    --green: #2f9e44;
+    --danger: #d64545;
+    --soft: #f6f8fa;
+    --radius: 8px;
+    --shadow: 0 12px 34px rgba(16, 39, 63, .16);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    padding: 28px 22px 70px;
+    background: #dfe4e8;
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .doc { max-width: 1260px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.02em; }
+  h2 { font-size: 21px; margin: 42px 0 8px; letter-spacing: -.01em; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+  p { margin: 6px 0; }
+  .lead { color: #40515f; font-size: 15px; max-width: 900px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .doc-nav {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 8px;
+    position: sticky; top: 0; z-index: 50; padding: 8px 0;
+    background: linear-gradient(#dfe4e8 80%, rgba(223,228,232,0));
+  }
+  .doc-nav a {
+    text-decoration: none; color: var(--accent); background: #fff;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px;
+    font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  }
+  .doc-nav a:hover { border-color: var(--accent); }
+
+  /* ===== каркас макета ===== */
+  .mockup {
+    margin: 16px 0 8px;
+    width: 1200px; max-width: 100%;
+    height: 720px;
+    display: flex; flex-direction: column;
+    background: #fff; border-radius: 10px; overflow: hidden;
+    box-shadow: var(--shadow); border: 1px solid #c9d1d8;
+    position: relative;
+  }
+  .mockup * { line-height: 1.25; }
+  .appbody { display: flex; flex: 1; min-height: 0; position: relative; }
+  .panel {
+    background: #fff; display: flex; flex-direction: column;
+    min-height: 0; flex: 0 0 auto; z-index: 3;
+  }
+  .panel.left { width: 318px; border-right: 1px solid var(--line); }
+  .panel.right { width: 322px; border-left: 1px solid var(--line); }
+  .panel.wide { width: 372px; border-right: 1px solid var(--line); }
+  .ph {
+    height: 42px; flex: 0 0 42px; background: var(--accent); color: #fff;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    font-size: 12.5px; font-weight: 650;
+  }
+  .ph .spacer { flex: 1; }
+  .ph button {
+    border: 0; background: rgba(255,255,255,.14); color: #fff;
+    border-radius: 5px; height: 26px; min-width: 26px; padding: 0 7px;
+    font-size: 12px; cursor: default;
+  }
+  .pane { padding: 10px 12px; overflow: hidden; flex: 1; min-height: 0; }
+  .pane.scroll { overflow-y: auto; }
+  .pane.scroll::-webkit-scrollbar { width: 7px; }
+  .pane.scroll::-webkit-scrollbar-thumb { background: #c6ced5; border-radius: 4px; }
+  .quick { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--soft); flex: 0 0 auto; }
+  .quick button, .tinybtn {
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border-radius: 5px; padding: 5px 7px; font-size: 11px; cursor: default;
+    white-space: nowrap;
+  }
+  .quick .grow { flex: 1; text-align: left; }
+
+  .tabs {
+    display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--line);
+    background: var(--soft); padding: 0 6px; gap: 2px;
+  }
+  .tabs span {
+    padding: 8px 9px 7px; font-size: 11.5px; color: var(--muted);
+    border-bottom: 2px solid transparent; white-space: nowrap; cursor: default;
+  }
+  .tabs span.active { color: var(--accent); border-bottom-color: var(--orange); font-weight: 650; }
+  .tabs .count { color: #97a3ad; font-weight: 400; }
+
+  .section-title {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 700; margin: 12px 0 5px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  label.fld { display: block; font-size: 10.5px; color: var(--muted); margin: 6px 0 3px; }
+  .input, .select {
+    width: 100%; height: 29px; border: 1px solid #c9d2da; border-radius: 5px;
+    background: #fff; color: var(--ink); padding: 0 8px; font-size: 11.5px;
+    display: flex; align-items: center; white-space: nowrap; overflow: hidden;
+  }
+  .input.ph-old { color: #8b98a4; }
+  .select::after { content: "⌄"; margin-left: auto; color: #7b8794; }
+  .row { display: flex; gap: 6px; align-items: stretch; }
+  .row > .input { flex: 1; }
+  .btn {
+    border: 0; border-radius: 5px; background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 600; padding: 7px 10px; cursor: default;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    white-space: nowrap;
+  }
+  .btn.orange { background: var(--orange); }
+  .btn.green { background: var(--green); }
+  .btn.gray { background: #6c7a86; }
+  .btn.ghost { background: #fff; color: var(--accent); border: 1px solid #bcc8d3; }
+  .btn.block { width: 100%; }
+  .btn.sm { padding: 5px 8px; font-size: 10.5px; }
+
+  .card {
+    border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    padding: 8px 9px; font-size: 11px;
+  }
+  .card + .card { margin-top: 6px; }
+  .card.soft { background: var(--soft); }
+  .card.green { background: #eaf6ec; border-color: #cbe5cf; }
+  .card.amber { background: #fff6e8; border-color: #f0d7ae; }
+  .card.blue { background: #eef5fb; border-color: #cfe1f1; }
+  .card .lead-line { font-weight: 650; font-size: 12px; }
+  .card .muted { font-size: 10.5px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; }
+  .pillrow { display: flex; gap: 5px; flex-wrap: wrap; }
+  .pill {
+    border: 1px solid #cfd8e0; background: #fff; border-radius: 999px;
+    font-size: 10.5px; padding: 3px 8px; color: #40515f; white-space: nowrap;
+  }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .divider { height: 1px; background: var(--line); margin: 9px 0; }
+  .mini-list { display: flex; flex-direction: column; gap: 4px; }
+  .mini-item {
+    display: flex; align-items: center; gap: 6px; font-size: 10.5px;
+    padding: 5px 6px; border-radius: 4px; background: var(--soft);
+  }
+  .mini-item .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* карта */
+  .map {
+    flex: 1; min-width: 0; position: relative; overflow: hidden;
+    background: #f1eee5;
+  }
+  .mapart { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .maplabel {
+    position: absolute; font-size: 9.5px; color: #7a6a55;
+    background: rgba(255,255,255,.72); padding: 1px 4px; border-radius: 3px;
+    white-space: nowrap;
+  }
+  .mapdot {
+    position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--orange); border: 3px solid #fff;
+    box-shadow: 0 1px 5px rgba(0,0,0,.4); transform: translate(-50%,-50%);
+  }
+  .mapdot.blue { background: var(--accent-2); }
+  .maptool {
+    position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column;
+    gap: 6px; z-index: 4;
+  }
+  .maptool button {
+    width: 28px; height: 28px; border: 1px solid #c6ced5; background: #fff;
+    border-radius: 5px; font-size: 14px; color: var(--ink); cursor: default;
+    box-shadow: 0 1px 4px rgba(0,0,0,.14);
+  }
+  .scalebar {
+    position: absolute; left: 12px; bottom: 10px; font-size: 9px; color: #5b6670;
+    background: rgba(255,255,255,.78); padding: 2px 5px; border-radius: 3px;
+  }
+
+  /* поиск поверх карты */
+  .mapsearch {
+    position: absolute; z-index: 5; left: 50%; transform: translateX(-50%);
+    top: 10px; width: 560px; max-width: calc(100% - 24px);
+    background: #fff; border: 1px solid #c6ced5; border-radius: 8px;
+    box-shadow: 0 6px 22px rgba(20,41,63,.22); overflow: hidden;
+  }
+  .mapsearch .mh {
+    display: flex; align-items: center; gap: 6px; padding: 7px 8px;
+    background: var(--soft); font-size: 11px; font-weight: 650;
+  }
+  .mapsearch .mh .spacer { flex: 1; }
+  .mapsearch .mb { padding: 8px; border-top: 1px solid var(--line); }
+  .mapsearch .modes { display: flex; gap: 4px; margin-bottom: 7px; flex-wrap: wrap; }
+
+  /* результаты поверх карты */
+  .float-result {
+    position: absolute; z-index: 5; top: 10px; right: 10px; width: 300px;
+    background: #fff; border: 1px solid #c6ced5; border-radius: 8px;
+    box-shadow: 0 8px 26px rgba(20,41,63,.24); overflow: hidden;
+  }
+  .float-result .frh {
+    display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+    background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 650;
+  }
+  .float-result .frb { padding: 8px 9px; }
+
+  /* нижняя панель */
+  .statusbar {
+    flex: 0 0 38px; height: 38px; background: #17324f; color: #dce7f2;
+    display: flex; align-items: center; gap: 6px; padding: 0 9px;
+    font-size: 10.5px; z-index: 10; border-top: 1px solid #0f2438;
+  }
+  .statusbar .seg {
+    display: flex; align-items: center; gap: 4px; padding: 4px 7px;
+    border-radius: 5px; white-space: nowrap;
+  }
+  .statusbar .seg.dot::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: #47c26b; box-shadow: 0 0 0 2px rgba(71,194,107,.2);
+  }
+  .statusbar .seg.dot.offline::before { background: #f0ad4e; box-shadow: 0 0 0 2px rgba(240,173,78,.2); }
+  .statusbar .sysbtn {
+    border: 0; background: transparent; color: #dce7f2; font-size: 11px;
+    padding: 5px 7px; border-radius: 5px; display: flex; align-items: center; gap: 4px;
+    cursor: default; white-space: nowrap;
+  }
+  .statusbar .sysbtn:hover { background: rgba(255,255,255,.1); }
+  .statusbar .sysbtn.active { background: rgba(242,140,40,.2); color: #ffd9ae; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .sep { width: 1px; height: 18px; background: rgba(255,255,255,.18); margin: 0 2px; }
+
+  /* верхняя панель для варианта D */
+  .topbar {
+    flex: 0 0 46px; height: 46px; background: #fff; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px; padding: 0 10px; z-index: 8;
+  }
+  .brand { font-weight: 750; color: var(--accent); font-size: 12.5px; white-space: nowrap; }
+  .modetabs { display: flex; gap: 2px; }
+  .modetabs span {
+    font-size: 11px; padding: 6px 9px; border-radius: 5px; color: var(--muted);
+    white-space: nowrap; cursor: default;
+  }
+  .modetabs span.active { background: #eaf0f6; color: var(--accent); font-weight: 700; }
+  .topbar .gsearch {
+    flex: 1; max-width: 310px; margin-left: auto; height: 28px; border: 1px solid #c9d2da;
+    background: var(--soft); border-radius: 999px; display: flex; align-items: center;
+    padding: 0 10px; font-size: 10.5px; color: #8b98a4;
+  }
+  .topbar .iconbtn {
+    width: 28px; height: 28px; border: 1px solid var(--line); background: #fff;
+    border-radius: 5px; color: var(--ink); cursor: default; font-size: 12px;
+  }
+  .userchip {
+    display: flex; align-items: center; gap: 5px; font-size: 10.5px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px 3px 4px;
+    white-space: nowrap;
+  }
+  .avatar {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+  }
+
+  /* левый icon rail */
+  .rail {
+    flex: 0 0 48px; width: 48px; background: var(--accent); color: #fff;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 0; z-index: 6;
+  }
+  .rail .ricon {
+    width: 36px; height: 36px; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center; font-size: 16px; cursor: default;
+    position: relative;
+  }
+  .rail .ricon:hover, .rail .ricon.active { background: rgba(255,255,255,.16); }
+  .rail .ricon.active::before {
+    content: ""; position: absolute; left: -6px; top: 7px; bottom: 7px;
+    width: 3px; border-radius: 2px; background: var(--orange);
+  }
+  .rail .spacer { flex: 1; }
+
+  /* нижний док */
+  .dock {
+    flex: 0 0 46px; height: 46px; background: #17324f; color: #e4edf6;
+    display: flex; align-items: center; padding: 0 8px; gap: 3px; z-index: 11;
+    border-top: 1px solid #0f2438;
+  }
+  .dock .dbtn {
+    display: flex; align-items: center; gap: 5px; border: 0; background: transparent;
+    color: inherit; font-size: 10.5px; padding: 6px 8px; border-radius: 6px;
+    cursor: default; white-space: nowrap;
+  }
+  .dock .dbtn:hover, .dock .dbtn.active { background: rgba(255,255,255,.12); }
+  .dock .dbtn.active { color: #ffd9ae; box-shadow: inset 0 -2px 0 var(--orange); }
+  .dock .dstatus { display: flex; gap: 5px; align-items: center; font-size: 10px; color: #b9cbe0; }
+  .drawer {
+    flex: 0 0 250px; height: 250px; background: #fff; border-top: 1px solid var(--line);
+    display: flex; z-index: 10; box-shadow: 0 -6px 22px rgba(20,41,63,.12);
+  }
+  .drawer .dcol {
+    width: 25%; padding: 10px 12px; border-right: 1px solid var(--line);
+    overflow: hidden; min-width: 0;
+  }
+  .drawer .dcol:last-child { border-right: 0; }
+  .drawer .dcol h4 {
+    margin: 0 0 7px; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted);
+  }
+
+  /* аннотации вариантов */
+  .variant-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 34px; }
+  .variant-head h2 { margin: 0; }
+  .tag {
+    font-size: 11px; font-weight: 700; border-radius: 999px; padding: 3px 9px;
+    background: #e7eef6; color: var(--accent);
+  }
+  .tag.good { background: #e6f4e9; color: #26753b; }
+  .tag.warn { background: #fff1df; color: #9a5a12; }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0 4px; }
+  .box {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  }
+  .box h3 { font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .box ul { margin: 6px 0 0; padding-left: 18px; }
+  .box li { margin: 3px 0; }
+  .box.pros { border-top: 3px solid var(--green); }
+  .box.cons { border-top: 3px solid #d64545; }
+  .box.neutral { border-top: 3px solid var(--orange); }
+
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-size: 12.5px; }
+  th { background: #f3f6f9; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .yes { color: #26753b; font-weight: 700; }
+  .no { color: #b23b3b; font-weight: 700; }
+
+  .note {
+    border-left: 4px solid var(--orange); background: #fff8ee; padding: 10px 14px;
+    border-radius: 0 6px 6px 0; margin: 14px 0;
+  }
+  .note.blue { border-left-color: var(--accent-2); background: #eef5fb; }
+  code { background: #eef1f4; padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+  .footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 900px) {
+    body { padding: 14px 8px 40px; }
+    .mockup { height: auto; min-height: 620px; }
+    .cols2 { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .mockup { box-shadow: none; }
+    .doc-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <h1>Альбион: Локатор — варианты компоновки интерфейса</h1>
+  <p class="lead">
+    Четыре схемы перераспределения элементов между левым и правым фреймами, картой и нижней панелью.
+    Цель — убрать дублирование, сократить вертикальную прокрутку и держать основные действия в пределах
+    одного экрана 1366×768 / 1440×900.
+  </p>
+
+  <nav class="doc-nav">
+    <a href="#audit">Аудит</a>
+    <a href="#var-a">A · Два фрейма + статус-бар</a>
+    <a href="#var-b">B · Один фрейм + вкладки</a>
+    <a href="#var-c">C · Нижний док</a>
+    <a href="#var-d">D · Режимы + rail</a>
+    <a href="#compare">Сравнение</a>
+    <a href="#settings">Что в настройки</a>
+    <a href="#recommend">Рекомендация</a>
+  </nav>
+
+  <!-- ================= АУДИТ ================= -->
+  <h2 id="audit">1. Что есть сейчас и почему не помещается</h2>
+  <p>
+    Сейчас левый фрейм (360&nbsp;px) — это одна длинная колонка из 10 блоков, правый (320&nbsp;px) —
+    ещё одна колонка из результатов, поиска и настроек. Одни и те же элементы встречаются дважды:
+    поиск адреса/координат/дороги/МСК есть и слева, и в правом фрейме; настройки автоскриншота,
+    контура, темы и аккаунта — и в правом фрейме, и в модальном окне.
+  </p>
+
+  <div class="cols2">
+    <div class="box cons">
+      <h3>Проблемы</h3>
+      <ul>
+        <li>Левый фрейм прокручивается на 2–3 экрана: загрузка фото, координаты, источники, адрес, дороги, МСК, история, закладки.</li>
+        <li>Правый фрейм тоже прокручивается: результат + поиск + все настройки + аккаунт + пользователи.</li>
+        <li>Дублирование поисковых форм и настроек.</li>
+        <li>Пользователи и смена пароля видны в рабочей панели, хотя нужны редко.</li>
+        <li>Кнопки «Сохранить все настройки» и «Сохранить логин/пароль» конкурируют за внимание.</li>
+        <li>Карта получает лишь ~50% ширины на ноутбуке.</li>
+      </ul>
+    </div>
+    <div class="box pros">
+      <h3>Инвентаризация элементов</h3>
+      <ul>
+        <li><b>Частые:</b> поиск (адрес / координаты / дорога+км / МСК), результат по дороге, фото, точка, история, закладки, скриншот.</li>
+        <li><b>Средние:</b> радиус поиска, «только основные дороги», источник данных, подложка, контур области, тема.</li>
+        <li><b>Редкие:</b> автоскриншот (задержка, каталог), аккаунт, смена пароля, управление пользователями, пакетная обработка.</li>
+        <li><b>Служебные:</b> статус источника, статус папки, горячие клавиши, справка.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note blue">
+    <b>Общий принцип для всех вариантов:</b> в рабочей области остаются только частые действия;
+    всё редкое уезжает в модальные «Настройки» с разделами; длинные списки (история, закладки,
+    пользователи) получают собственную внутреннюю прокрутку фиксированной высоты, а не растягивают панель.
+  </div>
+
+  <!-- ================= ВАРИАНТ A ================= -->
+  <div class="variant-head" id="var-a">
+    <h2>Вариант A — два фрейма + нижний статус-бар</h2>
+    <span class="tag good">минимум переделок</span>
+    <span class="tag">рекомендуется как 1-й шаг</span>
+  </div>
+  <p class="muted">
+    Сохраняем привычные левый и правый фреймы, но разгружаем их: слева — вкладки «Точка / История / Закладки»,
+    справа — только результат и параметры поиска. Все настройки — в модальном окне. Внизу — общая
+    статус-панель с состоянием источников и быстрыми кнопками.
+  </p>
+
+  <div class="mockup" id="mock-a">
+    <div class="appbody">
+      <!-- левый фрейм -->
+      <div class="panel left">
+        <div class="ph"><span>🗺️ АЛЬБИОН</span><span class="spacer"></span><button>◀</button></div>
+        <div class="quick">
+          <button class="grow">📍 Ростовская обл.</button>
+          <button>❓</button>
+          <button>📦</button>
+        </div>
+        <div class="pane" style="padding-bottom:6px; flex:0 0 auto;">
+          <div class="card blue" style="display:flex;align-items:center;gap:8px;padding:7px 8px;">
+            <span style="font-size:16px;">📷</span>
+            <div style="flex:1;">
+              <div style="font-weight:650;">Загрузить фото</div>
+              <div class="muted">Перетащите или кликните · EXIF</div>
+            </div>
+            <button class="btn sm">Выбрать</button>
+          </div>
+        </div>
+        <div class="tabs">
+          <span class="active">Точка</span>
+          <span>История <span class="count">10</span></span>
+          <span>Закладки <span class="count">3</span></span>
+        </div>
+        <div class="pane scroll">
+          <div class="section-title">Координаты</div>
+          <div class="row">
+            <div class="input mono">47.23, 39.72</div>
+            <button class="btn">🔍</button>
+          </div>
+          <div class="muted small" style="margin-top:3px;">Градусы через запятую или пробел</div>
+
+          <div class="section-title">Выбранная точка</div>
+          <div class="card green">
+            <div class="kv"><span class="mono">48.850440</span><span class="mono">40.421392</span></div>
+            <div class="muted" style="margin-top:3px;">МСК-61, зона 2: X 602187 · Y 2258869</div>
+            <div class="mono" style="margin-top:3px;color:#26753b;">М-4 «Дон» · 915+000 · справа</div>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <button class="btn ghost block sm">📋 Копировать</button>
+            <button class="btn gray block sm">🗑 Очистить</button>
+          </div>
+
+          <div class="section-title">Быстрый переход</div>
+          <div class="pillrow">
+            <span class="pill active">Дорога + км</span>
+            <span class="pill">WGS84</span>
+            <span class="pill">МСК-61</span>
+            <span class="pill">Адрес</span>
+          </div>
+          <div class="hint small muted" style="margin-top:5px;">Открывает поиск в правом фрейме, не меняя вкладку.</div>
+
+          <div class="section-title">Последние действия</div>
+          <div class="mini-list">
+            <div class="mini-item"><span>🛣️</span><span class="mono">М-4 · 915+000</span><span style="margin-left:auto;" class="muted">20:51</span></div>
+            <div class="mini-item"><span>📍</span><span class="mono">48.863351, 40.431819</span><span style="margin-left:auto;" class="muted">20:51</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- карта -->
+      <div class="map">
+        <svg class="mapart" viewBox="0 0 900 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <rect width="900" height="640" fill="#f1eee5"/>
+          <g opacity=".55" fill="#dfe8d2">
+            <rect x="80" y="120" width="120" height="90" rx="8"/>
+            <rect x="560" y="380" width="180" height="120" rx="8"/>
+            <rect x="330" y="480" width="130" height="90" rx="8"/>
+            <rect x="700" y="90" width="150" height="80" rx="8"/>
+          </g>
+          <path d="M-20,110 C150,150 290,70 430,110 S700,150 920,90" stroke="#a9cfe3" stroke-width="22" fill="none" opacity=".85"/>
+          <path d="M-20,110 C150,150 290,70 430,110 S700,150 920,90" stroke="#c7e2ef" stroke-width="10" fill="none"/>
+          <g stroke="#ffffff" stroke-width="3" fill="none" opacity=".9">
+            <path d="M0,210 L900,240"/><path d="M0,300 L900,330"/><path d="M0,390 L900,420"/>
+            <path d="M120,0 L140,640"/><path d="M300,0 L320,640"/><path d="M480,0 L500,640"/><path d="M660,0 L680,640"/><path d="M820,0 L840,640"/>
+          </g>
+          <path d="M-20,470 C160,430 300,500 460,440 S720,380 920,430" stroke="#e9c06a" stroke-width="9" fill="none"/>
+          <path d="M180,0 L220,150 L200,300 L260,470 L230,640" stroke="#e9c06a" stroke-width="7" fill="none"/>
+          <path d="M430,0 L450,130 L520,230 L540,370 L610,480 L620,640" stroke="#e9c06a" stroke-width="6" fill="none"/>
+          <path d="M0,540 C180,520 320,560 500,530 S760,500 920,540" stroke="#e2a94f" stroke-width="12" fill="none" opacity=".55"/>
+          <g fill="#c9d3c0"><circle cx="380" cy="270" r="4"/><circle cx="700" cy="300" r="4"/><circle cx="240" cy="430" r="4"/><circle cx="610" cy="220" r="4"/></g>
+        </svg>
+        <span class="maplabel" style="left:52%;top:34%;">Ростов-на-Дону</span>
+        <span class="maplabel" style="left:68%;top:18%;">Аксай</span>
+        <span class="maplabel" style="left:22%;top:64%;">Батайск</span>
+        <span class="maplabel" style="left:46%;top:52%;">М-4 «Дон»</span>
+        <span class="maplabel" style="left:74%;top:70%;">Новочеркасск</span>
+        <div class="mapdot" style="left:57%;top:46%;"></div>
+        <div class="scalebar">2 км</div>
+        <div class="maptool"><button>+</button><button>−</button><button>⌂</button></div>
+
+        <div class="mapsearch">
+          <div class="mh"><span>🔎 Поиск</span><span class="spacer"></span><span class="muted" style="font-weight:400;">Ростовская область</span><button class="tinybtn">⌃</button></div>
+          <div class="mb">
+            <div class="modes">
+              <span class="pill">Адрес</span>
+              <span class="pill active">Дорога + км</span>
+              <span class="pill">Координаты</span>
+              <span class="pill">МСК-61</span>
+            </div>
+            <div class="row">
+              <div class="input ph-old">М-4 Дон, Р-280, 60К-80…</div>
+              <button class="btn">Найти</button>
+            </div>
+            <div class="row" style="margin-top:5px;">
+              <div class="input mono" style="max-width:110px;">915+000</div>
+              <button class="btn orange sm">Перейти</button>
+              <span class="muted small" style="align-self:center;">М-4 · Россия, Ростовская обл.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- правый фрейм -->
+      <div class="panel right">
+        <div class="ph"><span>🛣️ Дорога / км</span><span class="spacer"></span><button>⚙</button></div>
+        <div class="tabs">
+          <span class="active">Результат</span>
+          <span>Параметры</span>
+          <span>Слои</span>
+        </div>
+        <div class="pane scroll">
+          <div class="card soft" style="border-left:3px solid var(--accent-2);">
+            <div class="muted" style="font-style:italic;">Источник: СКДФ WFS</div>
+            <div style="font-weight:700;font-size:12.5px;margin-top:3px;">М-4 «Дон»</div>
+            <div class="small" style="margin-top:2px;">Москва – Воронеж – Ростов-на-Дону – Краснодар – Новороссийск</div>
+            <div class="divider"></div>
+            <div class="kv"><span class="mono" style="font-size:14px;font-weight:700;">915 км + 0 м</span><span class="muted">справа</span></div>
+            <div class="muted" style="margin-top:2px;">0 м до оси дороги</div>
+            <div class="row" style="margin-top:7px;">
+              <button class="btn" style="flex:1;">📸 Скриншот</button>
+              <button class="btn green" style="flex:1;">📋 Копировать</button>
+            </div>
+          </div>
+
+          <div class="section-title">Радиус поиска</div>
+          <div class="row">
+            <div class="input mono" style="max-width:90px;">2000</div>
+            <span class="muted small" style="align-self:center;">м</span>
+            <label class="small" style="margin-left:auto;display:flex;align-items:center;gap:5px;">
+              <span style="width:12px;height:12px;border:1px solid #98a6b3;border-radius:3px;background:var(--accent);display:inline-block;"></span>
+              только основные
+            </label>
+          </div>
+
+          <div class="section-title">Официальный километр</div>
+          <div class="row">
+            <div class="input mono">915+000</div>
+            <button class="btn orange sm">Перейти</button>
+          </div>
+          <input type="range" min="0" max="100" value="48" style="width:100%;accent-color:var(--accent);margin:6px 0 0;">
+          <div class="muted small">Участок в Ростовской области: 826 км + 300 м — 1154 км + 500 м</div>
+
+          <div class="divider"></div>
+          <div class="card amber">
+            <div style="font-weight:650;">⚠️ Координата предварительная</div>
+            <div class="muted" style="margin-top:2px;">МСК-61, зона 2. Не использовать как кадастровую без контрольной точки.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- статус-бар -->
+    <div class="statusbar">
+      <span class="seg dot">СКДФ: онлайн</span>
+      <span class="seg">🗺️ OSM</span>
+      <span class="sep"></span>
+      <span class="seg mono">48.850440, 40.421392</span>
+      <span class="seg">МСК-61 · з.2</span>
+      <span class="spacer"></span>
+      <span class="seg">💾 screenshots</span>
+      <span class="sep"></span>
+      <button class="sysbtn">📷 Фото</button>
+      <button class="sysbtn">📸 Скриншот</button>
+      <button class="sysbtn">🌙 Тема</button>
+      <button class="sysbtn">❓</button>
+      <button class="sysbtn active">⚙ Настройки</button>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div class="box pros">
+      <h3>Плюсы</h3>
+      <ul>
+        <li>Минимальная переделка HTML/CSS: фреймы и их логика сохраняются.</li>
+        <li>Каждый фрейм получает фиксированную высоту и собственные вкладки — длинной прокрутки нет.</li>
+        <li>Настройки и администрирование полностью уходят из рабочей области.</li>
+        <li>Статус-бар снимает с фреймов служебную информацию (источник, папка, тема, справка).</li>
+        <li>Легко внедрять поэтапно: сначала статус-бар, потом вкладки.</li>
+      </ul>
+    </div>
+    <div class="box cons">
+      <h3>Минусы</h3>
+      <ul>
+        <li>Карта всё ещё ограничена двумя панелями (~640 px на 1366 px экране).</li>
+        <li>Поиск остаётся в правом фрейме и конкурирует с результатом за высоту.</li>
+        <li>Нужно решить, что делать на узких экранах: панели становятся overlay.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= ВАРИАНТ B ================= -->
+  <div class="variant-head" id="var-b">
+    <h2>Вариант B — один левый фрейм с вкладками, результат поверх карты</h2>
+    <span class="tag good">максимум карты</span>
+    <span class="tag warn">средняя переделка</span>
+  </div>
+  <p class="muted">
+    Убираем правый фрейм. Всё, что связано с поиском, живёт в одном левом фрейме с вкладками;
+    результат по дороге становится плавающей карточкой в правом верхнем углу карты и сворачивается
+    в компактную плашку. Настройки — в модальном окне, снизу — статус-бар.
+  </p>
+
+  <div class="mockup" id="mock-b">
+    <div class="appbody">
+      <div class="panel wide">
+        <div class="ph"><span>🗺️ АЛЬБИОН: Локатор</span><span class="spacer"></span><button>📷</button><button>◀</button></div>
+        <div class="tabs">
+          <span class="active">Поиск</span>
+          <span>Точка</span>
+          <span>История</span>
+          <span>Закладки</span>
+        </div>
+        <div class="pane scroll">
+          <div class="modes" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
+            <span class="pill">Адрес</span>
+            <span class="pill active">Дорога + км</span>
+            <span class="pill">Координаты</span>
+            <span class="pill">МСК-61</span>
+          </div>
+
+          <label class="fld">Трасса, дорога или код</label>
+          <div class="input ph-old">М-4 Дон, Р-280, 60К-80…</div>
+          <div class="mini-list" style="margin-top:5px;">
+            <div class="mini-item" style="background:#eaf0f6;"><span>🛣️</span><b>М-4 «Дон»</b><span class="muted">Ростовская обл.</span></div>
+            <div class="mini-item"><span>🛣️</span>Р-280 «Новороссия»</div>
+            <div class="mini-item"><span>🛣️</span>60К-80</div>
+          </div>
+          <div class="muted small" style="margin-top:4px;">Только трассы и дороги Ростовской области.</div>
+
+          <div class="section-title">Километр</div>
+          <div class="row">
+            <div class="input mono">915+000</div>
+            <button class="btn orange">Перейти</button>
+          </div>
+          <input type="range" min="0" max="100" value="48" style="width:100%;accent-color:var(--accent);margin:7px 0 0;">
+          <div class="muted small">826 км + 300 м — 1154 км + 500 м по официальному километражу</div>
+
+          <div class="divider"></div>
+          <div class="section-title">Параметры</div>
+          <div class="kv"><span class="muted small">Радиус поиска</span><span class="mono">2000 м</span></div>
+          <div class="kv"><span class="muted small">Только основные дороги</span><span>✓</span></div>
+          <div class="kv"><span class="muted small">Источник</span><span>СКДФ онлайн</span></div>
+          <div class="kv"><span class="muted small">Подложка</span><span>OSM онлайн</span></div>
+
+          <div class="divider"></div>
+          <div class="section-title">Быстрые действия</div>
+          <div class="row">
+            <button class="btn ghost block sm">📍 РО</button>
+            <button class="btn ghost block sm">📦 Пакетно</button>
+            <button class="btn ghost block sm">❓</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="map">
+        <svg class="mapart" viewBox="0 0 1080 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <rect width="1080" height="640" fill="#f1eee5"/>
+          <g opacity=".5" fill="#dfe8d2">
+            <rect x="120" y="140" width="160" height="100" rx="8"/>
+            <rect x="640" y="400" width="220" height="140" rx="8"/>
+            <rect x="420" y="500" width="140" height="80" rx="8"/>
+            <rect x="850" y="100" width="170" height="90" rx="8"/>
+          </g>
+          <path d="M-20,100 C180,150 340,60 520,110 S800,150 1100,80" stroke="#a9cfe3" stroke-width="26" fill="none" opacity=".85"/>
+          <path d="M-20,100 C180,150 340,60 520,110 S800,150 1100,80" stroke="#c7e2ef" stroke-width="11" fill="none"/>
+          <g stroke="#fff" stroke-width="3" fill="none" opacity=".9">
+            <path d="M0,200 L1080,240"/><path d="M0,300 L1080,340"/><path d="M0,400 L1080,440"/><path d="M0,510 L1080,540"/>
+            <path d="M160,0 L185,640"/><path d="M360,0 L380,640"/><path d="M560,0 L585,640"/><path d="M760,0 L785,640"/><path d="M950,0 L970,640"/>
+          </g>
+          <path d="M-20,470 C200,430 360,510 560,450 S860,390 1100,440" stroke="#e9c06a" stroke-width="10" fill="none"/>
+          <path d="M220,0 L260,160 L240,320 L300,470 L270,640" stroke="#e9c06a" stroke-width="8" fill="none"/>
+          <path d="M520,0 L540,140 L620,250 L650,390 L720,480 L735,640" stroke="#e9c06a" stroke-width="7" fill="none"/>
+        </svg>
+        <span class="maplabel" style="left:46%;top:32%;">Ростов-на-Дону</span>
+        <span class="maplabel" style="left:70%;top:22%;">Аксай</span>
+        <span class="maplabel" style="left:18%;top:66%;">Батайск</span>
+        <span class="maplabel" style="left:40%;top:52%;">М-4 «Дон»</span>
+        <span class="maplabel" style="left:76%;top:72%;">Новочеркасск</span>
+        <div class="mapdot" style="left:55%;top:45%;"></div>
+        <div class="maptool"><button>+</button><button>−</button><button>⌂</button></div>
+        <div class="scalebar">2 км</div>
+
+        <div class="float-result">
+          <div class="frh"><span>🛣️ М-4 «Дон» · 915+000</span><span class="spacer" style="flex:1;"></span><span style="font-weight:400;">⌃</span></div>
+          <div class="frb">
+            <div class="kv"><span class="muted small">Ближайшая дорога</span><span class="muted small">СКДФ WFS</span></div>
+            <div style="font-weight:700;margin-top:3px;">915 км + 0 м · справа</div>
+            <div class="muted small">0 м до оси · Ростовская область</div>
+            <div class="row" style="margin-top:7px;">
+              <button class="btn sm" style="flex:1;">📸 Скриншот</button>
+              <button class="btn green sm" style="flex:1;">📋 Копировать</button>
+            </div>
+            <div class="divider"></div>
+            <div class="kv"><span class="muted small">Координаты</span><span class="mono small">48.850440, 40.421392</span></div>
+            <div class="kv"><span class="muted small">МСК-61, з.2</span><span class="mono small">602187 · 2258869</span></div>
+            <div class="muted small" style="margin-top:4px;">⚠️ Координата предварительная</div>
+          </div>
+        </div>
+        <div style="position:absolute;right:10px;bottom:10px;background:#fff;border:1px solid #c6ced5;border-radius:999px;padding:5px 11px;font-size:10.5px;box-shadow:0 3px 10px rgba(0,0,0,.16);">🛣️ Результат свёрнут</div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="seg dot">СКДФ: онлайн</span>
+      <span class="seg">🗺️ OSM</span>
+      <span class="sep"></span>
+      <span class="seg mono">48.850440, 40.421392</span>
+      <span class="seg">МСК-61 · з.2</span>
+      <span class="spacer"></span>
+      <button class="sysbtn">📷 Фото</button>
+      <button class="sysbtn">📸 Скриншот</button>
+      <button class="sysbtn">📦 Пакетно</button>
+      <button class="sysbtn">❓</button>
+      <button class="sysbtn active">⚙ Настройки</button>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div class="box pros">
+      <h3>Плюсы</h3>
+      <ul>
+        <li>Карта занимает ~80% ширины — лучший вариант для работы с точками.</li>
+        <li>Один вход в поиск, никакого дублирования форм.</li>
+        <li>Результат всегда рядом с точкой и не занимает постоянную колонку.</li>
+        <li>Настройки полностью вынесены в модальное окно.</li>
+        <li>Хорошо масштабируется на 1366×768 и на планшет.</li>
+      </ul>
+    </div>
+    <div class="box cons">
+      <h3>Минусы</h3>
+      <ul>
+        <li>Плавающая карточка может перекрывать нужный участок карты; нужен drag/сворачивание.</li>
+        <li>Привычное место результата меняется — потребуется обучение.</li>
+        <li>Нужно перенести логику результатов из правого фрейма в overlay.</li>
+        <li>На узких экранах карточка должна автоматически превращаться в нижний sheet.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= ВАРИАНТ C ================= -->
+  <div class="variant-head" id="var-c">
+    <h2>Вариант C — карта на весь экран + нижний рабочий док</h2>
+    <span class="tag">самый компактный</span>
+    <span class="tag warn">больше всего JS</span>
+  </div>
+  <p class="muted">
+    Боковых фреймов нет вообще. Снизу — рабочий док с иконками разделов; нажатие раскрывает
+    панель-дровер над доком (высота ~250 px), где разделы разложены горизонтально в колонки.
+    Результат — плавающая карточка. Всё, что не поместилось, открывается в модальном окне.
+  </p>
+
+  <div class="mockup" id="mock-c">
+    <div class="topbar" style="flex:0 0 40px;height:40px;">
+      <span class="brand">🗺️ АЛЬБИОН</span>
+      <span class="muted small" style="margin-left:6px;">Локатор · Autonom v5.0</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="userchip"><span class="avatar">А</span>админ_альбион_2026</span>
+      <button class="iconbtn">🌙</button>
+      <button class="iconbtn">⚙</button>
+    </div>
+
+    <div class="appbody">
+      <div class="map">
+        <svg class="mapart" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <rect width="1200" height="500" fill="#f1eee5"/>
+          <g opacity=".5" fill="#dfe8d2">
+            <rect x="100" y="100" width="180" height="90" rx="8"/>
+            <rect x="700" y="300" width="240" height="120" rx="8"/>
+            <rect x="430" y="360" width="150" height="80" rx="8"/>
+            <rect x="930" y="70" width="180" height="90" rx="8"/>
+          </g>
+          <path d="M-20,90 C200,140 380,50 580,100 S900,140 1220,70" stroke="#a9cfe3" stroke-width="28" fill="none" opacity=".85"/>
+          <path d="M-20,90 C200,140 380,50 580,100 S900,140 1220,70" stroke="#c7e2ef" stroke-width="12" fill="none"/>
+          <g stroke="#fff" stroke-width="3" fill="none" opacity=".9">
+            <path d="M0,180 L1200,210"/><path d="M0,280 L1200,310"/><path d="M0,380 L1200,400"/>
+            <path d="M150,0 L175,500"/><path d="M380,0 L400,500"/><path d="M620,0 L645,500"/><path d="M860,0 L885,500"/><path d="M1060,0 L1080,500"/>
+          </g>
+          <path d="M-20,360 C220,320 400,400 620,340 S950,290 1220,340" stroke="#e9c06a" stroke-width="10" fill="none"/>
+          <path d="M240,0 L280,140 L260,280 L320,400 L290,500" stroke="#e9c06a" stroke-width="8" fill="none"/>
+          <path d="M600,0 L620,120 L700,230 L730,350 L800,440 L815,500" stroke="#e9c06a" stroke-width="7" fill="none"/>
+        </svg>
+        <span class="maplabel" style="left:48%;top:33%;">Ростов-на-Дону</span>
+        <span class="maplabel" style="left:71%;top:22%;">Аксай</span>
+        <span class="maplabel" style="left:20%;top:62%;">Батайск</span>
+        <span class="maplabel" style="left:42%;top:52%;">М-4 «Дон»</span>
+        <span class="maplabel" style="left:76%;top:64%;">Новочеркасск</span>
+        <div class="mapdot" style="left:57%;top:43%;"></div>
+        <div class="maptool"><button>+</button><button>−</button><button>⌂</button></div>
+        <div class="scalebar">2 км</div>
+
+        <div class="float-result" style="top:10px;">
+          <div class="frh"><span>🛣️ Дорога / км</span><span class="spacer" style="flex:1;"></span><span style="font-weight:400;">⌃</span></div>
+          <div class="frb">
+            <div class="kv"><span class="muted small">М-4 «Дон»</span><span class="muted small">СКДФ WFS</span></div>
+            <div style="font-weight:700;font-size:13px;margin-top:3px;">915 км + 0 м</div>
+            <div class="muted small">0 м до оси · справа по ходу</div>
+            <div class="row" style="margin-top:7px;">
+              <button class="btn sm" style="flex:1;">📸 Скриншот</button>
+              <button class="btn green sm" style="flex:1;">📋 Копировать</button>
+            </div>
+            <div class="divider"></div>
+            <div class="kv"><span class="muted small">Координаты</span><span class="mono small">48.850440, 40.421392</span></div>
+            <div class="kv"><span class="muted small">МСК-61, з.2</span><span class="mono small">602187 · 2258869</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- раскрытый док -->
+    <div class="drawer">
+      <div class="dcol" style="width:31%;">
+        <h4>🔎 Поиск</h4>
+        <div class="modes" style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
+          <span class="pill">Адрес</span>
+          <span class="pill active">Дорога + км</span>
+          <span class="pill">Координаты</span>
+        </div>
+        <div class="input ph-old">М-4 Дон, Р-280…</div>
+        <div class="row" style="margin-top:5px;">
+          <div class="input mono" style="max-width:105px;">915+000</div>
+          <button class="btn orange sm">Перейти</button>
+        </div>
+        <div class="muted small" style="margin-top:5px;">М-4 «Дон» · 826+300 — 1154+500</div>
+        <input type="range" min="0" max="100" value="48" style="width:100%;accent-color:var(--accent);margin-top:5px;">
+      </div>
+      <div class="dcol" style="width:25%;">
+        <h4>📍 Точка</h4>
+        <div class="card green">
+          <div class="mono">48.850440</div>
+          <div class="mono">40.421392</div>
+          <div class="muted small" style="margin-top:3px;">МСК-61 з.2: 602187 · 2258869</div>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <button class="btn ghost block sm">📋</button>
+          <button class="btn gray block sm">🗑</button>
+        </div>
+        <div class="muted small" style="margin-top:6px;">Двойной клик — точка.<br>Правый клик + тянуть — скриншот.</div>
+      </div>
+      <div class="dcol" style="width:23%;">
+        <h4>🕒 История</h4>
+        <div class="mini-list">
+          <div class="mini-item"><span class="mono">48.85044, 40.42139</span><span class="muted">20:51</span></div>
+          <div class="mini-item"><span class="mono">48.863351, 40.431819</span><span class="muted">20:51</span></div>
+          <div class="mini-item"><span class="mono">48.863392, 40.431852</span><span class="muted">20:51</span></div>
+          <div class="mini-item"><span class="mono">48.863432, 40.431885</span><span class="muted">20:51</span></div>
+        </div>
+      </div>
+      <div class="dcol" style="width:21%;">
+        <h4>⭐ Закладки</h4>
+        <div class="mini-item"><span>⭐</span><b>13</b><span class="mono">46.7721, 40.4221</span></div>
+        <div class="row" style="margin-top:6px;">
+          <div class="input" style="height:26px;">Имя закладки</div>
+          <button class="btn green sm">＋</button>
+        </div>
+        <div class="muted small" style="margin-top:6px;">Хранятся на сервере, доступны с других устройств.</div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <button class="dbtn active">🔎 Поиск</button>
+      <button class="dbtn">📍 Точка</button>
+      <button class="dbtn">🕒 История</button>
+      <button class="dbtn">⭐ Закладки</button>
+      <button class="dbtn">📷 Фото</button>
+      <span class="sep" style="width:1px;height:20px;background:rgba(255,255,255,.18);margin:0 4px;"></span>
+      <button class="dbtn">📦 Пакетно</button>
+      <button class="dbtn">📸 Скриншот</button>
+      <span style="flex:1;"></span>
+      <span class="dstatus"><span class="seg dot" style="padding:0;">СКДФ онлайн</span> · OSM · МСК-61 з.2 · 48.850440, 40.421392</span>
+      <button class="dbtn">⚙</button>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div class="box pros">
+      <h3>Плюсы</h3>
+      <ul>
+        <li>Карта занимает всю площадь — идеально для визуального поиска.</li>
+        <li>Одна нижняя полоса концентрирует все переходы; рабочая панель появляется только по запросу.</li>
+        <li>Хорошо работает на 1366×768 и на широких мониторах.</li>
+        <li>Док легко расширять новыми разделами (слои, измерения, печать).</li>
+        <li>Меньше постоянного визуального шума.</li>
+      </ul>
+    </div>
+    <div class="box cons">
+      <h3>Минусы</h3>
+      <ul>
+        <li>Самый большой объём переверстки и JS: док, дровер, состояния.</li>
+        <li>Дровер закрывает нижнюю треть карты — нужен автоскрытие.</li>
+        <li>Горизонтальные колонки хуже читаются на узких экранах.</li>
+        <li>Пользователю нужно привыкнуть, что панелей нет постоянно.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= ВАРИАНТ D ================= -->
+  <div class="variant-head" id="var-d">
+    <h2>Вариант D — верхние режимы + левый icon rail</h2>
+    <span class="tag">масштабируется на роли</span>
+    <span class="tag warn">самая большая переделка</span>
+  </div>
+  <p class="muted">
+    Приложение делится на рабочие пространства: «Локатор», «Дороги и км», «Пакетная обработка»,
+    «Администрирование». Верхняя панель переключает режим, левый узкий rail — инструменты,
+    рядом с rail — контекстная панель. Правая колонка с результатом появляется только в режиме
+    «Дороги и км». Снизу — тонкая строка состояния.
+  </p>
+
+  <div class="mockup" id="mock-d">
+    <div class="topbar">
+      <span class="brand">🗺️ АЛЬБИОН</span>
+      <div class="modetabs">
+        <span>Локатор</span>
+        <span class="active">Дороги и км</span>
+        <span>Пакетная</span>
+        <span>Админ</span>
+      </div>
+      <div class="gsearch">🔎 Населённый пункт, улица, дом…</div>
+      <button class="iconbtn">🌙</button>
+      <span class="userchip"><span class="avatar">А</span>админ_альбион_2026</span>
+    </div>
+
+    <div class="appbody">
+      <div class="rail">
+        <div class="ricon active" title="Поиск">🔎</div>
+        <div class="ricon" title="Точка">📍</div>
+        <div class="ricon" title="Фото">📷</div>
+        <div class="ricon" title="История">🕒</div>
+        <div class="ricon" title="Закладки">⭐</div>
+        <div class="ricon" title="Слои">🗂</div>
+        <span class="spacer"></span>
+        <div class="ricon" title="Справка">❓</div>
+        <div class="ricon" title="Настройки">⚙</div>
+      </div>
+
+      <div class="panel" style="width:286px;border-right:1px solid var(--line);">
+        <div style="padding:10px 12px 6px;border-bottom:1px solid var(--line);background:var(--soft);">
+          <div style="font-size:11.5px;font-weight:700;">🔎 Поиск</div>
+          <div class="muted small">Режим: Дороги и километраж</div>
+        </div>
+        <div class="pane scroll">
+          <div class="modes" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
+            <span class="pill active">Дорога + км</span>
+            <span class="pill">Адрес</span>
+            <span class="pill">Координаты</span>
+            <span class="pill">МСК-61</span>
+          </div>
+          <label class="fld">Трасса или код</label>
+          <div class="input ph-old">М-4 Дон, Р-280…</div>
+          <div class="mini-list" style="margin-top:5px;">
+            <div class="mini-item" style="background:#eaf0f6;"><span>🛣️</span><b>М-4 «Дон»</b></div>
+            <div class="mini-item"><span>🛣️</span>Р-280 «Новороссия»</div>
+          </div>
+          <div class="section-title">Километр</div>
+          <div class="row">
+            <div class="input mono">915+000</div>
+            <button class="btn orange sm">Перейти</button>
+          </div>
+          <input type="range" min="0" max="100" value="48" style="width:100%;accent-color:var(--accent);margin-top:6px;">
+          <div class="muted small">826+300 — 1154+500 в Ростовской области</div>
+
+          <div class="divider"></div>
+          <div class="section-title">Параметры</div>
+          <div class="kv"><span class="muted small">Радиус</span><span class="mono">2000 м</span></div>
+          <div class="kv"><span class="muted small">Только основные</span><span>✓</span></div>
+          <div class="kv"><span class="muted small">Источник</span><span>СКДФ онлайн</span></div>
+          <div class="kv"><span class="muted small">Подложка</span><span>OSM онлайн</span></div>
+          <div class="row" style="margin-top:7px;">
+            <button class="btn ghost block sm">📦 Пакетно</button>
+            <button class="btn ghost block sm">📍 РО</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="map">
+        <svg class="mapart" viewBox="0 0 820 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <rect width="820" height="640" fill="#f1eee5"/>
+          <g opacity=".5" fill="#dfe8d2">
+            <rect x="80" y="120" width="140" height="90" rx="8"/>
+            <rect x="520" y="380" width="190" height="130" rx="8"/>
+            <rect x="340" y="490" width="120" height="80" rx="8"/>
+          </g>
+          <path d="M-20,105 C150,150 300,60 470,110 S720,150 840,85" stroke="#a9cfe3" stroke-width="24" fill="none" opacity=".85"/>
+          <path d="M-20,105 C150,150 300,60 470,110 S720,150 840,85" stroke="#c7e2ef" stroke-width="10" fill="none"/>
+          <g stroke="#fff" stroke-width="3" fill="none" opacity=".9">
+            <path d="M0,200 L820,230"/><path d="M0,300 L820,330"/><path d="M0,400 L820,430"/>
+            <path d="M120,0 L140,640"/><path d="M300,0 L320,640"/><path d="M470,0 L490,640"/><path d="M640,0 L660,640"/>
+          </g>
+          <path d="M-20,470 C160,430 300,500 460,440 S700,390 840,430" stroke="#e9c06a" stroke-width="9" fill="none"/>
+          <path d="M180,0 L220,150 L200,300 L260,470 L230,640" stroke="#e9c06a" stroke-width="7" fill="none"/>
+          <path d="M430,0 L450,130 L520,230 L540,370 L610,480 L620,640" stroke="#e9c06a" stroke-width="6" fill="none"/>
+        </svg>
+        <span class="maplabel" style="left:44%;top:33%;">Ростов-на-Дону</span>
+        <span class="maplabel" style="left:68%;top:22%;">Аксай</span>
+        <span class="maplabel" style="left:16%;top:65%;">Батайск</span>
+        <span class="maplabel" style="left:38%;top:52%;">М-4 «Дон»</span>
+        <span class="maplabel" style="left:72%;top:71%;">Новочеркасск</span>
+        <div class="mapdot" style="left:53%;top:45%;"></div>
+        <div class="maptool"><button>+</button><button>−</button><button>⌂</button></div>
+        <div class="scalebar">2 км</div>
+      </div>
+
+      <div class="panel right" style="width:300px;">
+        <div class="ph"><span>🛣️ Результат</span><span class="spacer"></span><button>⌃</button></div>
+        <div class="pane scroll">
+          <div class="card soft" style="border-left:3px solid var(--accent-2);">
+            <div class="muted" style="font-style:italic;">Источник: СКДФ WFS</div>
+            <div style="font-weight:700;font-size:12.5px;margin-top:3px;">М-4 «Дон»</div>
+            <div class="divider"></div>
+            <div class="kv"><span class="mono" style="font-size:14px;font-weight:700;">915 км + 0 м</span><span class="muted">справа</span></div>
+            <div class="muted">0 м до оси дороги</div>
+            <div class="row" style="margin-top:7px;">
+              <button class="btn sm" style="flex:1;">📸</button>
+              <button class="btn green sm" style="flex:1;">📋 Копировать</button>
+            </div>
+          </div>
+          <div class="section-title">Точка</div>
+          <div class="kv"><span class="muted small">WGS84</span><span class="mono small">48.850440, 40.421392</span></div>
+          <div class="kv"><span class="muted small">МСК-61, з.2</span><span class="mono small">602187 · 2258869</span></div>
+          <div class="card amber" style="margin-top:8px;">
+            <div style="font-weight:650;">⚠️ Предварительно</div>
+            <div class="muted small">Сверяйте с официальной контрольной точкой.</div>
+          </div>
+          <div class="section-title">Слои</div>
+          <div class="mini-list">
+            <div class="mini-item">✓ Трассы и дороги</div>
+            <div class="mini-item">✓ Контур Ростовской области</div>
+            <div class="mini-item">☐ Кадастровые районы</div>
+            <div class="mini-item">☐ Точки истории</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar" style="flex:0 0 30px;height:30px;background:#eef2f5;color:#51616f;border-top:1px solid var(--line);">
+      <span class="seg dot" style="padding:2px 5px;">СКДФ: онлайн</span>
+      <span class="seg">OSM</span>
+      <span class="sep" style="background:#c9d2da;"></span>
+      <span class="seg mono">48.850440, 40.421392</span>
+      <span class="seg">МСК-61 · з.2</span>
+      <span class="spacer"></span>
+      <span class="seg">Папка: screenshots</span>
+      <span class="seg">Ctrl+1 / Ctrl+2 — панели</span>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div class="box pros">
+      <h3>Плюсы</h3>
+      <ul>
+        <li>Чёткое разделение по задачам: локатор, дороги, пакетная обработка, админка.</li>
+        <li>Права и роли ложатся на режимы: редактор не видит «Админ».</li>
+        <li>Rail экономит ширину и оставляет быстрый доступ к инструментам.</li>
+        <li>Хорошо расширяется новыми инструментами без роста панелей.</li>
+        <li>Настройки и пользователи живут в отдельном режиме, а не в рабочем фрейме.</li>
+      </ul>
+    </div>
+    <div class="box cons">
+      <h3>Минусы</h3>
+      <ul>
+        <li>Самая большая переделка: навигация, состояние режимов, права.</li>
+        <li>Верхняя панель и rail отнимают место у карты.</li>
+        <li>Для одиночного пользователя «Админ» и «Пакетная» как отдельные режимы могут быть избыточны.</li>
+        <li>Нужно переучивать пользователя и обновлять справку.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= СРАВНЕНИЕ ================= -->
+  <h2 id="compare">2. Сравнение вариантов</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Критерий</th>
+        <th>A · 2 фрейма + статус-бар</th>
+        <th>B · 1 фрейм + overlay</th>
+        <th>C · Нижний док</th>
+        <th>D · Режимы + rail</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Площадь карты</td><td>Средняя</td><td class="yes">Высокая</td><td class="yes">Максимальная</td><td>Средняя</td></tr>
+      <tr><td>Трудозатраты</td><td class="yes">Низкие</td><td>Средние</td><td class="no">Высокие</td><td class="no">Высокие</td></tr>
+      <tr><td>Всё в одном окне</td><td class="yes">Да</td><td class="yes">Да</td><td class="yes">Да</td><td class="yes">Да</td></tr>
+      <tr><td>Дублирование форм</td><td>Убирается</td><td class="yes">Убирается</td><td class="yes">Убирается</td><td class="yes">Убирается</td></tr>
+      <tr><td>Привычность</td><td class="yes">Высокая</td><td>Средняя</td><td>Низкая</td><td>Средняя</td></tr>
+      <tr><td>Мобильный / узкий экран</td><td>Overlay-панели</td><td class="yes">Overlay-карточка</td><td class="yes">Док + sheet</td><td>Rail + overlay</td></tr>
+      <tr><td>Роли и администрирование</td><td>Модалка</td><td>Модалка</td><td>Модалка</td><td class="yes">Отдельный режим</td></tr>
+      <tr><td>Риск регрессий</td><td class="yes">Низкий</td><td>Средний</td><td class="no">Высокий</td><td class="no">Высокий</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ================= НАСТРОЙКИ ================= -->
+  <h2 id="settings">3. Что вынести в «Настройки»</h2>
+  <p>
+    Модальное окно уже существует и умеет разделы. Предлагается оставить в нём только редкие
+    и «один раз настроил» параметры, разложив их по вкладкам:
+  </p>
+  <table>
+    <thead><tr><th>Раздел настроек</th><th>Содержимое</th><th>Куда уходит из рабочей области</th></tr></thead>
+    <tbody>
+      <tr><td class="num">Поиск и данные</td><td>Радиус, «только основные дороги», источник дорог (онлайн/локальная база), подложка (OSM/MBTiles), статус доступности</td><td>Из правого фрейма и левого блока «Источник дорожных данных»</td></tr>
+      <tr><td class="num">Автоскриншот</td><td>Задержка, каталог на сервере, включение автосохранения</td><td>Из правого фрейма</td></tr>
+      <tr><td class="num">Карта и слои</td><td>Локальный контур РО, кадастровые районы, точки истории, стартовый центр/зум</td><td>Из правого фрейма</td></tr>
+      <tr><td class="num">Интерфейс</td><td>Тёмная тема, размер шрифта, компактный режим, показывать подсказки, положение статус-бара</td><td>Из правого фрейма</td></tr>
+      <tr><td class="num">Аккаунт</td><td>Смена логина и пароля, выход</td><td>Из правого фрейма</td></tr>
+      <tr><td class="num">Пользователи</td><td>Список, роли, создание, отключение (только администратор)</td><td>Из правого фрейма; доступ через «Админ» или настройки</td></tr>
+      <tr><td class="num">Справка</td><td>Горячие клавиши, жесты, описание режимов</td><td>Кнопка «?» в статус-баре / rail</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <b>Что оставить в рабочей области:</b> переключатель режима поиска, поле ввода, кнопку «Найти»,
+    результат, радиус (если меняется часто), кнопки «Скриншот» и «Копировать», загрузку фото,
+    историю и закладки. Всё остальное — в настройки.
+  </div>
+
+  <!-- ================= РЕКОМЕНДАЦИЯ ================= -->
+  <h2 id="recommend">4. Рекомендация</h2>
+  <p>
+    <b>Быстрый путь — вариант A.</b> Он даёт максимум эффекта при минимальном риске: убирает
+    дублирование, вводит вкладки и статус-бар, разгружает оба фрейма. Через одну итерацию можно
+    перейти к варианту B, если карты будет по-прежнему мало: убрать правый фрейм и превратить
+    результат в плавающую карточку — это локальное изменение поверх уже сделанных вкладок.
+  </p>
+  <p>
+    <b>Целевая архитектура — B или D</b>, в зависимости от планов: если приложение останется
+    инструментом для одного-двух пользователей — B; если появятся роли, администрирование и
+    пакетные задания как отдельные сценарии — D.
+  </p>
+
+  <h3 style="margin-top:18px;">Поэтапный план внедрения</h3>
+  <table>
+    <thead><tr><th>Этап</th><th>Что делаем</th><th>Результат</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Нижний статус-бар: источник, координаты, МСК-зона, папка, кнопки «Фото», «Скриншот», «Тема», «?», «Настройки»</td><td>Служебные элементы уходят из фреймов, появляется единая точка входа</td></tr>
+      <tr><td class="num">2</td><td>Вкладки левого фрейма: «Точка / История / Закладки»; блок фото — компактной карточкой сверху</td><td>Левая колонка перестаёт прокручиваться на 2–3 экрана</td></tr>
+      <tr><td class="num">3</td><td>Вкладки правого фрейма: «Результат / Параметры»; поиск — один раз, в правом фрейме</td><td>Убирается дублирование поисковых форм</td></tr>
+      <tr><td class="num">4</td><td>Все настройки, аккаунт и пользователи — только в модальном окне с разделами</td><td>Рабочая область содержит только частые действия</td></tr>
+      <tr><td class="num">5</td><td>По желанию: правый фрейм → плавающая карточка результата (вариант B)</td><td>Карта получает +320 px ширины</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note blue">
+    <b>Проверка «помещается ли»:</b> на 1366×768 при высоте статус-бара 38 px и заголовках фреймов
+    42 px рабочая высота панелей — около 688 px. В варианте A в неё помещаются: карточка фото (~56 px),
+    вкладки (~34 px), поле координат + результат + быстрые действия (~250 px) и список истории
+    с внутренней прокруткой. Правый фрейм: результат (~190 px), радиус и переключатель (~50 px),
+    километр + ползунок (~90 px) — итого ~330 px без прокрутки.
+  </div>
+
+  <p class="footer">
+    Макеты схематические: размеры и отступы подобраны под текущие CSS-переменные
+    (<code>--panel-width-left: 360px</code>, <code>--panel-width-right: 320px</code>,
+    <code>--panel-collapsed: 40px</code>). Файл можно открыть в браузере и использовать как
+    основу для вёрстки.
+  </p>
+</div>
+
+<script>
+  // ?only=mock-a — показать один макет крупно (используется для скриншотов).
+  (function () {
+    const only = new URLSearchParams(location.search).get('only');
+    if (!only) return;
+    const target = document.getElementById(only);
+    if (!target) return;
+    document.querySelectorAll('.doc > *').forEach(el => {
+      if (el !== target) el.style.display = 'none';
+    });
+    document.body.style.padding = '10px';
+    target.style.margin = '0';
+  })();
+</script>
+</body>
+</html>

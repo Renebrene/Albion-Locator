@@ -67,7 +67,11 @@ ADDRESS_SUGGEST_TIMEOUT = 5.0
 ADDRESS_SUGGEST_MIN_INTERVAL = 0.25
 _ADDRESS_SUGGEST_LAST_REQUEST: dict[str, float] = {}
 _ADDRESS_SUGGEST_LAST_REQUEST_LOCK = asyncio.Lock()
-ROSTOV_SEARCH_BBOX = "38.0,45.8~44.5,50.4"
+# Bounding box of the bundled Rostov Oblast outline. Yandex and WFS use
+# different separators for the same four coordinates.
+ROSTOV_WEST, ROSTOV_SOUTH, ROSTOV_EAST, ROSTOV_NORTH = 38.22075, 45.951688, 44.319992, 50.214477
+ROSTOV_SEARCH_BBOX = f"{ROSTOV_WEST},{ROSTOV_SOUTH}~{ROSTOV_EAST},{ROSTOV_NORTH}"
+ROSTOV_WFS_BBOX = f"{ROSTOV_WEST},{ROSTOV_SOUTH},{ROSTOV_EAST},{ROSTOV_NORTH}"
 
 FEDERAL_ROADS = {
     "М-4": {"skdf_name": "М-4 «Дон»", "full_name": "М-4 «Дон» Москва - Воронеж - Ростов-на-Дону - Краснодар - Новороссийск"},
@@ -101,6 +105,8 @@ WFS_MAX_FEATURES = 10_000
 PROJECT_DIR = Path(__file__).parent
 GEO_PACKAGE_SRC = PROJECT_DIR.parent / "packages" / "offline_geo" / "src"
 ROAD_LAYER = "skdf_open:lyr_road_by_value_line"
+ROSTOV_BOUNDARY_PATH = PROJECT_DIR.parent / "static" / "rostov_boundary.geojson"
+_ROSTOV_BOUNDARY_RINGS: list[list[tuple[float, float]]] | None = None
 
 
 def offline_mode_enabled() -> bool:
@@ -439,7 +445,9 @@ def _road_side_info(road_feature, lon, lat):
     return best
 
 # ========== WFS ==========
-async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None):
+async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+    if bbox_deg and cql_filter:
+        raise ValueError("WFS bbox and CQL_FILTER are mutually exclusive")
     page_size = min(max_features or WFS_PAGE_SIZE, WFS_PAGE_SIZE)
     features: list[dict] = []
     start_index = 0
@@ -459,6 +467,8 @@ async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None):
             }
             if bbox_deg:
                 params["bbox"] = f"{bbox_deg[0]},{bbox_deg[1]},{bbox_deg[2]},{bbox_deg[3]},EPSG:4326"
+            elif cql_filter:
+                params["CQL_FILTER"] = cql_filter
 
             response = await client.get(WFS_BASE, params=params, timeout=WFS_TIMEOUT)
             response.raise_for_status()
@@ -504,6 +514,131 @@ async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None):
             status_code=502,
             detail="Не удалось получить полный список дорог из сервиса СКДФ",
         ) from exc
+
+
+def _load_rostov_boundary_rings() -> list[list[tuple[float, float]]]:
+    """Load the outer Rostov boundary rings used for local route filtering."""
+    global _ROSTOV_BOUNDARY_RINGS
+    if _ROSTOV_BOUNDARY_RINGS is not None:
+        return _ROSTOV_BOUNDARY_RINGS
+    try:
+        payload = json.loads(ROSTOV_BOUNDARY_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid boundary GeoJSON")
+        geometries = []
+        if payload.get("type") == "FeatureCollection":
+            geometries = [feature.get("geometry") for feature in payload.get("features", [])]
+        elif payload.get("type") == "Feature":
+            geometries = [payload.get("geometry")]
+        elif payload.get("type") in {"Polygon", "MultiPolygon"}:
+            geometries = [payload]
+        rings: list[list[tuple[float, float]]] = []
+        for geometry in geometries:
+            if not isinstance(geometry, dict):
+                continue
+            if geometry.get("type") == "Polygon" and geometry.get("coordinates"):
+                polygons = [geometry["coordinates"]]
+            elif geometry.get("type") == "MultiPolygon":
+                polygons = geometry.get("coordinates") or []
+            else:
+                continue
+            for polygon in polygons:
+                if not polygon or not isinstance(polygon[0], list):
+                    continue
+                ring = [
+                    (float(point[0]), float(point[1]))
+                    for point in polygon[0]
+                    if isinstance(point, list) and len(point) >= 2
+                ]
+                if len(ring) >= 3:
+                    rings.append(ring)
+    except (OSError, TypeError, ValueError, AttributeError) as exc:
+        raise HTTPException(503, "Локальный контур Ростовской области недоступен") from exc
+    if not rings:
+        raise HTTPException(503, "В локальном файле нет контура Ростовской области")
+    _ROSTOV_BOUNDARY_RINGS = rings
+    return rings
+
+
+def _point_in_ring(lon: float, lat: float, ring: list[tuple[float, float]]) -> bool:
+    inside = False
+    previous = ring[-1]
+    for current in ring:
+        x1, y1 = previous
+        x2, y2 = current
+        if (y1 > lat) != (y2 > lat):
+            crossing_lon = (x2 - x1) * (lat - y1) / (y2 - y1) + x1
+            if lon < crossing_lon:
+                inside = not inside
+        previous = current
+    return inside
+
+
+def _point_in_rostov(lon: float, lat: float) -> bool:
+    return any(_point_in_ring(lon, lat, ring) for ring in _load_rostov_boundary_rings())
+
+
+def _line_parts(geometry: dict | None) -> list[list[tuple[float, float]]]:
+    """Return validated lon/lat line parts from a GeoJSON line geometry."""
+    if not isinstance(geometry, dict):
+        return []
+    kind = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    raw_parts = [coordinates] if kind == "LineString" else coordinates if kind == "MultiLineString" else []
+    parts: list[list[tuple[float, float]]] = []
+    for raw_part in raw_parts or []:
+        part: list[tuple[float, float]] = []
+        for point in raw_part or []:
+            try:
+                lon, lat = float(point[0]), float(point[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if _valid_coordinates(lat, lon):
+                part.append((lon, lat))
+        if len(part) >= 2:
+            parts.append(part)
+    return parts
+
+
+def _route_sections_from_features(features: list[dict], code: str) -> tuple[list[dict], str]:
+    """Convert SKDF road-value features into directional sections inside Rostov."""
+    sections: list[dict] = []
+    names: list[str] = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        properties = feature.get("properties") or {}
+        road_name = str(properties.get("road_name") or "").strip()
+        if canonical_road_code(road_name) != code:
+            continue
+        try:
+            start_km = float(properties.get("start_km"))
+            finish_km = float(properties.get("finish_km"))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(start_km) and math.isfinite(finish_km)):
+            continue
+        parts = _line_parts(feature.get("geometry"))
+        if not parts:
+            continue
+        points = [point for part in parts for point in part]
+        if not all(_point_in_rostov(lon, lat) for lon, lat in points):
+            continue
+        if start_km > finish_km:
+            start_km, finish_km = finish_km, start_km
+            points.reverse()
+        if finish_km <= start_km:
+            continue
+        names.append(road_name)
+        sections.append({
+            "start_km": round(start_km, 3),
+            "finish_km": round(finish_km, 3),
+            "coordinates": [[round(lon, 6), round(lat, 6)] for lon, lat in points],
+        })
+    sections.sort(key=lambda section: (section["start_km"], section["finish_km"]))
+    name = max(names, key=len) if names else code
+    return sections, name
+
 
 def get_first_point(geometry: dict) -> tuple[float | None, float | None]:
     coords = (geometry or {}).get("coordinates")
@@ -706,13 +841,13 @@ class MSK61ToGeographicPayload(BaseModel):
     x: FiniteFloat
     y: FiniteFloat
     zone: int = Field(ge=1, le=3)
-    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+    profile: str = Field(default="gost_51794_2008", pattern="^(calculated|gost_51794_2008)$")
 
 class GeographicToMSK61Payload(BaseModel):
     lat: FiniteFloat = Field(ge=-90, le=90)
     lon: FiniteFloat = Field(ge=-180, le=180)
     zone: int = Field(ge=1, le=3)
-    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+    profile: str = Field(default="gost_51794_2008", pattern="^(calculated|gost_51794_2008)$")
 
 
 class OnlineAddressSuggestPayload(BaseModel):
@@ -738,6 +873,30 @@ class OnlineAddressGeocodePayload(BaseModel):
         if len(query) < 3 or any(ord(char) < 32 for char in query):
             raise ValueError("Некорректный адрес")
         return query
+
+
+class OnlineRoadSearchPayload(BaseModel):
+    query: str = Field(min_length=2, max_length=320)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        query = value.strip()
+        if len(query) < 2 or any(ord(char) < 32 for char in query):
+            raise ValueError("Введите название или код дороги")
+        return query
+
+
+class OnlineRoadSectionsPayload(BaseModel):
+    code: str = Field(min_length=2, max_length=40)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        code = canonical_road_code(value.strip())
+        if not code:
+            raise ValueError("Укажите код дороги, например М-4 или Р-280")
+        return code
 
 
 class LoginPayload(BaseModel):
@@ -767,7 +926,7 @@ class UserPasswordPayload(BaseModel):
 class Msk61ConvertPayload(BaseModel):
     direction: str = Field(pattern="^(to_geographic|from_geographic)$")
     zone: int = Field(ge=1, le=3)
-    profile: str = Field(default="calculated", pattern="^(calculated|gost_51794_2008)$")
+    profile: str = Field(default="gost_51794_2008", pattern="^(calculated|gost_51794_2008)$")
     x: FiniteFloat | None = None
     y: FiniteFloat | None = None
     latitude: FiniteFloat | None = Field(default=None, ge=-90, le=90)
@@ -1334,7 +1493,8 @@ async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: 
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(502, "Не удалось определить координаты выбранного адреса") from exc
     if not (math.isfinite(lat) and math.isfinite(lon)
-            and 45.8 <= lat <= 50.4 and 38.0 <= lon <= 44.5
+            and ROSTOV_SOUTH <= lat <= ROSTOV_NORTH
+            and ROSTOV_WEST <= lon <= ROSTOV_EAST
             and in_rostov_oblast):
         raise HTTPException(404, "Адрес не найден в Ростовской области; уточните адрес и регион")
     return {
@@ -1343,6 +1503,185 @@ async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: 
         "address": formatted_address,
         "precision": precision,
         "source": "Yandex Geocoder",
+    }
+
+
+_ROAD_NAME_RE = re.compile(
+    r"\b(?:дорога|трасса|шоссе|автодорога|магистраль|тракт|обход|объездная|подъезд|развязка)\b",
+    re.IGNORECASE,
+)
+
+
+def _component_name(metadata: dict, kind: str) -> str:
+    for component in ((metadata.get("Address") or {}).get("Components") or []):
+        if isinstance(component, dict) and component.get("kind") == kind:
+            return str(component.get("name") or "").strip()
+    return ""
+
+
+def _looks_like_road_name(metadata: dict, text: str) -> bool:
+    """Accept named roads/highways, not ordinary city streets."""
+    street_name = _component_name(metadata, "street")
+    return bool(_ROAD_NAME_RE.search(street_name or text))
+
+
+def _road_geocode_queries(query: str) -> list[str]:
+    """Build conservative Yandex Geocoder queries for a road or highway name."""
+    cleaned = " ".join(query.split())[:320]
+    code = canonical_road_code(cleaned)
+    if not code:
+        street = re.search(
+            r"(?:улица|ул\.?|проспект|пр-?кт|шоссе|переулок|проезд|набережная|бульвар|площадь)\s+[^,;]+",
+            cleaned,
+            re.IGNORECASE,
+        )
+        base = street.group(0) if street else cleaned
+        return [base, f"{base}, Ростовская область"]
+    # Bare route codes resolve to the route object; adding the region name as
+    # ordinary query text can instead match unrelated localities/houses.
+    return [code, f"{code}, Ростовская область"]
+
+
+@app.post("/api/roads/online/search")
+async def online_roads_search(payload: OnlineRoadSearchPayload, request: Request):
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown"), "road-search"):
+        raise HTTPException(429, "Слишком частые запросы дорог; подождите немного")
+    if not YANDEX_API_KEY:
+        raise HTTPException(503, "Не настроен YANDEX_API_KEY для поиска дорог")
+    code = canonical_road_code(payload.query)
+    params_base = {
+        "apikey": YANDEX_API_KEY,
+        "format": "json",
+        "lang": "ru_RU",
+        "results": 10,
+        "bbox": ROSTOV_SEARCH_BBOX,
+        "rspn": 1,
+        # The Geocoder has no separate highway kind; linear road objects,
+        # including М-4/Р-280, are returned as streets. Nothing else is accepted.
+        "kind": "street",
+    }
+    matches: list[dict[str, Any]] = []
+    seen: set[tuple[str, float, float]] = set()
+    try:
+        async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
+            for query in _road_geocode_queries(payload.query):
+                response = await client.get(YANDEX_GEOCODER_URL, params={**params_base, "geocode": query})
+                if response.status_code == 429:
+                    raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
+                if response.status_code in {401, 403}:
+                    raise HTTPException(503, "Ключ Яндекс Геокодера не имеет доступа к этому API")
+                response.raise_for_status()
+                members = response.json().get("response", {}).get("GeoObjectCollection", {}).get("featureMember", [])
+                for member in members:
+                    if not isinstance(member, dict):
+                        continue
+                    geo_object = member.get("GeoObject") or {}
+                    metadata = (geo_object.get("metaDataProperty") or {}).get("GeocoderMetaData") or {}
+                    try:
+                        lon, lat = map(float, (geo_object.get("Point") or {}).get("pos", "").split())
+                    except (TypeError, ValueError):
+                        continue
+                    components = (metadata.get("Address") or {}).get("Components") or []
+                    in_rostov = any(
+                        isinstance(component, dict)
+                        and component.get("kind") in {"province", "area"}
+                        and str(component.get("name", "")).strip().casefold().replace("ё", "е") == "ростовская область"
+                        for component in components
+                    )
+                    if not (in_rostov and math.isfinite(lat) and math.isfinite(lon)
+                            and ROSTOV_SOUTH <= lat <= ROSTOV_NORTH
+                            and ROSTOV_WEST <= lon <= ROSTOV_EAST):
+                        continue
+                    if metadata.get("kind") != "street":
+                        continue
+                    text = str(metadata.get("text") or query)[:320]
+                    if code:
+                        if canonical_road_code(text) != code:
+                            continue
+                    elif not _looks_like_road_name(metadata, text):
+                        continue
+                    if code and matches:
+                        # Route codes resolve to many kilometre points; one road
+                        # result is enough because the km slider selects the point.
+                        continue
+                    if any(item["title"].casefold() == text.casefold() for item in matches):
+                        continue
+                    key = (text.casefold(), round(lat, 6), round(lon, 6))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    matches.append({
+                        "title": text,
+                        "lat": lat,
+                        "lon": lon,
+                        "kind": "road",
+                        "yandex_kind": str(metadata.get("kind") or "unknown"),
+                        "precision": str(metadata.get("precision") or "unknown"),
+                        "road_code": code,
+                        "source": "Yandex Geocoder",
+                    })
+                if matches:
+                    break
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "Сервис поиска дорог Яндекса не ответил вовремя") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Не удалось связаться с сервисом поиска дорог Яндекса") from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(502, "Сервис поиска дорог Яндекса вернул некорректный ответ") from exc
+    if not matches:
+        raise HTTPException(404, "Дорога не найдена в Ростовской области; уточните название или код")
+    return {"roads": matches[:10], "source": "Yandex Geocoder"}
+
+
+@app.post("/api/roads/online/sections")
+async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Request):
+    """Return official SKDF chainage sections of a road inside Rostov Oblast."""
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown"), "road-sections"):
+        raise HTTPException(429, "Слишком частые запросы участков дороги; подождите немного")
+    code = payload.code
+    escaped_code = code.replace("'", "''")
+    cql_filter = (
+        f"BBOX(geom,{ROSTOV_WFS_BBOX},'EPSG:4326') "
+        f"AND road_name LIKE '{escaped_code}%'"
+    )
+    try:
+        async with httpx.AsyncClient(headers={"User-Agent": "albion/4.2.1"}) as client:
+            features = await _wfs_getfeature(
+                client,
+                ROAD_LAYER,
+                max_features=5_000,
+                cql_filter=cql_filter,
+            )
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        raise HTTPException(502, "Сервис СКДФ вернул некорректный список участков дороги") from exc
+
+    sections, name = _route_sections_from_features(features, code)
+    if not sections:
+        raise HTTPException(
+            404,
+            f"Для дороги {code} в СКДФ нет участков с официальным километражом "
+            "в Ростовской области",
+        )
+    first_km = sections[0]["start_km"]
+    last_km = max(section["finish_km"] for section in sections)
+    return {
+        "code": code,
+        "name": name,
+        "first_km": first_km,
+        "last_km": last_km,
+        "total_length_km": round(last_km - first_km, 3),
+        "sections": sections,
+        "source": "СКДФ WFS: lyr_road_by_value_line",
+        "provenance": (
+            "Официальные start_km/finish_km СКДФ; участки вне контура Ростовской "
+            "области исключены. Точка внутри участка интерполируется по его геометрии."
+        ),
     }
 
 

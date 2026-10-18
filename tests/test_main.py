@@ -241,6 +241,28 @@ def test_wfs_paginates_bbox_and_collects_all_features(monkeypatch):
     assert all(call["bbox"].startswith("39.6,47.1,39.8,47.3,") for call in calls)
 
 
+def test_wfs_sends_cql_filter_without_bbox():
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"features": [{"id": 1}], "numberReturned": 1, "numberMatched": "unknown"}
+
+    class CqlClient:
+        async def get(self, url, params, timeout):
+            calls.append(params)
+            return Response()
+
+    cql = f"BBOX(geom,{main.ROSTOV_WFS_BBOX},'EPSG:4326') AND road_name LIKE 'М-4%'"
+    result = asyncio.run(main._wfs_getfeature(CqlClient(), main.ROAD_LAYER, cql_filter=cql))
+    assert result == [{"id": 1}]
+    assert calls[0]["CQL_FILTER"] == cql
+    assert "bbox" not in calls[0]
+
+
 def test_wfs_stops_after_short_page():
     calls = []
 
@@ -468,6 +490,194 @@ def test_online_address_suggest_is_throttled_per_user(monkeypatch):
     assert second.status_code == 429
 
 
+def _rostov_road_geocoder_response():
+    return {"response": {"GeoObjectCollection": {"featureMember": [
+        {
+            "GeoObject": {
+                "Point": {"pos": "37.6 55.7"},
+                "metaDataProperty": {"GeocoderMetaData": {
+                    "kind": "street", "text": "Россия, М-4 Дон",
+                    "Address": {"Components": [{"kind": "province", "name": "Москва"}]},
+                }},
+            }
+        },
+        {
+            "GeoObject": {
+                "Point": {"pos": "40.215671 47.891519"},
+                "metaDataProperty": {"GeocoderMetaData": {
+                    "kind": "street", "precision": "street",
+                    "text": "Россия, Ростовская область, Красносулинский район, М-4 Дон, 979-й километр",
+                    "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]},
+                }},
+            }
+        },
+        {
+            "GeoObject": {
+                "Point": {"pos": "40.300000 48.600000"},
+                "metaDataProperty": {"GeocoderMetaData": {
+                    "kind": "street", "precision": "street",
+                    "text": "Россия, Ростовская область, М-4 Дон, 950-й километр",
+                    "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]},
+                }},
+            }
+        },
+        {
+            "GeoObject": {
+                "Point": {"pos": "39.7 47.2"},
+                "metaDataProperty": {"GeocoderMetaData": {
+                    "kind": "street", "precision": "street", "text": "Россия, Ростовская область, улица Ленина",
+                    "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]},
+                }},
+            }
+        },
+    ]}}}
+
+
+def test_online_road_search_filters_exact_code_and_rostov_region(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    requests = []
+    _stub_http_client(monkeypatch, _stub_http_response(_rostov_road_geocoder_response()), requests=requests)
+
+    response = client.post("/api/roads/online/search", json={"query": "М-4 Дон"})
+    assert response.status_code == 200, response.text
+    roads = response.json()["roads"]
+    assert len(roads) == 1
+    assert roads[0]["road_code"] == "М-4"
+    assert roads[0]["lat"] == pytest.approx(47.891519)
+    assert roads[0]["lon"] == pytest.approx(40.215671)
+    assert requests[0][1]["kind"] == "street"
+    assert requests[0][1]["bbox"] == main.ROSTOV_SEARCH_BBOX
+
+
+def test_online_road_search_rejects_localities_districts_and_urban_streets(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [
+        {"GeoObject": {"Point": {"pos": "39.7 47.2"}, "metaDataProperty": {"GeocoderMetaData": {
+            "kind": "locality", "precision": "other", "text": "Ростов-на-Дону",
+            "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]}}},
+        }},
+        {"GeoObject": {"Point": {"pos": "39.5 47.3"}, "metaDataProperty": {"GeocoderMetaData": {
+            "kind": "district", "precision": "other", "text": "Неклиновский район",
+            "Address": {"Components": [{"kind": "province", "name": "Ростовская область"}]}}},
+        }},
+        {"GeoObject": {"Point": {"pos": "39.6 47.4"}, "metaDataProperty": {"GeocoderMetaData": {
+            "kind": "street", "precision": "street", "text": "улица Ленина",
+            "Address": {"Components": [
+                {"kind": "province", "name": "Ростовская область"},
+                {"kind": "street", "name": "улица Ленина"},
+            ]}}},
+        }},
+        {"GeoObject": {"Point": {"pos": "37.6 55.7"}, "metaDataProperty": {"GeocoderMetaData": {
+            "kind": "street", "precision": "street", "text": "улица Тверская",
+            "Address": {"Components": [{"kind": "province", "name": "Москва"}]}}},
+        }},
+    ]}}}))
+
+    response = client.post("/api/roads/online/search", json={"query": "Ростов"})
+    assert response.status_code == 404
+    assert "Дорога не найдена" in response.json()["detail"]
+
+
+def test_online_road_search_allows_named_road_without_code(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [
+        {"GeoObject": {"Point": {"pos": "39.42 47.11"}, "metaDataProperty": {"GeocoderMetaData": {
+            "kind": "street", "precision": "street",
+            "text": "Россия, Ростовская область, Азовская объездная дорога",
+            "Address": {"Components": [
+                {"kind": "province", "name": "Ростовская область"},
+                {"kind": "street", "name": "Азовская объездная дорога"},
+            ]}}},
+        }},
+    ]}}}))
+
+    response = client.post("/api/roads/online/search", json={"query": "Азовская объездная дорога"})
+    assert response.status_code == 200, response.text
+    roads = response.json()["roads"]
+    assert len(roads) == 1
+    assert roads[0]["kind"] == "road"
+    assert roads[0]["yandex_kind"] == "street"
+    assert roads[0]["road_code"] is None
+
+
+def test_online_road_search_requires_key_and_valid_query(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "")
+    missing = client.post("/api/roads/online/search", json={"query": "М-4"})
+    short = client.post("/api/roads/online/search", json={"query": "М"})
+    assert missing.status_code == 503
+    assert short.status_code == 422
+
+
+def test_road_geocode_queries_use_bare_codes_and_contextual_streets():
+    assert main._road_geocode_queries("М-4 Дон") == ["М-4", "М-4, Ростовская область"]
+    assert main._road_geocode_queries("улица Ленина") == ["улица Ленина", "улица Ленина, Ростовская область"]
+
+
+def test_online_road_sections_use_cql_and_keep_only_rostov_features(monkeypatch):
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    calls = []
+
+    def section(start_km, finish_km, coordinates, name="М-4 «Дон»"):
+        return {
+            "type": "Feature",
+            "properties": {
+                "road_name": name,
+                "start_km": start_km,
+                "finish_km": finish_km,
+            },
+            "geometry": {"type": "MultiLineString", "coordinates": [coordinates]},
+        }
+
+    features = [
+        section(10, 11, [[39.70, 47.20], [39.71, 47.20]]),
+        section(11, 12, [[39.71, 47.20], [39.72, 47.20]]),
+        section(20, 21, [[37.60, 55.70], [37.61, 55.70]]),
+        section(30, 31, [[39.70, 47.20], [39.71, 47.20]], name="Р-280 «Новороссия»"),
+    ]
+
+    async def fake_wfs(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+        calls.append({
+            "type_name": type_name,
+            "bbox_deg": bbox_deg,
+            "max_features": max_features,
+            "cql_filter": cql_filter,
+        })
+        return features
+
+    monkeypatch.setattr(main, "_wfs_getfeature", fake_wfs)
+
+    response = client.post("/api/roads/online/sections", json={"code": "м-4"})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["code"] == "М-4"
+    assert payload["first_km"] == 10
+    assert payload["last_km"] == 12
+    assert payload["total_length_km"] == pytest.approx(2)
+    assert [item["start_km"] for item in payload["sections"]] == [10, 11]
+    assert payload["source"].startswith("СКДФ WFS")
+    assert calls[0]["type_name"] == main.ROAD_LAYER
+    assert calls[0]["bbox_deg"] is None
+    assert f"BBOX(geom,{main.ROSTOV_WFS_BBOX},'EPSG:4326')" in calls[0]["cql_filter"]
+    assert "road_name LIKE 'М-4%'" in calls[0]["cql_filter"]
+
+
+def test_online_road_sections_404_when_no_rostov_chainage(monkeypatch):
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    monkeypatch.setattr(main, "_wfs_getfeature", AsyncMock(return_value=[]))
+
+    response = client.post("/api/roads/online/sections", json={"code": "А-280"})
+    assert response.status_code == 404
+    assert "А-280" in response.json()["detail"]
+
+
 def test_online_address_geocode_returns_only_rostov_region_points(monkeypatch):
     monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
     monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
@@ -586,6 +796,12 @@ def test_msk61_api_returns_preliminary_transform_with_confirm_gate():
     assert calculated.status_code == 200
     assert calculated.json()["can_place_on_map"] is False
 
+    default_profile = client.post("/api/msk61/from-geographic", json={
+        "lat": 47.236947, "lon": 39.673323, "zone": 2,
+    })
+    assert default_profile.status_code == 200
+    assert default_profile.json()["profile"] == "gost_51794_2008"
+
 
 def test_protected_offline_data_endpoints_require_auth():
     unauthenticated = TestClient(main.app)
@@ -593,6 +809,8 @@ def test_protected_offline_data_endpoints_require_auth():
     assert unauthenticated.get("/api/address/suggest", params={"q": "Рост"}).status_code == 401
     assert unauthenticated.post("/api/address/online/suggest", json={"query": "Ростов"}).status_code == 401
     assert unauthenticated.post("/api/address/online/geocode", json={"query": "Ростов-на-Дону"}).status_code == 401
+    assert unauthenticated.post("/api/roads/online/search", json={"query": "М-4"}).status_code == 401
+    assert unauthenticated.post("/api/roads/online/sections", json={"code": "М-4"}).status_code == 401
     assert unauthenticated.get("/api/roads/search", params={"q": "М-4"}).status_code == 401
 
 

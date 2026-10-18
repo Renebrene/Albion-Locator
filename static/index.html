@@ -270,6 +270,13 @@
         .geo-panel input, .geo-panel select { width: 100%; padding: 7px; margin: 3px 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--text-main); }
         .geo-panel .btn { margin-top: 4px; }
         .geo-panel .geo-result { margin-top: 6px; font-size: 12px; white-space: pre-wrap; }
+        .road-km-panel { margin-top: 8px; padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg-card); }
+        .road-km-panel[hidden] { display: none; }
+        .road-km-panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--text-main); }
+        .road-km-panel input[type="range"] { width: 100%; padding: 0; margin: 8px 0 3px; accent-color: var(--accent); }
+        .road-km-row { display: flex; gap: 6px; align-items: stretch; }
+        .road-km-row input { flex: 1 1 auto; width: auto; min-width: 0; }
+        .road-km-row .btn { flex: 0 0 auto; width: auto; margin-top: 3px; white-space: nowrap; }
         .msk-zone-row { display: flex; align-items: center; gap: 7px; margin-top: 5px; }
         .msk-zone-row label { font-size: 12px; color: var(--text-subtle); }
         .msk-zone-row select { flex: 1; min-width: 0; width: auto; }
@@ -581,12 +588,29 @@
                 <div class="hint">Подсказки Яндекса в окне Ростовской области. Введённый адрес передаётся Яндексу; проверьте регион и точность найденной точки.</div>
             </div>
             <div class="geo-panel search-mode-panel" id="roadSearchPanel">
-                <h4>🛣️ Дорога и километраж (локально)</h4>
-                <input id="roadQuery" placeholder="Название или код дороги" autocomplete="off" aria-label="Название дороги">
-                <input id="roadKm" placeholder="Км: 12+345 или 12.345" inputmode="decimal" aria-label="Километраж">
-                <button class="btn btn-small" id="roadSearchButton" onclick="searchLocalRoad()">Найти варианты</button>
+                <h4>🛣️ Поиск трасс и дорог</h4>
+                <input id="roadQuery" placeholder="Трасса, дорога или код: М-4 Дон, Р-280, 60К-80…" autocomplete="off" maxlength="320" aria-label="Трасса, дорога или код дороги">
+                <div id="roadSearchStatus" class="hint" role="status" aria-live="polite"></div>
                 <div id="roadSuggestions" class="geo-suggestions" role="listbox"></div>
-                <div class="hint">Источник и точность километража показываются для каждого варианта.</div>
+                <div class="hint">Показываются только трассы и дороги в Ростовской области; города, районы и обычные улицы исключаются.</div>
+                <details class="road-local-km">
+                    <summary>Километраж по локальной базе</summary>
+                    <input id="roadKm" placeholder="Км: 12+345 или 12.345" inputmode="decimal" aria-label="Километраж">
+                    <button class="btn btn-small" id="roadSearchButton" onclick="searchLocalRoad()">Найти варианты</button>
+                    <div class="hint">Доступно только при установленном локальном индексе с официальным или проверенным километражом.</div>
+                </details>
+                <div class="road-km-panel" id="roadKmPanel" hidden>
+                    <h4 id="roadKmTitle">Километраж выбранной трассы</h4>
+                    <label class="hint" for="roadKmNumber">Официальный километр трассы</label>
+                    <div class="road-km-row">
+                        <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы">
+                        <button class="btn btn-small" id="roadKmApplyButton" onclick="applyRoadKmNumber()">Перейти</button>
+                    </div>
+                    <input id="roadKmSlider" type="range" min="0" max="0" step="0.001" value="0" aria-label="Ползунок километража по доступному участку">
+                    <div class="hint" id="roadKmRange">Диапазон километража не загружен.</div>
+                    <div class="hint" id="roadKmStatus" role="status" aria-live="polite"></div>
+                    <div class="hint">Ползунок показывает расстояние от первого доступного участка в Ростовской области; поле принимает официальный километр трассы.</div>
+                </div>
             </div>
             <div class="geo-panel search-mode-panel" id="mskSearchPanel">
                 <h4>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h4>
@@ -596,8 +620,8 @@
                     <option value="from-geographic">WGS84 → МСК-61</option>
                 </select>
                 <select id="mskProfile" aria-label="Профиль МСК-61">
-                    <option value="calculated">Расчётный (без сдвига датума)</option>
-                    <option value="gost_51794_2008">Профиль ГОСТ 51794-2008 (предварительный сдвиг датума)</option>
+                    <option value="gost_51794_2008" selected>ГОСТ 51794-2008 (сдвиг датума; совпадает с EPSG:6336101–103 по проверке GeoBridge)</option>
+                    <option value="calculated">Без сдвига датума (расхождение около 100 м)</option>
                 </select>
                 <div class="msk-zone-row">
                     <label for="mskZone">Зона МСК-61</label>
@@ -1390,6 +1414,10 @@ function drawBoundaryFromGeoJSON(data) {
         let addressSuggestionSequence = 0;
         let yandexSuggestApiPromise = null;
         let yandexAddressSuggestView = null;
+        let yandexRoadSuggestView = null;
+        let roadSuggestionSequence = 0;
+        let roadSectionsSequence = 0;
+        let roadKmState = null;
         let mskCopyText = '';
 
         function updateDataSourceStatus(tileStatus = '') {
@@ -1482,6 +1510,16 @@ function drawBoundaryFromGeoJSON(data) {
 
         const addressQuery = document.getElementById('addressQuery');
         const addressSearchStatus = document.getElementById('addressSearchStatus');
+        const roadQuery = document.getElementById('roadQuery');
+        const roadSearchStatus = document.getElementById('roadSearchStatus');
+        const roadSuggestions = document.getElementById('roadSuggestions');
+        const roadKmPanel = document.getElementById('roadKmPanel');
+        const roadKmTitle = document.getElementById('roadKmTitle');
+        const roadKmNumber = document.getElementById('roadKmNumber');
+        const roadKmApplyButton = document.getElementById('roadKmApplyButton');
+        const roadKmSlider = document.getElementById('roadKmSlider');
+        const roadKmRange = document.getElementById('roadKmRange');
+        const roadKmStatus = document.getElementById('roadKmStatus');
         let yandexSuggestInitPromise = null;
 
         function loadYandexMapsApi(config) {
@@ -1532,12 +1570,14 @@ function drawBoundaryFromGeoJSON(data) {
                     if (!response.ok) throw new Error(typeof config.detail === 'string' ? config.detail : 'Не удалось получить настройки адресных подсказок');
                     if (!config.suggest_view_available) {
                         addressSearchStatus.textContent = 'Не настроены YANDEX_JS_API_KEY и/или YANDEX_SUGGEST_API_KEY на сервере.';
+                        roadSearchStatus.textContent = 'Онлайн-подсказки дорог не настроены на сервере.';
                         return;
                     }
                     const ymaps = await loadYandexMapsApi(config);
                     if (!yandexAddressSuggestView) {
                         yandexAddressSuggestView = new ymaps.SuggestView(addressQuery, {
-                            boundedBy: [[38.0, 45.8], [44.5, 50.4]],
+                            boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
+                            strictBounds: true,
                             results: 8,
                         });
                         yandexAddressSuggestView.events.add('select', event => {
@@ -1551,11 +1591,16 @@ function drawBoundaryFromGeoJSON(data) {
                             resolveOnlineAddress({query: selectedText, display_name: selectedText});
                         });
                     }
+                    setupRoadSuggestView(ymaps);
                     addressSearchStatus.textContent = config.geocoder_available
                         ? 'Введите адрес и выберите подсказку. После выбора точка будет геокодирована.'
                         : 'Подсказки загружены, но на сервере не настроен YANDEX_API_KEY для определения координат.';
+                    roadSearchStatus.textContent = config.geocoder_available
+                        ? 'Введите название трассы/дороги или код и выберите подсказку.'
+                        : 'Подсказки дорог загружены, но на сервере не настроен YANDEX_API_KEY.';
                 } catch (error) {
                     addressSearchStatus.textContent = error.message || 'Не удалось инициализировать онлайн-подсказки';
+                    roadSearchStatus.textContent = 'Не удалось инициализировать онлайн-поиск дорог.';
                 }
             })();
             return yandexSuggestInitPromise;
@@ -1603,9 +1648,352 @@ function drawBoundaryFromGeoJSON(data) {
             }
         });
 
+        roadQuery.addEventListener('input', () => {
+            roadSuggestionSequence += 1;
+            roadSectionsSequence += 1;
+            roadKmState = null;
+            roadKmPanel.hidden = true;
+            roadSearchStatus.textContent = roadQuery.value.trim().length < 2
+                ? (roadQuery.value.trim() ? 'Введите не менее 2 символов.' : '')
+                : (yandexRoadSuggestView ? 'Выберите трассу или дорогу из подсказок Яндекса.' : 'Подсказки дорог пока не готовы.');
+        });
+
+        async function resolveOnlineRoad(item) {
+            const sequence = roadSuggestionSequence;
+            roadSectionsSequence += 1;
+            roadKmState = null;
+            roadKmPanel.hidden = true;
+            roadSearchStatus.textContent = 'Ищу выбранную дорогу в Ростовской области…';
+            roadSuggestions.classList.remove('open');
+            try {
+                const response = await apiFetch('/api/roads/online/search', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query: item.query})
+                });
+                const data = await response.json();
+                if (sequence !== roadSuggestionSequence) return;
+                if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Дорога не найдена');
+                const precisionLabels = {
+                    exact: 'точное совпадение',
+                    street: 'линейный объект',
+                    near: 'приблизительное совпадение',
+                    range: 'диапазон',
+                    other: 'точность не уточнена',
+                };
+                const rows = (data.roads || []).map(road => ({
+                    ...road,
+                    display_name: `${road.title} · ${road.road_code ? 'трасса' : 'дорога'} · ${precisionLabels[road.precision] || road.precision}`,
+                }));
+                roadSearchStatus.textContent = rows.length
+                    ? 'Выберите найденный вариант, чтобы поставить точку и определить ближайшую дорогу.'
+                    : 'Дорога не найдена в Ростовской области.';
+                renderSuggestionList(roadSuggestions, rows, road => {
+                    roadSuggestions.classList.remove('open');
+                    roadQuery.value = road.title;
+                    roadSearchStatus.textContent = `Выбрано: ${road.title}. Определяю ближайшую дорогу…`;
+                    selectPoint(road.lat, road.lon, 'road-km');
+                    void loadRoadSections(road);
+                }, 'Дорога не найдена в Ростовской области');
+            } catch (error) {
+                if (sequence !== roadSuggestionSequence) return;
+                roadSearchStatus.textContent = error.message;
+            }
+        }
+
+        function formatRoadKmNumber(km) {
+            if (!Number.isFinite(km)) return '';
+            const totalMetres = Math.round(km * 1000);
+            const kilometres = Math.floor(totalMetres / 1000);
+            const metres = totalMetres - kilometres * 1000;
+            return `${kilometres}+${String(metres).padStart(3, '0')}`;
+        }
+
+        function parseRoadKmNumber(value) {
+            const text = String(value || '').trim().replace(/\s+/g, '').replace(',', '.');
+            if (!text) return null;
+            const plusMatch = text.match(/^(\d+)\+(\d+(?:\.\d+)?)$/);
+            if (plusMatch) {
+                const metres = Number(plusMatch[2]);
+                return Number(plusMatch[1]) + metres / 1000;
+            }
+            if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
+            return null;
+        }
+
+        function distanceKmBetween(lon1, lat1, lon2, lat2) {
+            const radians = Math.PI / 180;
+            const dLat = (lat2 - lat1) * radians;
+            const dLon = (lon2 - lon1) * radians;
+            const a = Math.sin(dLat / 2) ** 2
+                + Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(dLon / 2) ** 2;
+            return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function measureRoadLine(coordinates) {
+            const cumulativeKm = [0];
+            let totalKm = 0;
+            for (let index = 1; index < coordinates.length; index += 1) {
+                const [lon1, lat1] = coordinates[index - 1];
+                const [lon2, lat2] = coordinates[index];
+                totalKm += distanceKmBetween(lon1, lat1, lon2, lat2);
+                cumulativeKm.push(totalKm);
+            }
+            return { totalKm, cumulativeKm };
+        }
+
+        function buildRoadKmState(data) {
+            let offsetKm = 0;
+            const sections = [];
+            for (const rawSection of data.sections || []) {
+                const coordinates = (rawSection.coordinates || [])
+                    .filter(point => Array.isArray(point) && point.length >= 2)
+                    .map(point => [Number(point[0]), Number(point[1])])
+                    .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
+                if (coordinates.length < 2) continue;
+                const { totalKm, cumulativeKm } = measureRoadLine(coordinates);
+                if (!(totalKm > 0)) continue;
+                sections.push({
+                    ...rawSection,
+                    coordinates,
+                    lengthKm: totalKm,
+                    cumulativeKm,
+                    offsetKm,
+                });
+                offsetKm += totalKm;
+            }
+            const firstKm = Number(data.first_km);
+            const lastKm = Number(data.last_km);
+            const chainageSpanKm = lastKm - firstKm;
+            return {
+                ...data,
+                sections,
+                totalLengthKm: Number.isFinite(chainageSpanKm) && chainageSpanKm > 0
+                    ? chainageSpanKm
+                    : offsetKm,
+                firstKm,
+                lastKm,
+            };
+        }
+
+        function distanceToSectionKm(section, lon, lat) {
+            let bestKm = Infinity;
+            for (const [pointLon, pointLat] of section.coordinates) {
+                bestKm = Math.min(bestKm, distanceKmBetween(lon, lat, pointLon, pointLat));
+            }
+            return bestKm;
+        }
+
+        function sectionForOfficialKm(state, officialKm) {
+            const candidates = state.sections.filter(section =>
+                officialKm >= section.start_km - 1e-6 && officialKm <= section.finish_km + 1e-6
+            );
+            if (!candidates.length) return null;
+            if (candidates.length === 1 || !state.anchor) return candidates[0];
+            // WFS can contain overlapping old/new alignments. Prefer the section
+            // nearest to the road point selected by the user.
+            return candidates.reduce((best, section) => {
+                const distance = distanceToSectionKm(section, state.anchor.lon, state.anchor.lat);
+                return distance < best.distance ? { section, distance } : best;
+            }, { section: candidates[0], distance: Infinity }).section;
+        }
+
+        function pointAtSectionFraction(section, fraction) {
+            const targetKm = Math.max(0, Math.min(1, fraction)) * section.lengthKm;
+            let segmentIndex = section.cumulativeKm.length - 2;
+            for (let index = 0; index < section.cumulativeKm.length - 1; index += 1) {
+                if (targetKm <= section.cumulativeKm[index + 1] + 1e-9) {
+                    segmentIndex = index;
+                    break;
+                }
+            }
+            const segmentStartKm = section.cumulativeKm[segmentIndex];
+            const segmentLengthKm = section.cumulativeKm[segmentIndex + 1] - segmentStartKm;
+            const localFraction = segmentLengthKm > 0
+                ? Math.max(0, Math.min(1, (targetKm - segmentStartKm) / segmentLengthKm))
+                : 0;
+            const start = section.coordinates[segmentIndex];
+            const finish = section.coordinates[segmentIndex + 1];
+            return {
+                lon: start[0] + (finish[0] - start[0]) * localFraction,
+                lat: start[1] + (finish[1] - start[1]) * localFraction,
+            };
+        }
+
+        function pointAtOfficialKm(state, officialKm) {
+            const section = sectionForOfficialKm(state, officialKm);
+            if (!section) return null;
+            const fraction = (officialKm - section.start_km) / (section.finish_km - section.start_km);
+            return {
+                section,
+                ...pointAtSectionFraction(section, fraction),
+                relativeKm: officialKm - state.firstKm,
+            };
+        }
+
+        function officialKmAtRelativeKm(state, relativeKm) {
+            if (!Number.isFinite(relativeKm)) return null;
+            return state.firstKm + Math.max(0, Math.min(state.totalLengthKm, relativeKm));
+        }
+
+        function relativeKmForOfficialKm(state, officialKm) {
+            if (!sectionForOfficialKm(state, officialKm)) return null;
+            return officialKm - state.firstKm;
+        }
+
+        function nearestOfficialKm(state, lon, lat) {
+            let best = null;
+            for (const section of state.sections) {
+                for (let index = 0; index < section.coordinates.length; index += 1) {
+                    const [pointLon, pointLat] = section.coordinates[index];
+                    const distanceKm = distanceKmBetween(lon, lat, pointLon, pointLat);
+                    if (!best || distanceKm < best.distanceKm) {
+                        const fraction = section.lengthKm > 0
+                            ? section.cumulativeKm[index] / section.lengthKm
+                            : 0;
+                        best = {
+                            distanceKm,
+                            officialKm: section.start_km
+                                + fraction * (section.finish_km - section.start_km),
+                        };
+                    }
+                }
+            }
+            return best;
+        }
+
+        function setRoadKmControlsEnabled(enabled) {
+            roadKmNumber.disabled = !enabled;
+            roadKmApplyButton.disabled = !enabled;
+            roadKmSlider.disabled = !enabled;
+        }
+
+        function showRoadKmControls(state, officialKm) {
+            const relativeKm = relativeKmForOfficialKm(state, officialKm);
+            if (relativeKm !== null) roadKmSlider.value = String(relativeKm);
+            roadKmNumber.value = formatRoadKmNumber(officialKm);
+            setRoadKmControlsEnabled(true);
+        }
+
+        async function loadRoadSections(road) {
+            const sequence = ++roadSectionsSequence;
+            roadKmState = null;
+            roadKmPanel.hidden = false;
+            roadKmTitle.textContent = road.road_code
+                ? `${road.road_code} — ${road.title || 'выбранная трасса'}`
+                : (road.title || 'Километраж выбранной трассы');
+            roadKmNumber.value = '';
+            roadKmSlider.min = '0';
+            roadKmSlider.max = '0';
+            roadKmSlider.value = '0';
+            setRoadKmControlsEnabled(false);
+            roadKmRange.textContent = 'Диапазон километража не загружен.';
+            if (!road.road_code) {
+                roadKmStatus.textContent = 'Для населённых пунктов, районов и улиц официальный километраж трассы не применяется.';
+                return;
+            }
+            roadKmStatus.textContent = 'Загружаю официальные участки трассы из СКДФ…';
+            try {
+                const response = await apiFetch('/api/roads/online/sections', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code: road.road_code}),
+                });
+                const data = await response.json();
+                if (sequence !== roadSectionsSequence) return;
+                if (!response.ok) {
+                    throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось получить участки трассы');
+                }
+                const state = buildRoadKmState(data);
+                if (!state.sections.length) throw new Error('В ответе СКДФ нет пригодных участков трассы');
+                state.anchor = {lon: Number(road.lon), lat: Number(road.lat)};
+                roadKmState = state;
+                roadKmSlider.min = '0';
+                roadKmSlider.max = String(state.totalLengthKm);
+                roadKmSlider.step = state.totalLengthKm > 100 ? '0.01' : '0.001';
+                roadKmRange.textContent = `Участок в Ростовской области: ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · ${state.totalLengthKm.toFixed(1)} км по официальному километражу СКДФ.`;
+                const nearest = nearestOfficialKm(state, road.lon, road.lat);
+                const initialKm = nearest ? nearest.officialKm : state.firstKm;
+                showRoadKmControls(state, initialKm);
+                roadKmStatus.textContent = nearest
+                    ? `Ближайший километр к точке Яндекса: ${formatKm(initialKm)}. Введите километр или отпустите ползунок, чтобы поставить точку.`
+                    : `Выберите километр в диапазоне ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)}.`;
+            } catch (error) {
+                if (sequence !== roadSectionsSequence) return;
+                roadKmState = null;
+                roadKmStatus.textContent = `Километраж недоступен: ${error.message}`;
+                roadKmRange.textContent = `В СКДФ нет официальных участков для ${road.road_code} в Ростовской области.`;
+                setRoadKmControlsEnabled(false);
+            }
+        }
+
+        function applyRoadKmNumber() {
+            if (!roadKmState) return;
+            const officialKm = parseRoadKmNumber(roadKmNumber.value);
+            if (!Number.isFinite(officialKm)) {
+                roadKmStatus.textContent = 'Введите километр в формате 829+500 или 829.5.';
+                return;
+            }
+            placeRoadKm(officialKm);
+        }
+
+        function placeRoadKm(officialKm, movePoint = true) {
+            if (!roadKmState) return;
+            const point = pointAtOfficialKm(roadKmState, officialKm);
+            if (!point) {
+                roadKmStatus.textContent = `Километр ${formatKm(officialKm)} не покрыт доступными участками СКДФ в Ростовской области.`;
+                return;
+            }
+            showRoadKmControls(roadKmState, officialKm);
+            roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)} · ${formatKm(point.relativeKm)} от первого доступного километра · ${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+            if (movePoint) selectPoint(point.lat, point.lon, 'road-km');
+        }
+
+        roadKmApplyButton.addEventListener('click', applyRoadKmNumber);
+        roadKmNumber.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                applyRoadKmNumber();
+            }
+        });
+        roadKmSlider.addEventListener('input', () => {
+            if (!roadKmState) return;
+            const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
+            if (!Number.isFinite(officialKm)) return;
+            roadKmNumber.value = formatRoadKmNumber(officialKm);
+            roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)}. Отпустите ползунок, чтобы поставить точку.`;
+        });
+        roadKmSlider.addEventListener('change', () => {
+            if (!roadKmState) return;
+            const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
+            if (Number.isFinite(officialKm)) placeRoadKm(officialKm);
+        });
+
+        function setupRoadSuggestView(ymaps) {
+            if (yandexRoadSuggestView) return;
+            yandexRoadSuggestView = new ymaps.SuggestView(roadQuery, {
+                boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
+                strictBounds: true,
+                results: 8,
+            });
+            yandexRoadSuggestView.events.add('select', event => {
+                const item = event.get('item') || {};
+                const selectedText = (typeof item.value === 'string' && item.value.trim())
+                    || (typeof item.displayName === 'string' && item.displayName.trim())
+                    || roadQuery.value.trim();
+                if (!selectedText) return;
+                roadQuery.value = selectedText;
+                roadSuggestionSequence += 1;
+                resolveOnlineRoad({query: selectedText});
+            });
+        }
+
         async function searchLocalRoad() {
-            const params = new URLSearchParams({q: document.getElementById('roadQuery').value, limit:'10'});
-            if (document.getElementById('roadKm').value.trim()) params.set('km', document.getElementById('roadKm').value.trim());
+            roadSectionsSequence += 1;
+            roadKmState = null;
+            roadKmPanel.hidden = true;
+            const km = document.getElementById('roadKm').value.trim();
+            if (!km) { showToast('Для локального поиска укажите километраж', 'error'); return; }
+            const params = new URLSearchParams({q: document.getElementById('roadQuery').value, limit:'10', km});
             try {
                 const response = await apiFetch(`/api/roads/search?${params}`);
                 const data = await response.json();

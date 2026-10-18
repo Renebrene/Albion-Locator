@@ -41,7 +41,8 @@ def test_root_serves_login_gated_app_without_caching():
     for element_id in (
         "map-search-toolbar", "searchModeSelect", "coordsSearchPanel",
         "addressSearchPanel", "addressQuery", "addressSearchStatus",
-        "roadSearchPanel", "mskSearchPanel", "mskDirection", "wgsLat", "wgsLon",
+        "roadSearchPanel", "roadKmPanel", "roadKmNumber", "roadKmSlider",
+        "mskSearchPanel", "mskDirection", "wgsLat", "wgsLon",
         "mskZoneHelpButton", "mskZoneTooltip",
         "sidebar-left", "sidebar-right", "resultsFrame", "batch-panel",
     ):
@@ -52,6 +53,11 @@ def test_root_serves_login_gated_app_without_caching():
     assert "ymaps.SuggestView" in response.text
     assert "/api/maps-config" in response.text
     assert "api-maps.yandex.ru/2.1/" in response.text
+    assert "/api/roads/online/search" in response.text
+    assert "/api/roads/online/sections" in response.text
+    assert "roadSearchStatus" in response.text
+    assert "roadKmSlider" in response.text
+    assert "applyRoadKmNumber()" in response.text
     assert "fillRule: 'evenodd'" in response.text
     assert "color: '#5b6670'" in response.text
     assert "weight: 1.5" in response.text
