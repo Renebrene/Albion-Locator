@@ -52,8 +52,9 @@ def test_root_serves_login_gated_app_without_caching():
     assert "/api/address/online/geocode" in response.text
     assert "/api/msk61/to-geographic" in response.text
     assert "/api/msk61/from-geographic" in response.text
-    assert "Это ориентир по долготе" in response.text
-    assert "Перечень районов намеренно не приводится" in response.text
+    assert "Кадастровые районы Ростовской области по зонам МСК-61" in response.text
+    assert "Азовский (61:01)" in response.text
+    assert "https://terraingis.ru/msk-61.html" in response.text
 
 
 def test_protected_api_requires_auth():
