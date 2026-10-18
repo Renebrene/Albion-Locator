@@ -144,6 +144,14 @@
         #map-search-body .search-mode-panel.active { display: block; }
         #map-search-body h3, #map-search-body h4 { margin-top: 3px; }
         #map-search-body .coord-input { margin-bottom: 5px; }
+        #sidebar-right #map-search-toolbar { position: static; transform: none; width: auto; margin: 0 0 12px; z-index: auto; pointer-events: auto; }
+        #sidebar-right #map-search-shell { box-shadow: none; }
+        #sidebar-right #map-search-header { flex-wrap: wrap; padding: 8px; }
+        #sidebar-right #map-search-header strong { display: none; }
+        #sidebar-right #searchModeSelect { flex: 1 1 130px; width: auto; min-width: 0; }
+        #sidebar-right #map-search-toggle { flex: 0 0 auto; }
+        #sidebar-right #searchToolbarActions { flex: 1 1 100%; justify-content: flex-end; }
+        #sidebar-right #map-search-body { max-height: none; padding: 8px; }
         #settings-modal { position: fixed; inset: 0; z-index: 15000; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.48); }
         #settings-modal.open { display: flex; }
         #settings-dialog { width: min(720px, 100%); max-height: min(88vh, 900px); overflow: hidden; display: flex; flex-direction: column; background: var(--bg-sidebar); color: var(--text-main); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
@@ -569,9 +577,8 @@
             <div class="geo-panel search-mode-panel" id="addressSearchPanel">
                 <h4>🏠 Онлайн-поиск адреса</h4>
                 <input id="addressQuery" placeholder="Населённый пункт, улица, дом" autocomplete="off" maxlength="120" aria-label="Адрес для поиска">
-                <div id="addressSuggestions" class="geo-suggestions" role="listbox" aria-label="Подсказки адреса"></div>
                 <div id="addressSearchStatus" class="hint" role="status" aria-live="polite"></div>
-                <div class="hint">Поиск ограничен окном вокруг Ростовской области. Введённый адрес передаётся Яндексу; проверьте регион и точность найденной точки.</div>
+                <div class="hint">Подсказки Яндекса в окне Ростовской области. Введённый адрес передаётся Яндексу; проверьте регион и точность найденной точки.</div>
             </div>
             <div class="geo-panel search-mode-panel" id="roadSearchPanel">
                 <h4>🛣️ Дорога и километраж (локально)</h4>
@@ -658,22 +665,6 @@
     <!-- КАРТА -->
     <div id="map">
         <div id="map-source-notice" role="status" aria-live="polite"></div>
-        <div id="map-search-toolbar">
-            <div id="map-search-shell">
-                <div id="map-search-header">
-                    <strong>🔎 Поиск</strong>
-                    <select id="searchModeSelect" aria-label="Режим поиска">
-                        <option value="address">Адрес</option>
-                        <option value="coords">Координаты</option>
-                        <option value="road">Дорога + км</option>
-                        <option value="msk">МСК-61</option>
-                    </select>
-                    <div id="searchToolbarActions"></div>
-                    <button id="map-search-toggle" type="button" aria-expanded="true" title="Свернуть поиск">⌃</button>
-                </div>
-                <div id="map-search-body"></div>
-            </div>
-        </div>
         <div id="screenshot-overlay"></div>
         <div id="selection-rect">
             <div class="resize-handle nw" data-handle="nw"></div>
@@ -718,9 +709,9 @@
             </ul>
             <h4>🖼️ Панели интерфейса</h4>
             <ul>
-                <li><b>Поиск над картой</b> — переключатель режимов: адрес, координаты, дорога+км, МСК-61</li>
+                <li><b>Поиск в правом фрейме</b> — переключатель режимов: адрес, координаты, дорога+км, МСК-61</li>
                 <li><b>Левый фрейм</b> — загрузка фото, выбранные координаты, история, закладки и пакетная обработка</li>
-                <li><b>Правый фрейм</b> — текущий результат дороги и километража; кнопка ⚙️ открывает настройки</li>
+                <li><b>Правый фрейм</b> — поиск, текущий результат дороги и километража; кнопка ⚙️ открывает настройки</li>
                 <li>Панели можно сворачивать стрелками или горячими клавишами Ctrl+1 / Ctrl+2</li>
                 <li>Настройки закрываются кнопкой ×, кликом по фону или клавишей Esc</li>
             </ul>
@@ -802,6 +793,23 @@
                         <input type="checkbox" id="excludeMinor" checked style="cursor: pointer;">
                         Искать только основные дороги
                     </label>
+                </div>
+            </div>
+
+            <div id="map-search-toolbar">
+                <div id="map-search-shell">
+                    <div id="map-search-header">
+                        <strong>🔎 Поиск</strong>
+                        <select id="searchModeSelect" aria-label="Режим поиска">
+                            <option value="address">Адрес</option>
+                            <option value="coords">Координаты</option>
+                            <option value="road">Дорога + км</option>
+                            <option value="msk">МСК-61</option>
+                        </select>
+                        <div id="searchToolbarActions"></div>
+                        <button id="map-search-toggle" type="button" aria-expanded="true" title="Свернуть поиск">⌃</button>
+                    </div>
+                    <div id="map-search-body"></div>
                 </div>
             </div>
 
@@ -1221,77 +1229,62 @@ async function loadRostovBoundaryOverpass() {
 // === УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ОТРИСОВКИ ГРАНИЦЫ ===
 let boundaryMaskLayer = null;
 let boundaryLineLayer = null;
+let boundaryCanvasRenderer = null;
 
-function drawBoundaryFromGeoJSON(data) {
-    const maskFeatures = [], borderFeatures = [];
-    // L.geoJSON ожидает координаты GeoJSON в порядке [lng, lat].
-    const worldRing = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
-    const features = data.type === 'FeatureCollection'
-        ? (data.features || [])
-        : data.type === 'Feature'
-            ? [data]
-            : data.type
-                ? [{ type: 'Feature', geometry: data, properties: {} }]
+function geojsonOuterRings(geojson) {
+    const features = geojson?.type === 'FeatureCollection'
+        ? (geojson.features || [])
+        : geojson?.type === 'Feature'
+            ? [geojson]
+            : geojson?.geometry
+                ? [{ geometry: geojson.geometry }]
                 : [];
+    const rings = [];
 
     for (const feature of features) {
-        const geom = feature.geometry;
-        if (!geom) continue;
-
-        if (geom.type === 'Polygon') {
-            const holeRing = [...geom.coordinates[0]].reverse();
-
-            maskFeatures.push({
-                type: "Feature",
-                geometry: { type: "Polygon", coordinates: [worldRing, holeRing] },
-                properties: {}
-            });
-
-            borderFeatures.push({
-                type: "Feature",
-                geometry: { type: "LineString", coordinates: geom.coordinates[0] },
-                properties: {}
-            });
-        } else if (geom.type === 'MultiPolygon') {
-            for (const polygon of geom.coordinates) {
-                const holeRing = [...polygon[0]].reverse();
-
-                maskFeatures.push({
-                    type: "Feature",
-                    geometry: { type: "Polygon", coordinates: [worldRing, holeRing] },
-                    properties: {}
-                });
-
-                borderFeatures.push({
-                    type: "Feature",
-                    geometry: { type: "LineString", coordinates: polygon[0] },
-                    properties: {}
-                });
+        const geometry = feature?.geometry;
+        if (geometry?.type === 'Polygon' && geometry.coordinates?.[0]) {
+            rings.push(geometry.coordinates[0]);
+        } else if (geometry?.type === 'MultiPolygon') {
+            for (const polygon of geometry.coordinates || []) {
+                if (polygon[0]) rings.push(polygon[0]);
             }
         }
     }
+    return rings.map(ring => ring.map(([lon, lat]) => [lat, lon]));
+}
+
+function drawBoundaryFromGeoJSON(data) {
+    const regionRings = geojsonOuterRings(data);
+    if (!regionRings.length) throw new Error('В файле нет Polygon/MultiPolygon границы региона');
 
     if (boundaryMaskLayer) map.removeLayer(boundaryMaskLayer);
     if (boundaryLineLayer) map.removeLayer(boundaryLineLayer);
 
-    // Рисуем маску (затемнение за пределами области)
-    boundaryMaskLayer = L.geoJSON({ type: "FeatureCollection", features: maskFeatures }, {
+    const worldRing = [[90, -180], [90, 180], [-90, 180], [-90, -180], [90, -180]];
+    boundaryCanvasRenderer = L.canvas({pane: 'overlayPane'});
+    boundaryMaskLayer = L.polygon([worldRing, ...regionRings], {
+        renderer: boundaryCanvasRenderer,
+        stroke: false,
+        fill: true,
+        fillColor: '#2f383f',
+        fillOpacity: 0.82,
+        fillRule: 'evenodd',
+        interactive: false,
+    }).addTo(map);
+    boundaryMaskLayer.bringToBack();
+
+    boundaryLineLayer = L.geoJSON(data, {
+        renderer: boundaryCanvasRenderer,
         style: {
-            color: 'transparent',
-            fillColor: '#2f383f',
-            fillOpacity: 0.82,
-            fillRule: 'evenodd',
-            interactive: false
+            color: '#5b6670',
+            weight: 1.5,
+            opacity: 0.9,
+            fill: false,
+            fillOpacity: 0,
         },
         interactive: false,
-        pane: 'overlayPane'
-    }).addTo(map);
-
-    // Рисуем белую границу
-    boundaryLineLayer = L.geoJSON({ type: "FeatureCollection", features: borderFeatures }, {
-        style: { color: '#ffffff', weight: 3, opacity: 1.0, interactive: false },
-        interactive: false,
-        pane: 'overlayPane'
+        pane: 'overlayPane',
     }).addTo(map);
 }
 
@@ -1395,7 +1388,8 @@ function drawBoundaryFromGeoJSON(data) {
         let selectedMskPoint = null;
         let selectedPointSequence = 0;
         let addressSuggestionSequence = 0;
-        let addressSuggestController = null;
+        let yandexSuggestApiPromise = null;
+        let yandexAddressSuggestView = null;
         let mskCopyText = '';
 
         function updateDataSourceStatus(tileStatus = '') {
@@ -1415,12 +1409,6 @@ function drawBoundaryFromGeoJSON(data) {
                 if (!response.ok) throw new Error(data.detail || 'Статус источников данных недоступен');
                 localGeoAvailable = data.local_available === true;
                 localTilesAvailable = data.local_tiles_available === true;
-                const addressStatus = document.getElementById('addressSearchStatus');
-                if (!data.address_suggest_available) {
-                    addressStatus.textContent = 'Онлайн-подсказки не настроены: на сервере отсутствует YANDEX_SUGGEST_API_KEY.';
-                } else if (!data.address_geocoder_available) {
-                    addressStatus.textContent = 'Подсказки доступны, но для установки выбранной точки не настроен YANDEX_API_KEY.';
-                }
                 if (!dataSourceWasChosen) useLocalRoadData = data.default_source === 'local';
                 const select = document.getElementById('dataSourceSelect');
                 const mapSelect = document.getElementById('mapSourceSelect');
@@ -1461,6 +1449,7 @@ function drawBoundaryFromGeoJSON(data) {
                 };
                 document.getElementById('roadSearchButton').disabled = !useLocalRoadData;
                 document.getElementById('roadSearchButton').title = useLocalRoadData ? '' : 'Поиск дороги и километража пока реализован только в локальной базе';
+                void initializeYandexAddressSuggest();
             } catch (error) {
                 // Keep the map usable if the status endpoint is unavailable; make this source fallback visible.
                 useLocalTiles = false;
@@ -1491,17 +1480,85 @@ function drawBoundaryFromGeoJSON(data) {
             container.classList.add('open');
         }
 
-        let addressSuggestTimer = null;
         const addressQuery = document.getElementById('addressQuery');
-        const addressSuggestions = document.getElementById('addressSuggestions');
         const addressSearchStatus = document.getElementById('addressSearchStatus');
+        let yandexSuggestInitPromise = null;
 
-        function cancelAddressSuggestionRequest() {
-            addressSuggestionSequence += 1;
-            if (addressSuggestTimer) clearTimeout(addressSuggestTimer);
-            addressSuggestTimer = null;
-            if (addressSuggestController) addressSuggestController.abort();
-            addressSuggestController = null;
+        function loadYandexMapsApi(config) {
+            if (window.ymaps?.SuggestView) {
+                return new Promise(resolve => window.ymaps.ready(() => resolve(window.ymaps)));
+            }
+            if (yandexSuggestApiPromise) return yandexSuggestApiPromise;
+
+            yandexSuggestApiPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.async = true;
+                script.src = `https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=${encodeURIComponent(config.javascript_api_key)}&suggest_apikey=${encodeURIComponent(config.suggest_api_key)}`;
+                let settled = false;
+                const finish = (error, api) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    if (error) {
+                        script.remove();
+                        yandexSuggestApiPromise = null;
+                        reject(error);
+                    } else resolve(api);
+                };
+                const timer = setTimeout(() => finish(new Error('Загрузка Yandex SuggestView превысила лимит времени')), 15000);
+                script.onerror = () => finish(new Error('Не удалось загрузить Yandex JavaScript API'));
+                script.onload = () => {
+                    if (!window.ymaps?.ready) {
+                        finish(new Error('Yandex JavaScript API загрузился некорректно'));
+                        return;
+                    }
+                    window.ymaps.ready(() => {
+                        if (window.ymaps.SuggestView) finish(null, window.ymaps);
+                        else finish(new Error('SuggestView недоступен для этого ключа или продукта'));
+                    });
+                };
+                document.head.appendChild(script);
+            });
+            return yandexSuggestApiPromise;
+        }
+
+        async function initializeYandexAddressSuggest() {
+            if (yandexSuggestInitPromise) return yandexSuggestInitPromise;
+            yandexSuggestInitPromise = (async () => {
+                addressSearchStatus.textContent = 'Загружаю адресные подсказки Яндекса…';
+                try {
+                    const response = await apiFetch('/api/maps-config');
+                    const config = await response.json();
+                    if (!response.ok) throw new Error(typeof config.detail === 'string' ? config.detail : 'Не удалось получить настройки адресных подсказок');
+                    if (!config.suggest_view_available) {
+                        addressSearchStatus.textContent = 'Не настроены YANDEX_JS_API_KEY и/или YANDEX_SUGGEST_API_KEY на сервере.';
+                        return;
+                    }
+                    const ymaps = await loadYandexMapsApi(config);
+                    if (!yandexAddressSuggestView) {
+                        yandexAddressSuggestView = new ymaps.SuggestView(addressQuery, {
+                            boundedBy: [[38.0, 45.8], [44.5, 50.4]],
+                            results: 8,
+                        });
+                        yandexAddressSuggestView.events.add('select', event => {
+                            const item = event.get('item') || {};
+                            const selectedText = (typeof item.value === 'string' && item.value.trim())
+                                || (typeof item.displayName === 'string' && item.displayName.trim())
+                                || addressQuery.value.trim();
+                            if (!selectedText) return;
+                            addressQuery.value = selectedText;
+                            addressSuggestionSequence += 1;
+                            resolveOnlineAddress({query: selectedText, display_name: selectedText});
+                        });
+                    }
+                    addressSearchStatus.textContent = config.geocoder_available
+                        ? 'Введите адрес и выберите подсказку. После выбора точка будет геокодирована.'
+                        : 'Подсказки загружены, но на сервере не настроен YANDEX_API_KEY для определения координат.';
+                } catch (error) {
+                    addressSearchStatus.textContent = error.message || 'Не удалось инициализировать онлайн-подсказки';
+                }
+            })();
+            return yandexSuggestInitPromise;
         }
 
         async function resolveOnlineAddress(item) {
@@ -1532,56 +1589,17 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
-        async function requestAddressSuggestions(query) {
-            const sequence = ++addressSuggestionSequence;
-            if (addressSuggestController) addressSuggestController.abort();
-            addressSuggestController = new AbortController();
-            addressSuggestions.replaceChildren();
-            addressSuggestions.classList.remove('open');
-            if (query.trim().length < 3) {
-                addressSearchStatus.textContent = query.trim() ? 'Введите не менее 3 символов.' : '';
-                return;
-            }
-            addressSearchStatus.textContent = 'Ищу адресные подсказки…';
-            try {
-                const response = await apiFetch('/api/address/online/suggest', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({query, limit: 8}),
-                    signal: addressSuggestController.signal
-                });
-                const data = await response.json();
-                if (sequence !== addressSuggestionSequence) return;
-                if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Ошибка онлайн-поиска адреса');
-                const rows = (data.suggestions || []).map(item => ({...item, display_name: item.display_name || item.title || item.query}));
-                addressSearchStatus.textContent = rows.length ? 'Выберите подсказку, чтобы поставить точку на карте.' : 'Подсказки не найдены в области поиска.';
-                renderSuggestionList(addressSuggestions, rows, item => {
-                    addressQuery.value = item.display_name || item.query;
-                    addressSuggestions.classList.remove('open');
-                    resolveOnlineAddress(item);
-                }, 'Подсказки не найдены в области поиска.');
-            } catch (error) {
-                if (sequence !== addressSuggestionSequence || error.name === 'AbortError') return;
-                addressSuggestions.replaceChildren(); addressSuggestions.classList.remove('open');
-                addressSearchStatus.textContent = error.message;
-            }
-        }
-
-        addressQuery.addEventListener('input', event => {
-            cancelAddressSuggestionRequest();
-            const query = event.target.value;
-            if (query.trim().length < 3) {
-                addressSuggestions.replaceChildren(); addressSuggestions.classList.remove('open');
-                addressSearchStatus.textContent = query.trim() ? 'Введите не менее 3 символов.' : '';
-                return;
-            }
-            addressSearchStatus.textContent = 'Ищу адресные подсказки…';
-            addressSuggestTimer = setTimeout(() => requestAddressSuggestions(query), 400);
+        addressQuery.addEventListener('input', () => {
+            addressSuggestionSequence += 1;
+            const queryLength = addressQuery.value.trim().length;
+            if (queryLength < 3) addressSearchStatus.textContent = queryLength ? 'Введите не менее 3 символов.' : '';
+            else if (!yandexAddressSuggestView) addressSearchStatus.textContent = 'Адресные подсказки пока не готовы.';
+            else addressSearchStatus.textContent = 'Выберите один из вариантов Яндекса.';
         });
         addressQuery.addEventListener('keydown', event => {
             if (event.key === 'Escape') {
-                cancelAddressSuggestionRequest();
-                addressSuggestions.replaceChildren(); addressSuggestions.classList.remove('open');
-                addressSearchStatus.textContent = '';
+                addressSuggestionSequence += 1;
+                if (!yandexAddressSuggestView) addressSearchStatus.textContent = '';
             }
         });
 
@@ -1737,7 +1755,6 @@ function drawBoundaryFromGeoJSON(data) {
             actions.append(document.getElementById('goToRostovButton'), document.getElementById('helpButton'));
             if (window.matchMedia('(max-width: 640px)').matches) {
                 document.getElementById('sidebar-left').classList.add('collapsed');
-                document.getElementById('sidebar-right').classList.add('collapsed');
                 setTimeout(() => map.invalidateSize(), 350);
             }
         }
@@ -1784,7 +1801,7 @@ function drawBoundaryFromGeoJSON(data) {
             const rightContent = document.querySelector('#sidebar-right .panel-content');
             if (rightContent) {
                 for (const node of Array.from(rightContent.children)) {
-                    if (node !== resultFrame) content.appendChild(node);
+                    if (node !== resultFrame && node.id !== 'map-search-toolbar') content.appendChild(node);
                 }
             }
             dialog.append(header, content); modal.appendChild(dialog); document.body.appendChild(modal);
@@ -2247,8 +2264,9 @@ function drawBoundaryFromGeoJSON(data) {
             const toolbar = document.getElementById('map-search-toolbar');
             const notice = document.getElementById('map-source-notice');
             if (toolbar) toolbar.style.visibility = visible ? '' : 'hidden';
-            if (notice && visible) notice.style.visibility = '';
-            else if (notice) notice.style.visibility = 'hidden';
+            if (notice) notice.style.visibility = visible ? '' : 'hidden';
+            const rightPanelContent = document.querySelector('#sidebar-right .panel-content');
+            if (rightPanelContent) rightPanelContent.style.visibility = visible ? '' : 'hidden';
         }
         function clearScreenshotUI() { menu.style.display = 'none'; rect.style.display = 'none'; overlay.style.display = 'none'; countdownLabel.style.display = 'none'; capturedImageData = null; capturedBlob = null; setMapChromeVisible(true); }
         function goToRostov() { map.setView([47.23, 39.72], 7); }

@@ -40,7 +40,7 @@ def test_root_serves_login_gated_app_without_caching():
     assert 'id="authOverlay"' in response.text
     for element_id in (
         "map-search-toolbar", "searchModeSelect", "coordsSearchPanel",
-        "addressSearchPanel", "addressQuery", "addressSuggestions",
+        "addressSearchPanel", "addressQuery", "addressSearchStatus",
         "roadSearchPanel", "mskSearchPanel", "mskDirection", "wgsLat", "wgsLon",
         "mskZoneHelpButton", "mskZoneTooltip",
         "sidebar-left", "sidebar-right", "resultsFrame", "batch-panel",
@@ -48,7 +48,13 @@ def test_root_serves_login_gated_app_without_caching():
         assert f'id="{element_id}"' in response.text
     assert "setupSettingsModal()" in response.text
     assert "🏠 Онлайн-поиск адреса" in response.text
-    assert "/api/address/online/suggest" in response.text
+    assert "initializeYandexAddressSuggest()" in response.text
+    assert "ymaps.SuggestView" in response.text
+    assert "/api/maps-config" in response.text
+    assert "api-maps.yandex.ru/2.1/" in response.text
+    assert "fillRule: 'evenodd'" in response.text
+    assert "color: '#5b6670'" in response.text
+    assert "weight: 1.5" in response.text
     assert "/api/address/online/geocode" in response.text
     assert "/api/msk61/to-geographic" in response.text
     assert "/api/msk61/from-geographic" in response.text

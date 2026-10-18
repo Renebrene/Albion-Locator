@@ -25,11 +25,17 @@ from urllib.parse import urlsplit
 
 import httpx
 import piexif
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from PIL import Image
 from pydantic import BaseModel, Field, FiniteFloat, field_validator
+
+# A local ignored .env is convenient for the single-user deployment. Explicit
+# process environment values (e.g. systemd/CloudPub secrets) take precedence.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+
 from batch import router as batch_router
 
 import auth
@@ -54,6 +60,7 @@ _llm_cache: dict[str, str | None] = {}
 # --- ЯНДЕКС ГЕОКОДЕР И ПОДСКАЗКИ ---
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_SUGGEST_API_KEY = os.getenv("YANDEX_SUGGEST_API_KEY", "")
+YANDEX_JS_API_KEY = os.getenv("YANDEX_JS_API_KEY", "")
 YANDEX_SUGGEST_URL = "https://suggest-maps.yandex.ru/v1/suggest"
 YANDEX_GEOCODER_URL = "https://geocode-maps.yandex.ru/v1/"
 ADDRESS_SUGGEST_TIMEOUT = 5.0
@@ -1142,10 +1149,24 @@ async def data_sources():
         "local_tiles_available": tiles.is_file(),
         "external_available": True,
         "address_suggest_available": bool(YANDEX_SUGGEST_API_KEY),
+        "suggest_view_available": bool(YANDEX_JS_API_KEY and YANDEX_SUGGEST_API_KEY),
         "address_geocoder_available": bool(YANDEX_API_KEY),
         "fully_offline_ready": False,
         "note": "Local index and tile archive are separate generated datasets; missing local data will return an error, never fall back silently.",
     }
+
+
+@app.get("/api/maps-config")
+async def maps_config(request: Request):
+    _request_user(request)
+    response = JSONResponse({
+        "suggest_view_available": bool(YANDEX_JS_API_KEY and YANDEX_SUGGEST_API_KEY),
+        "geocoder_available": bool(YANDEX_API_KEY),
+        "javascript_api_key": YANDEX_JS_API_KEY or None,
+        "suggest_api_key": YANDEX_SUGGEST_API_KEY or None,
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/address/suggest")

@@ -5,3 +5,4 @@ piexif
 Pillow
 pydantic
 python-multipart
+python-dotenv

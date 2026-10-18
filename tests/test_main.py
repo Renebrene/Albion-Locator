@@ -327,8 +327,29 @@ def test_data_sources_reports_local_assets(tmp_path, monkeypatch):
     assert payload["local_available"] is False
     assert payload["local_tiles_available"] is False
     assert payload["address_suggest_available"] is bool(main.YANDEX_SUGGEST_API_KEY)
+    assert payload["suggest_view_available"] is bool(main.YANDEX_JS_API_KEY and main.YANDEX_SUGGEST_API_KEY)
     assert payload["address_geocoder_available"] is bool(main.YANDEX_API_KEY)
     assert payload["fully_offline_ready"] is False
+
+
+def test_maps_config_is_authenticated_no_store_and_never_exposes_geocoder_key(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_JS_API_KEY", "test-js-client-key")
+    monkeypatch.setattr(main, "YANDEX_SUGGEST_API_KEY", "test-suggest-client-key")
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "server-only-geocoder-secret")
+
+    response = client.get("/api/maps-config")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "suggest_view_available": True,
+        "geocoder_available": True,
+        "javascript_api_key": "test-js-client-key",
+        "suggest_api_key": "test-suggest-client-key",
+    }
+    assert "server-only-geocoder-secret" not in response.text
+
+    unauthenticated = TestClient(main.app).get("/api/maps-config")
+    assert unauthenticated.status_code == 401
 
 
 def test_offline_address_and_road_search_use_local_index(tmp_path, monkeypatch):

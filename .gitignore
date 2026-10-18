@@ -8,6 +8,9 @@ env/
 .condarc
 
 # Личные данные и генерируемые файлы
+.env
+.env.*
+!.env.example
 user_settings.json
 bookmarks.json
 users.db
