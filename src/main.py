@@ -1786,6 +1786,23 @@ _STATIC_DIR = PROJECT_DIR.parent / "static"
 async def boundary_geojson():
     return FileResponse(_STATIC_DIR / "rostov_boundary.geojson", media_type="application/geo+json")
 
+
+# Клиентские модули отдаются по явному allowlist: каталог static не публикуется
+# целиком, чтобы рядом лежащие файлы не становились доступны по прямой ссылке.
+_STATIC_JS_FILES = {"geo-core.js"}
+
+
+@app.get("/static/js/{filename}")
+async def static_js(filename: str):
+    if filename not in _STATIC_JS_FILES:
+        raise HTTPException(404, "not found")
+    path = _STATIC_DIR / "js" / filename
+    if not path.is_file():
+        raise HTTPException(404, "not found")
+    response = FileResponse(path, media_type="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
 @app.get("/", include_in_schema=False)
 async def root():
     response = FileResponse(_STATIC_DIR / "index.html")

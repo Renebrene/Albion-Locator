@@ -163,6 +163,16 @@ def test_static_assets_allowlist_only():
     assert client.get("/static/index.html.save").status_code == 404
 
 
+def test_static_js_serves_only_allowlisted_modules():
+    response = client.get("/static/js/geo-core.js")
+    assert response.status_code == 200
+    assert "javascript" in response.headers["content-type"]
+    assert "parseWgsCoordinates" in response.text
+    # Обход каталога и посторонние файлы не отдаются.
+    assert client.get("/static/js/../main.py").status_code in {404, 400}
+    assert client.get("/static/js/batch.js").status_code == 404
+
+
 def test_rejects_declared_oversized_request_body():
     response = client.post("/api/locate", content="{}", headers={"content-length": str(main.MAX_REQUEST_BODY_BYTES + 1)})
     assert response.status_code == 413
