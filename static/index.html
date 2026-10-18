@@ -3952,7 +3952,8 @@ function drawBoundaryFromGeoJSON(data) {
                 const historyLabel = (activePoint?.roadLabel && Number.isFinite(activePoint?.roadKm)
                     ? `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`
                     : activePoint?.address) || '';
-                addToHistory(lat, lon, source || 'manual', historyLabel);
+                const historySource = activePoint?.source || 'manual';
+                addToHistory(lat, lon, historySource, historyLabel);
                 document.getElementById('results').innerHTML = renderResultsHTML(data);
                 document.getElementById('addBookmarkBtn').disabled = false;
 
