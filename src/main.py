@@ -868,6 +868,11 @@ class OnlineAddressSuggestPayload(BaseModel):
         return query
 
 
+class ReverseGeocodePayload(BaseModel):
+    lat: FiniteFloat = Field(ge=-90, le=90)
+    lon: FiniteFloat = Field(ge=-180, le=180)
+
+
 class OnlineAddressGeocodePayload(BaseModel):
     query: str = Field(min_length=3, max_length=320)
 
@@ -1434,6 +1439,68 @@ async def online_address_suggest(payload: OnlineAddressSuggestPayload, request: 
         raise HTTPException(429, "Слишком частые запросы подсказок; подождите немного")
     suggestions = await _fetch_yandex_suggestions(payload.query, payload.limit)
     return {"suggestions": suggestions, "source": "Yandex Geosuggest"}
+
+
+def _component_by_kinds(metadata: dict, kinds: set[str]) -> str:
+    for component in ((metadata.get("Address") or {}).get("Components") or []):
+        if isinstance(component, dict) and component.get("kind") in kinds:
+            name = str(component.get("name") or "").strip()
+            if name:
+                return name
+    return ""
+
+
+@app.post("/api/geocode/reverse")
+async def reverse_geocode(payload: ReverseGeocodePayload, request: Request):
+    """Координаты -> адрес и район. Возвращает null-поля, если Яндекса нет."""
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown"), "reverse"):
+        raise HTTPException(429, "Слишком частые запросы адреса; подождите немного")
+    if not YANDEX_API_KEY:
+        return {"address": None, "district": None, "source": None,
+                "detail": "YANDEX_API_KEY не настроен"}
+    params_base = {
+        "apikey": YANDEX_API_KEY,
+        "geocode": f"{payload.lon},{payload.lat}",
+        "format": "json",
+        "lang": "ru_RU",
+        "results": 1,
+        "sco": "longlat",
+    }
+    members: list[dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
+            # Сначала ближайший дом: он даёт улицу и номер. Если дома рядом нет
+            # (лес, поле, трасса), повторяем без kind и получаем более грубый адрес.
+            for extra in ({"kind": "house"}, {}):
+                response = await client.get(YANDEX_GEOCODER_URL, params={**params_base, **extra})
+                if response.status_code == 429:
+                    raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
+                if response.status_code in {401, 403}:
+                    raise HTTPException(503, "Ключ Яндекс Геокодера не имеет доступа к этому API")
+                response.raise_for_status()
+                members = response.json()["response"]["GeoObjectCollection"]["featureMember"]
+                if members:
+                    break
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "Сервис геокодирования Яндекса не ответил вовремя") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Не удалось связаться с сервисом геокодирования Яндекса") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(502, "Сервис геокодирования Яндекса вернул некорректный ответ") from exc
+    if not members:
+        return {"address": None, "district": None, "source": "Yandex Geocoder"}
+    try:
+        geo_object = members[0]["GeoObject"]
+        metadata = geo_object["metaDataProperty"]["GeocoderMetaData"]
+        address = str(metadata.get("text") or "").strip() or None
+        # Район города/области: Яндекс помечает его kind=district (реже area).
+        district = _component_by_kinds(metadata, {"district", "area"}) or None
+    except (KeyError, TypeError) as exc:
+        raise HTTPException(502, "Не удалось разобрать адрес выбранной точки") from exc
+    return {"address": address, "district": district, "source": "Yandex Geocoder"}
 
 
 @app.post("/api/address/online/geocode")

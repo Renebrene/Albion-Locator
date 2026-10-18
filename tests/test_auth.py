@@ -39,23 +39,26 @@ def test_root_serves_login_gated_app_without_caching():
     assert response.headers["x-frame-options"] == "DENY"
     assert 'id="authOverlay"' in response.text
     for element_id in (
-        "map-search-toolbar", "searchModeSelect", "coordsSearchPanel",
-        "addressSearchPanel", "addressQuery", "addressSearchStatus",
-        "roadSearchPanel", "roadKmPanel", "roadKmNumber", "roadKmSlider",
-        "mskSearchPanel", "mskDirection", "wgsLat", "wgsLon",
+        # Новый каркас варианта A: вкладки, карточка точки, статус-бар.
+        "app-main", "status-bar", "tabPoint", "tabBatch", "tabSaved",
+        "searchArmCheckbox", "placePointBtn", "addrCityInput", "addrStreetInput",
+        "wgsInput", "mskInput", "crsCycleBtn", "roadNameInput", "roadKmInput",
+        "roadKmPanel", "roadKmNumber", "roadKmSlider", "roadKmApplyButton",
+        "currentPointCard", "currentPointDetails", "cpWgs", "cpMsk", "cpAddress",
+        "settings-source", "mskDirection", "wgsLat", "wgsLon",
         "mskZoneHelpButton", "mskZoneTooltip",
-        "sidebar-left", "sidebar-right", "resultsFrame", "batch-panel",
+        "sidebar-left", "sidebar-right", "resultsFrame",
     ):
         assert f'id="{element_id}"' in response.text
+    assert "setupFrameTabs()" in response.text
     assert "setupSettingsModal()" in response.text
-    assert "🏠 Онлайн-поиск адреса" in response.text
+    assert "setupSearchPanel()" in response.text
     assert "initializeYandexAddressSuggest()" in response.text
     assert "ymaps.SuggestView" in response.text
     assert "/api/maps-config" in response.text
     assert "api-maps.yandex.ru/2.1/" in response.text
     assert "/api/roads/online/search" in response.text
     assert "/api/roads/online/sections" in response.text
-    assert "roadSearchStatus" in response.text
     assert "roadKmSlider" in response.text
     assert "applyRoadKmNumber()" in response.text
     assert "fillRule: 'evenodd'" in response.text
@@ -67,6 +70,9 @@ def test_root_serves_login_gated_app_without_caching():
     assert "Кадастровые районы Ростовской области по зонам МСК-61" in response.text
     assert "Азовский (61:01)" in response.text
     assert "https://terraingis.ru/msk-61.html" in response.text
+    # Старые элементы поиска удалены, дублей нет.
+    for removed_id in ("map-search-toolbar", "searchModeSelect", "coordSingle", "batch-panel"):
+        assert f'id="{removed_id}"' not in response.text
 
 
 def test_protected_api_requires_auth():

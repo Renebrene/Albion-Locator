@@ -44,16 +44,20 @@
             --accent: #4a90d9;
             --accent-hover: #5aa0e9;
         }
-        body { 
-            font-family: system-ui, -apple-system, sans-serif; 
-            margin: 0; 
-            display: flex; 
-            height: 100vh; 
-            background: var(--bg-main); 
-            color: var(--text-main); 
-            transition: background 0.3s, color 0.3s; 
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: var(--bg-main);
+            color: var(--text-main);
+            transition: background 0.3s, color 0.3s;
             overflow: hidden;
         }
+
+        /* === ОБЁРТКА ОСНОВНЫХ КОЛОНОК === */
+        #app-main { flex: 1; display: flex; min-height: 0; }
         
         /* === ЛЕВЫЙ ФРЕЙМ === */
         #sidebar-left { 
@@ -119,9 +123,180 @@
         /* === КОНТЕНТ ПАНЕЛИ === */
         .panel-content {
             flex: 1;
-            overflow-y: auto;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 12px 14px 14px;
+            overflow: hidden;
         }
+
+        /* === ВКЛАДКИ ЛЕВОГО ФРЕЙМА === */
+        .frame-tabs {
+            display: flex;
+            gap: 4px;
+            flex: none;
+            margin-bottom: 10px;
+        }
+        .frame-tab {
+            flex: 1;
+            padding: 8px 4px;
+            border: 1px solid var(--border-strong);
+            border-radius: 7px;
+            background: var(--bg-muted);
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .frame-tab[aria-selected="true"] {
+            background: var(--bg-card);
+            border-color: var(--accent);
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .frame-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .tab-panel { flex: 1; min-height: 0; overflow-y: auto; display: none; }
+        .tab-panel.active { display: flex; flex-direction: column; gap: 8px; }
+
+        /* === РЕЖИМЫ ПОИСКА (зависимая фиксация) === */
+        .search-mode-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .search-mode-row .mode-btn {
+            flex: 1 1 72px;
+            padding: 6px 4px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--bg-muted);
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .search-mode-row .mode-btn[aria-pressed="true"] {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+            font-weight: 600;
+        }
+        .search-mode-row .mode-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .search-arm {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 2px;
+        }
+        .search-arm input { cursor: pointer; }
+
+        /* === ПОЛЯ РЕЖИМОВ === */
+        .search-fields { display: flex; flex-direction: column; gap: 6px; }
+        .search-fields input,
+        .search-fields select {
+            width: 100%;
+            padding: 7px 9px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--bg-input);
+            color: var(--text-main);
+            font-size: 13px;
+        }
+        .search-fields .field-label { font-size: 11px; color: var(--text-subtle); }
+        .field-row { display: flex; gap: 6px; }
+        .field-row input { flex: 1; min-width: 0; }
+        .field-row .crs-btn {
+            flex: 0 0 auto;
+            padding: 6px 10px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: var(--bg-muted);
+            color: var(--text-main);
+            font-size: 11px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .mode-hint { font-size: 11px; color: var(--text-subtle); min-height: 14px; }
+        .mode-hint.warn { color: #b45309; }
+        .mode-hint.err { color: var(--danger); }
+
+        /* === КАРТОЧКИ ЛЕВОГО ФРЕЙМА === */
+        .frame-card {
+            background: var(--bg-muted);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            flex: none;
+        }
+        .frame-card h4 {
+            margin: 0 0 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+        .search-open-btn {
+            width: 100%;
+            padding: 10px;
+            margin-top: 4px;
+            border: 0;
+            border-radius: 6px;
+            background: #ff8c00;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .search-open-btn:disabled { background: #6c757d; cursor: not-allowed; opacity: .7; }
+
+        /* === СТАТУС-БАР === */
+        #status-bar {
+            flex: none;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 0 8px;
+            background: #152b45;
+            color: #cfe0f2;
+            font-size: 12px;
+            overflow: hidden;
+        }
+        #status-bar .sb-seg {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 0 9px;
+            height: 24px;
+            white-space: nowrap;
+            border-radius: 5px;
+        }
+        #status-bar .sb-grow { flex: 1; min-width: 0; overflow: hidden; }
+        #status-bar .sb-point-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        #status-bar button.sb-seg {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        #status-bar button.sb-seg:hover { background: #20405f; }
+        #status-bar .sb-seg.hl { background: #20405f; }
+        #status-bar .sb-spacer { flex: 1; }
+        #status-bar .sb-copy { cursor: pointer; }
+        #status-bar .sb-copy:hover { background: #20405f; }
         
         /* === КАРТА === */
         #map {
@@ -131,28 +306,9 @@
             position: relative;
             min-width: 0;
         }
-        #map-search-toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1250; width: min(620px, calc(100% - 28px)); pointer-events: none; }
-        #map-search-shell { pointer-events: auto; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.22); overflow: hidden; }
-        #map-search-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-sidebar); }
-        #map-search-header strong { flex: 1; font-size: 13px; color: var(--text-main); white-space: nowrap; }
-        #searchToolbarActions { display: flex; align-items: center; gap: 4px; }
-        #searchToolbarActions .region-btn { margin: 0; padding: 6px 8px; font-size: 11px; }
-        #searchModeSelect { width: min(235px, 48%); padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg-input); color: var(--text-main); }
-        #map-search-toggle { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font-size: 18px; padding: 4px 7px; }
-        #map-search-body { max-height: min(44vh, 430px); overflow-y: auto; padding: 8px 12px 12px; border-top: 1px solid var(--border); }
-        #map-search-shell.collapsed #map-search-body { display: none; }
-        #map-search-body .search-mode-panel { display: none; margin: 0; padding: 0; border: 0; background: transparent; }
-        #map-search-body .search-mode-panel.active { display: block; }
-        #map-search-body h3, #map-search-body h4 { margin-top: 3px; }
-        #map-search-body .coord-input { margin-bottom: 5px; }
-        #sidebar-right #map-search-toolbar { position: static; transform: none; width: auto; margin: 0 0 12px; z-index: auto; pointer-events: auto; }
-        #sidebar-right #map-search-shell { box-shadow: none; }
-        #sidebar-right #map-search-header { flex-wrap: wrap; padding: 8px; }
-        #sidebar-right #map-search-header strong { display: none; }
-        #sidebar-right #searchModeSelect { flex: 1 1 130px; width: auto; min-width: 0; }
-        #sidebar-right #map-search-toggle { flex: 0 0 auto; }
-        #sidebar-right #searchToolbarActions { flex: 1 1 100%; justify-content: flex-end; }
-        #sidebar-right #map-search-body { max-height: none; padding: 8px; }
+        #map-source-notice { position: absolute; z-index: 1200; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%); display: none; max-width: min(560px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--border-strong); border-radius: 8px; background: rgba(255,255,255,.96); color: #222; box-shadow: 0 3px 14px rgba(0,0,0,.22); text-align: center; font-size: 13px; }
+        #map-source-notice.visible { display: block; }
+        #map-source-notice button { margin: 8px 4px 0; padding: 6px 10px; border: 0; border-radius: 4px; background: #1a3a5c; color: white; cursor: pointer; }
         #settings-modal { position: fixed; inset: 0; z-index: 15000; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.48); }
         #settings-modal.open { display: flex; }
         #settings-dialog { width: min(720px, 100%); max-height: min(88vh, 900px); overflow: hidden; display: flex; flex-direction: column; background: var(--bg-sidebar); color: var(--text-main); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
@@ -166,23 +322,17 @@
         body.settings-modal-open { overflow: hidden; }
         @media (max-width: 900px) {
             :root { --panel-width-left: min(280px, 38vw); --panel-width-right: min(260px, 34vw); }
-            .panel-content { padding: 12px; }
-            #map-search-toolbar { top: 8px; width: min(560px, calc(100% - 16px)); }
-            #map-search-body { max-height: 38vh; }
+            .panel-content { padding: 10px; }
+            .search-mode-row .mode-btn { flex-basis: 60px; font-size: 11px; }
         }
         @media (max-width: 640px) {
             :root { --panel-width-left: 78vw; --panel-width-right: 76vw; --panel-collapsed: 34px; }
             #sidebar-right { position: absolute; top: 0; right: 0; bottom: 0; z-index: 11; }
             #sidebar-left { position: absolute; top: 0; left: 0; bottom: 0; z-index: 11; }
             #sidebar-left.collapsed, #sidebar-right.collapsed { width: var(--panel-collapsed); }
-            #map-search-toolbar { width: calc(100% - 20px); top: 8px; }
-            #map-search-header { flex-wrap: wrap; }
-            #map-search-header strong { display: none; }
-            #searchModeSelect { width: auto; flex: 1; }
-            #map-search-toggle { flex: 0 0 auto; }
-            #searchToolbarActions { width: 100%; justify-content: flex-end; }
             #settings-modal { padding: 8px; }
             #settings-dialog { max-height: 94vh; }
+            #status-bar .sb-point-text { font-size: 10px; }
         }
 
         /* === СПРАВКА === */
@@ -278,6 +428,39 @@
         .road-km-row { display: flex; gap: 6px; align-items: stretch; }
         .road-km-row input { flex: 1 1 auto; width: auto; min-width: 0; }
         .road-km-row .btn { flex: 0 0 auto; width: auto; margin-top: 3px; white-space: nowrap; }
+
+        /* === КАРТОЧКА ТЕКУЩЕЙ ТОЧКИ === */
+        .point-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 0;
+            font-size: 12px;
+        }
+        .point-label { flex: 0 0 62px; color: var(--text-subtle); font-size: 11px; }
+        .point-value {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-main);
+            font-family: monospace;
+            font-size: 11px;
+        }
+        .copy-icon {
+            flex: 0 0 auto;
+            border: 0;
+            background: transparent;
+            color: var(--text-subtle);
+            cursor: pointer;
+            font-size: 13px;
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+        .copy-icon:hover { background: var(--border); color: var(--accent); }
+        .copy-icon:disabled { opacity: .35; cursor: default; }
+        .point-source { margin-top: 4px; }
         .msk-zone-row { display: flex; align-items: center; gap: 7px; margin-top: 5px; }
         .msk-zone-row label { font-size: 12px; color: var(--text-subtle); }
         .msk-zone-row select { flex: 1; min-width: 0; width: auto; }
@@ -285,9 +468,6 @@
         .msk-zone-tooltip { padding: 8px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--bg-card); color: var(--text-main); font-size: 11px; line-height: 1.45; }
         .msk-zone-tooltip[hidden] { display: none; }
         .msk-zone-tooltip ul { padding-left: 18px; margin: 4px 0; }
-        #map-source-notice { position: absolute; z-index: 1200; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%); display: none; max-width: min(560px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--border-strong); border-radius: 8px; background: rgba(255,255,255,.96); color: #222; box-shadow: 0 3px 14px rgba(0,0,0,.22); text-align: center; font-size: 13px; }
-        #map-source-notice.visible { display: block; }
-        #map-source-notice button { margin: 8px 4px 0; padding: 6px 10px; border: 0; border-radius: 4px; background: #1a3a5c; color: white; cursor: pointer; }
 
         #screenshot-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 998; cursor: crosshair; display: none; background: transparent; pointer-events: auto; }
         #selection-rect { position: absolute; border: 2px dashed #ff8c00; background: rgba(255, 255, 255, 0.05); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); pointer-events: none; display: none; z-index: 999; cursor: move; }
@@ -374,21 +554,6 @@
         /* === ПАКЕТНЫЙ ФРЕЙМ === */
 .batch-btn { background: #17a2b8; color: white; border-color: #17a2b8; }
 .batch-btn:hover { background: #138496; }
-
-#batch-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.3); z-index: 99; display: none;
-}
-#batch-overlay.open { display: block; }
-
-#batch-panel {
-    position: fixed; top: 0; right: -420px; width: 400px; height: 100vh;
-    background: var(--bg-sidebar); z-index: 100;
-    display: flex; flex-direction: column;
-    box-shadow: -5px 0 15px rgba(0,0,0,0.2);
-    transition: right 0.3s ease;
-}
-#batch-panel.open { right: 0; }
 
 .batch-list { margin-top: 10px; max-height: 45vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; }
 .batch-item { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
@@ -538,155 +703,185 @@
         </form>
     </div>
     <!-- ЛЕВЫЙ ФРЕЙМ -->
+    <div id="app-main">
     <div id="sidebar-left">
         <div class="panel-header">
             <span class="panel-header-text">🗺️ АЛЬБИОН: Локатор</span>
             <button class="collapse-btn" onclick="toggleLeftPanel()" title="Свернуть/Развернуть (Ctrl+1)">◀</button>
         </div>
         <div class="panel-content">
-            <div class="subtitle">Поиск ближайшей дороги ФГИС СКДФ (Autonom v5.0)</div>
-            <div>
-<div>
-    <button class="region-btn" id="goToRostovButton" onclick="goToRostov()">📍 Ростовская область</button>
-
-    <button class="region-btn help-btn" id="helpButton" onclick="toggleHelpFrame()">❓ Справка</button>
-    <button class="btn" id="batchOpenButton" onclick="openBatchPanel()" style="background:#dc3545; color:white; border-color:#dc3545;">📦 Пакетная загрузка</button>
-</div>
-            </div>
-            
-            <h3>1. Загрузить фото</h3>
-            <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
-            <div class="drop-hint">Координаты будут взяты из EXIF</div>
-            
-            <div class="search-mode-panel" id="coordsSearchPanel">
-                <h3>Ввести координаты</h3>
-                <div style="display: flex; gap: 8px; align-items: flex-start;">
-                    <input type="text" id="coordSingle" class="coord-input" placeholder="47.23, 39.72" onkeypress="handleEnter(event)" style="flex: 1;">
-                    <button class="btn btn-secondary" onclick="clearSearch()" style="width: auto; padding: 10px 15px; margin-top: 0;" title="Очистить поиск">🗑</button>
-                </div>
-                <div class="hint">Десятичные градусы через запятую или пробел</div>
-                <button class="btn" onclick="locateByCoords()" style="margin-top: 10px;">🔍 Найти ближайшую дорогу</button>
+            <div class="frame-tabs" role="tablist" aria-label="Разделы левой панели">
+                <button class="frame-tab" id="tabPointBtn" role="tab" type="button"
+                        aria-selected="true" aria-controls="tabPoint" data-tab="point">📷 Точка</button>
+                <button class="frame-tab" id="tabBatchBtn" role="tab" type="button"
+                        aria-selected="false" aria-controls="tabBatch" data-tab="batch">📦 Пакетный поиск</button>
+                <button class="frame-tab" id="tabSavedBtn" role="tab" type="button"
+                        aria-selected="false" aria-controls="tabSaved" data-tab="saved">⭐ Сохранённое</button>
             </div>
 
-            <div class="geo-panel" id="geoStatusPanel">
-                <h4>🗃️ Источник дорожных данных</h4>
-                <label class="hint" for="dataSourceSelect">Дороги/поиск</label>
-                <select id="dataSourceSelect" aria-label="Источник дорожных данных">
-                    <option value="external">Внешний поиск СКДФ (онлайн)</option>
-                    <option value="local">Локальная база</option>
-                </select>
-                <label class="hint" for="mapSourceSelect">Подложка карты</label>
-                <select id="mapSourceSelect" aria-label="Источник карты">
-                    <option value="external">OSM онлайн</option>
-                    <option value="local">Локальные тайлы MBTiles</option>
-                </select>
-                <div class="hint" id="geoStatus">Проверка доступных данных...</div>
-            </div>
-            <div class="geo-panel search-mode-panel" id="addressSearchPanel">
-                <h4>🏠 Онлайн-поиск адреса</h4>
-                <input id="addressQuery" placeholder="Населённый пункт, улица, дом" autocomplete="off" maxlength="120" aria-label="Адрес для поиска">
-                <div id="addressSearchStatus" class="hint" role="status" aria-live="polite"></div>
-                <div class="hint">Подсказки Яндекса в окне Ростовской области. Введённый адрес передаётся Яндексу; проверьте регион и точность найденной точки.</div>
-            </div>
-            <div class="geo-panel search-mode-panel" id="roadSearchPanel">
-                <h4>🛣️ Поиск трасс и дорог</h4>
-                <input id="roadQuery" placeholder="Трасса, дорога или код: М-4 Дон, Р-280, 60К-80…" autocomplete="off" maxlength="320" aria-label="Трасса, дорога или код дороги">
-                <div id="roadSearchStatus" class="hint" role="status" aria-live="polite"></div>
-                <div id="roadSuggestions" class="geo-suggestions" role="listbox"></div>
-                <div class="hint">Показываются только трассы и дороги в Ростовской области; города, районы и обычные улицы исключаются.</div>
-                <details class="road-local-km">
-                    <summary>Километраж по локальной базе</summary>
-                    <input id="roadKm" placeholder="Км: 12+345 или 12.345" inputmode="decimal" aria-label="Километраж">
-                    <button class="btn btn-small" id="roadSearchButton" onclick="searchLocalRoad()">Найти варианты</button>
-                    <div class="hint">Доступно только при установленном локальном индексе с официальным или проверенным километражом.</div>
-                </details>
-                <div class="road-km-panel" id="roadKmPanel" hidden>
-                    <h4 id="roadKmTitle">Километраж выбранной трассы</h4>
-                    <label class="hint" for="roadKmNumber">Официальный километр трассы</label>
-                    <div class="road-km-row">
-                        <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы">
-                        <button class="btn btn-small" id="roadKmApplyButton" onclick="applyRoadKmNumber()">Перейти</button>
+            <!-- ВКЛАДКА: ТОЧКА -->
+            <div class="tab-panel active" id="tabPoint" role="tabpanel" aria-labelledby="tabPointBtn">
+                <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
+                <div class="drop-hint">Координаты будут взяты из EXIF</div>
+
+                <div class="frame-card">
+                    <h4>Поиск</h4>
+                    <div class="search-mode-row" role="group" aria-label="Режим поиска">
+                        <button class="mode-btn" type="button" id="modeAddressBtn" data-mode="address" aria-pressed="false">🏠 Адрес</button>
+                        <button class="mode-btn" type="button" id="modeCoordsBtn" data-mode="coords" aria-pressed="false">📐 Координаты</button>
+                        <button class="mode-btn" type="button" id="modeRoadBtn" data-mode="road" aria-pressed="false">🛣️ Дороги</button>
                     </div>
-                    <input id="roadKmSlider" type="range" min="0" max="0" step="0.001" value="0" aria-label="Ползунок километража по доступному участку">
-                    <div class="hint" id="roadKmRange">Диапазон километража не загружен.</div>
-                    <div class="hint" id="roadKmStatus" role="status" aria-live="polite"></div>
-                    <div class="hint">Ползунок показывает расстояние от первого доступного участка в Ростовской области; поле принимает официальный километр трассы.</div>
+                    <label class="search-arm" for="searchArmCheckbox">
+                        <input type="checkbox" id="searchArmCheckbox">
+                        <span>Режим поиска (блокирует карту и километраж)</span>
+                    </label>
+
+                    <div class="search-fields" id="addressFields" hidden>
+                        <label class="field-label" for="addrCityInput">Населённый пункт</label>
+                        <input id="addrCityInput" placeholder="Город или село" autocomplete="off" maxlength="120">
+                        <label class="field-label" for="addrStreetInput">Улица и дом</label>
+                        <input id="addrStreetInput" placeholder="Улица, дом" autocomplete="off" maxlength="160" disabled>
+                        <div id="addrStatus" class="mode-hint" role="status" aria-live="polite"></div>
+                    </div>
+
+                    <div class="search-fields" id="coordsFields" hidden>
+                        <label class="field-label" for="wgsInput">WGS84 (градусы или DMS)</label>
+                        <input id="wgsInput" placeholder="47.23, 39.72 или 47°14'42.2&quot;N 39°40'03.2&quot;E" autocomplete="off">
+                        <label class="field-label" for="mskInput">МСК-61</label>
+                        <div class="field-row">
+                            <input id="mskInput" placeholder="X (север), Y (восток)" autocomplete="off">
+                            <button class="crs-btn" type="button" id="crsCycleBtn" title="Переключить систему: МСК-61-1 / МСК-61-2 / МСК-61-3 / GPS">МСК-61-2</button>
+                        </div>
+                        <div id="coordsStatus" class="mode-hint" role="status" aria-live="polite"></div>
+                    </div>
+
+                    <div class="search-fields" id="roadFields" hidden>
+                        <label class="field-label" for="roadNameInput">Дорога или трасса</label>
+                        <input id="roadNameInput" placeholder="М-4 Дон, Р-280, 60К-80…" autocomplete="off" maxlength="320">
+                        <div id="roadSuggestions" class="geo-suggestions" role="listbox"></div>
+                        <label class="field-label" for="roadKmInput">Километр трассы</label>
+                        <div class="field-row">
+                            <input id="roadKmInput" placeholder="915+000 или 915.5" inputmode="decimal" autocomplete="off">
+                            <button class="crs-btn" type="button" id="roadFindBtn" disabled>Найти</button>
+                        </div>
+                        <div id="roadFieldsStatus" class="mode-hint" role="status" aria-live="polite"></div>
+                    </div>
+
+                    <button class="search-open-btn" type="button" id="placePointBtn" disabled>📍 Поставить точку</button>
+                </div>
+
+                <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
+                <div id="selectedCoords"></div>
+                <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 6px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
+            </div>
+
+            <!-- ВКЛАДКА: ПАКЕТНЫЙ ПОИСК -->
+            <div class="tab-panel" id="tabBatch" role="tabpanel" aria-labelledby="tabBatchBtn">
+                <p class="hint" style="margin-top:0;">Выберите несколько фото для извлечения GPS-точек. Точки появятся на карте без всплывающих окон.</p>
+                <div id="batchDropZone" class="batch-drop-zone"
+                     ondragover="event.preventDefault(); this.classList.add('hover');"
+                     ondragleave="this.classList.remove('hover');"
+                     ondrop="event.preventDefault(); this.classList.remove('hover'); if(event.dataTransfer.files.length > 0) handleBatchFiles({files: event.dataTransfer.files});">
+                    <p style="margin:0; font-size:12px; color:var(--text-muted);">📂 Перетащите фото сюда или нажмите кнопку ниже</p>
+                </div>
+                <input type="file" id="batchFileInput" multiple accept="image/*" style="display: none" onchange="handleBatchFiles(this)">
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-small" onclick="document.getElementById('batchFileInput').click()">📂 Выбрать файлы</button>
+                    <button class="btn btn-small" id="batchShowBtn" onclick="showBatchPointsOnMap()" style="display:none; background:var(--accent); color:white;">🗺️ Показать все</button>
+                </div>
+                <div id="batchStatus" class="hint"></div>
+                <div class="batch-list" id="batchList"></div>
+                <button class="btn btn-secondary btn-small" id="batchClearBtn" onclick="clearBatchPoints()" style="margin-top:8px;">🗑 Очистить список</button>
+            </div>
+
+            <!-- ВКЛАДКА: СОХРАНЁННОЕ -->
+            <div class="tab-panel" id="tabSaved" role="tabpanel" aria-labelledby="tabSavedBtn">
+                <div class="frame-card" style="flex:1; display:flex; flex-direction:column;">
+                    <h4>⭐ Избранное</h4>
+                    <div class="bookmark-add">
+                        <input type="text" id="bookmarkName" placeholder="Имя закладки">
+                        <button onclick="addBookmark()" id="addBookmarkBtn" disabled>➕</button>
+                    </div>
+                    <div class="bookmark-list" id="bookmarkList" style="flex:1;">
+                        <div class="bookmark-empty">Нет закладок</div>
+                    </div>
+                </div>
+                <div class="frame-card" style="flex:1; display:flex; flex-direction:column;">
+                    <h4>🕒 История <button class="history-clear" onclick="clearHistory()">очистить</button></h4>
+                    <div class="history-list" id="historyList" style="flex:1;">
+                        <div class="history-empty">История пуста</div>
+                    </div>
                 </div>
             </div>
-            <div class="geo-panel search-mode-panel" id="mskSearchPanel">
-                <h4>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h4>
-                <label class="hint" for="mskDirection">Направление преобразования</label>
-                <select id="mskDirection" aria-label="Направление преобразования координат">
-                    <option value="to-geographic">МСК-61 → WGS84</option>
-                    <option value="from-geographic">WGS84 → МСК-61</option>
-                </select>
-                <select id="mskProfile" aria-label="Профиль МСК-61">
-                    <option value="gost_51794_2008" selected>ГОСТ 51794-2008 (сдвиг датума; совпадает с EPSG:6336101–103 по проверке GeoBridge)</option>
-                    <option value="calculated">Без сдвига датума (расхождение около 100 м)</option>
-                </select>
-                <div class="msk-zone-row">
-                    <label for="mskZone">Зона МСК-61</label>
-                    <select id="mskZone" aria-label="Зона МСК-61">
-                        <option value="2">Зона 2 (Ростов-на-Дону)</option>
-                        <option value="1">Зона 1</option>
-                        <option value="3">Зона 3</option>
+
+            <!-- Панели удалены из левого фрейма: их размещение задано вкладками. -->
+            <div hidden>
+                <div class="geo-panel" id="geoStatusPanel">
+                    <h4>🗃️ Источник дорожных данных</h4>
+                    <label class="hint" for="dataSourceSelect">Дороги/поиск</label>
+                    <select id="dataSourceSelect" aria-label="Источник дорожных данных">
+                        <option value="external">Внешний поиск СКДФ (онлайн)</option>
+                        <option value="local">Локальная база</option>
                     </select>
-                    <button type="button" id="mskZoneHelpButton" class="msk-zone-help-button" aria-label="Справка по зонам МСК-61" aria-expanded="false" aria-controls="mskZoneTooltip" title="Показать список кадастровых районов по зонам">?</button>
+                    <label class="hint" for="mapSourceSelect">Подложка карты</label>
+                    <select id="mapSourceSelect" aria-label="Источник карты">
+                        <option value="external">OSM онлайн</option>
+                        <option value="local">Локальные тайлы MBTiles</option>
+                    </select>
+                    <div class="hint" id="geoStatus">Проверка доступных данных...</div>
                 </div>
-                <div id="mskZoneTooltip" class="msk-zone-tooltip" role="region" aria-label="Опубликованное распределение кадастровых районов МСК-61" hidden>
-                    <strong>Кадастровые районы Ростовской области по зонам МСК-61</strong>
-                    <ul>
-                        <li><strong>Зона 1:</strong> Азовский (61:01), Куйбышевский (61:19), Матвеево-Курганский (61:21), Мясниковский (61:25), Неклиновский (61:26), Азов (61:45), Таганрог (61:58).</li>
-                        <li><strong>Зона 2:</strong> Аксайский (61:02), Багаевский (61:03), Белокалитвинский (61:04), Боковский (61:05), Веселовский (61:06), Верхнедонской (61:07), Волгодонской (61:08), Егорлыкский (61:10), Зерноградский (61:12), Кагальницкий (61:14), Каменский (61:15), Кашарский (61:16), Константиновский (61:17), Красносулинский (61:18), Мартыновский (61:20), Миллеровский (61:22), Милютинский (61:23), Морозовский (61:24), Обливский (61:27), Октябрьский (61:28), Орловский (61:29), Песчанокопский (61:30), Пролетарский (61:31), Родионово-Несветайский (61:33), Сальский (61:34), Семикаракорский (61:35), Советский (61:36), Тарасовский (61:37), Тацинский (61:38), Усть-Донецкий (61:39), Целинский (61:40), Цимлянский (61:41), Чертковский (61:42), Шолоховский (61:43), Ростов-на-Дону (61:44), Батайск (61:46), Белая Калитва (61:47), Волгодонск (61:48), Гуково (61:49), Донецк (61:50), Зверево (61:51), Каменск (61:52), Красный Сулин (61:53), Миллерово (61:54), Новочеркасск (61:55), Новошахтинск (61:56), Сальск (61:57), Шахты (61:59).</li>
-                        <li><strong>Зона 3:</strong> Дубовский (61:09), Заветинский (61:11), Зимовниковский (61:13), Ремонтненский (61:32).</li>
-                    </ul>
-                    <p>Это именно кадастровые районы с кодами, а не административное описание муниципальных районов. Распределение опубликовано «Территорией ГИС» (30.07.2020; обновление 17.08.2023); источник открытый, но не является первичным документом Росреестра. Параметры преобразования в калькуляторе предварительные. Для официальных кадастровых/геодезических работ сверяйте зону и параметры с исходной ведомостью или официальным ключом перехода.</p>
-                    <a href="https://terraingis.ru/msk-61.html" target="_blank" rel="noopener noreferrer">Источник списка и параметров зон</a>
-                </div>
-                <div id="mskGridInputs">
-                    <label class="hint" for="mskX">МСК-61: X — север, метры</label>
-                    <input id="mskX" placeholder="X (север), м" inputmode="decimal" aria-label="МСК-61 X, северная координата, метры">
-                    <label class="hint" for="mskY">Y — восток, метры</label>
-                    <input id="mskY" placeholder="Y (восток), м" inputmode="decimal" aria-label="МСК-61 Y, восточная координата, метры">
-                </div>
-                <div id="wgsInputs" style="display:none">
-                    <label class="hint" for="wgsLat">WGS84: широта, десятичные градусы</label>
-                    <input id="wgsLat" placeholder="Широта (lat), °" inputmode="decimal" aria-label="WGS84 широта, десятичные градусы">
-                    <label class="hint" for="wgsLon">Долгота, десятичные градусы</label>
-                    <input id="wgsLon" placeholder="Долгота (lon), °" inputmode="decimal" aria-label="WGS84 долгота, десятичные градусы">
-                </div>
-                <button class="btn btn-small" id="mskConvertButton" onclick="convertMSK61()">Пересчитать в WGS84</button>
-                <div id="mskResult" class="geo-result" role="status" aria-live="polite"></div>
-                <button class="btn btn-secondary btn-small" id="mskCopyButton" style="display:none" onclick="copyMskResult()">Скопировать результат</button>
-                <button class="btn btn-secondary btn-small" id="mskPlaceButton" style="display:none" onclick="placeMSKPoint()">Подтвердить и поставить точку</button>
-                <div class="hint">Результат предварительный: параметры зон и датум не подтверждены официальной региональной методикой. Не использовать для геодезических/кадастровых работ без независимой проверки.</div>
-            </div>
-
-            <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
-            <div id="selectedCoords"></div>
-            <button class="btn btn-secondary" onclick="clearSelectedPoint()" style="margin-top: 10px; display: none;" id="clearPointBtn">🗑 Очистить точку</button>
-            
-
-            <div class="history-block">
-                <h4>🕒 История <button class="history-clear" onclick="clearHistory()">очистить</button></h4>
-                <div class="history-list" id="historyList">
-                    <div class="history-empty">История пуста</div>
-                </div>
-            </div>
-
-            <div class="bookmarks-block">
-                <h4>⭐ Закладки</h4>
-                <div class="bookmark-add">
-                    <input type="text" id="bookmarkName" placeholder="Имя закладки">
-                    <button onclick="addBookmark()" id="addBookmarkBtn" disabled>➕</button>
-                </div>
-                <div class="bookmark-list" id="bookmarkList">
-                    <div class="bookmark-empty">Нет закладок</div>
+                <div class="geo-panel" id="mskSearchPanel">
+                    <h4>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h4>
+                    <label class="hint" for="mskDirection">Направление преобразования</label>
+                    <select id="mskDirection" aria-label="Направление преобразования координат">
+                        <option value="to-geographic">МСК-61 → WGS84</option>
+                        <option value="from-geographic">WGS84 → МСК-61</option>
+                    </select>
+                    <select id="mskProfile" aria-label="Профиль МСК-61">
+                        <option value="gost_51794_2008" selected>ГОСТ 51794-2008 (сдвиг датума; совпадает с EPSG:6336101–103 по проверке GeoBridge)</option>
+                        <option value="calculated">Без сдвига датума (расхождение около 100 м)</option>
+                    </select>
+                    <div class="msk-zone-row">
+                        <label for="mskZone">Зона МСК-61</label>
+                        <select id="mskZone" aria-label="Зона МСК-61">
+                            <option value="2">Зона 2 (Ростов-на-Дону)</option>
+                            <option value="1">Зона 1</option>
+                            <option value="3">Зона 3</option>
+                        </select>
+                        <button type="button" id="mskZoneHelpButton" class="msk-zone-help-button" aria-label="Справка по зонам МСК-61" aria-expanded="false" aria-controls="mskZoneTooltip" title="Показать список кадастровых районов по зонам">?</button>
+                    </div>
+                    <div id="mskZoneTooltip" class="msk-zone-tooltip" role="region" aria-label="Опубликованное распределение кадастровых районов МСК-61" hidden>
+                        <strong>Кадастровые районы Ростовской области по зонам МСК-61</strong>
+                        <ul>
+                            <li><strong>Зона 1:</strong> Азовский (61:01), Куйбышевский (61:19), Матвеево-Курганский (61:21), Мясниковский (61:25), Неклиновский (61:26), Азов (61:45), Таганрог (61:58).</li>
+                            <li><strong>Зона 2:</strong> Аксайский (61:02), Багаевский (61:03), Белокалитвинский (61:04), Боковский (61:05), Веселовский (61:06), Верхнедонской (61:07), Волгодонской (61:08), Егорлыкский (61:10), Зерноградский (61:12), Кагальницкий (61:14), Каменский (61:15), Кашарский (61:16), Константиновский (61:17), Красносулинский (61:18), Мартыновский (61:20), Миллеровский (61:22), Милютинский (61:23), Морозовский (61:24), Обливский (61:27), Октябрьский (61:28), Орловский (61:29), Песчанокопский (61:30), Пролетарский (61:31), Родионово-Несветайский (61:33), Сальский (61:34), Семикаракорский (61:35), Советский (61:36), Тарасовский (61:37), Тацинский (61:38), Усть-Донецкий (61:39), Целинский (61:40), Цимлянский (61:41), Чертковский (61:42), Шолоховский (61:43), Ростов-на-Дону (61:44), Батайск (61:46), Белая Калитва (61:47), Волгодонск (61:48), Гуково (61:49), Донецк (61:50), Зверево (61:51), Каменск (61:52), Красный Сулин (61:53), Миллерово (61:54), Новочеркасск (61:55), Новошахтинск (61:56), Сальск (61:57), Шахты (61:59).</li>
+                            <li><strong>Зона 3:</strong> Дубовский (61:09), Заветинский (61:11), Зимовниковский (61:13), Ремонтненский (61:32).</li>
+                        </ul>
+                        <p>Это именно кадастровые районы с кодами, а не административное описание муниципальных районов. Распределение опубликовано «Территорией ГИС» (30.07.2020; обновление 17.08.2023); источник открытый, но не является первичным документом Росреестра. Параметры преобразования в калькуляторе предварительные. Для официальных кадастровых/геодезических работ сверяйте зону и параметры с исходной ведомостью или официальным ключом перехода.</p>
+                        <a href="https://terraingis.ru/msk-61.html" target="_blank" rel="noopener noreferrer">Источник списка и параметров зон</a>
+                    </div>
+                    <div id="mskGridInputs">
+                        <label class="hint" for="mskX">МСК-61: X — север, метры</label>
+                        <input id="mskX" placeholder="X (север), м" inputmode="decimal" aria-label="МСК-61 X, северная координата, метры">
+                        <label class="hint" for="mskY">Y — восток, метры</label>
+                        <input id="mskY" placeholder="Y (восток), м" inputmode="decimal" aria-label="МСК-61 Y, восточная координата, метры">
+                    </div>
+                    <div id="wgsInputs" style="display:none">
+                        <label class="hint" for="wgsLat">WGS84: широта, десятичные градусы</label>
+                        <input id="wgsLat" placeholder="Широта (lat), °" inputmode="decimal" aria-label="WGS84 широта, десятичные градусы">
+                        <label class="hint" for="wgsLon">Долгота, десятичные градусы</label>
+                        <input id="wgsLon" placeholder="Долгота (lon), °" inputmode="decimal" aria-label="WGS84 долгота, десятичные градусы">
+                    </div>
+                    <button class="btn btn-small" id="mskConvertButton" onclick="convertMSK61()">Пересчитать в WGS84</button>
+                    <div id="mskResult" class="geo-result" role="status" aria-live="polite"></div>
+                    <button class="btn btn-secondary btn-small" id="mskCopyButton" style="display:none" onclick="copyMskResult()">Скопировать результат</button>
+                    <button class="btn btn-secondary btn-small" id="mskPlaceButton" style="display:none" onclick="placeMSKPoint()">Подтвердить и поставить точку</button>
+                    <div class="hint">Результат предварительный: параметры зон и датум не подтверждены официальной региональной методикой. Не использовать для геодезических/кадастровых работ без независимой проверки.</div>
                 </div>
             </div>
         </div>
     </div>
-    
+
     <!-- КАРТА -->
     <div id="map">
         <div id="map-source-notice" role="status" aria-live="polite"></div>
@@ -800,124 +995,160 @@
     <div id="sidebar-right">
         <div class="panel-header">
             <button class="collapse-btn" onclick="toggleRightPanel()" title="Свернуть/Развернуть (Ctrl+2)">▶</button>
-            <span class="panel-header-text">🛣️ Дорога / км</span>
-            <button class="settings-open-button" id="settingsOpenButton" type="button" onclick="openSettingsModal()" title="Настройки">⚙️</button>
+            <span class="panel-header-text">🛣️ Точка / Дорога</span>
         </div>
         <div class="panel-content">
+
+            <div class="frame-card" id="currentPointCard">
+                <h4>Текущая точка</h4>
+                <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
+                <div id="currentPointDetails" hidden>
+                    <div class="point-row">
+                        <span class="point-label">WGS84</span>
+                        <span class="point-value" id="cpWgs">—</span>
+                        <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84" aria-label="Скопировать координаты WGS84">⧉</button>
+                    </div>
+                    <div class="point-row">
+                        <span class="point-label">МСК-61</span>
+                        <span class="point-value" id="cpMsk">—</span>
+                        <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61" aria-label="Скопировать координаты МСК-61">⧉</button>
+                    </div>
+                    <div class="point-row">
+                        <span class="point-label">Адрес</span>
+                        <span class="point-value" id="cpAddress">не определено</span>
+                        <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес" aria-label="Скопировать адрес">⧉</button>
+                    </div>
+                    <div class="point-row">
+                        <span class="point-label">Район</span>
+                        <span class="point-value" id="cpDistrict">не определено</span>
+                        <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район" aria-label="Скопировать район">⧉</button>
+                    </div>
+                    <div class="point-source hint" id="cpSource"></div>
+                </div>
+                <button class="btn btn-small" id="saveFavoriteBtn" onclick="addBookmark()" disabled style="margin-top:8px;">⭐ Сохранить в избранное</button>
+            </div>
 
             <div id="resultsFrame" class="results-frame">
                 <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
                 <div id="errorContainer"></div>
                 <div id="results"></div>
-                <div class="radius-row">
-                    <label style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Радиус поиска (м):</label>
-                    <input type="number" id="radius" value="2000" min="10" max="5000">
-                </div>
-                <div class="radius-row" style="border-top: none; padding-top: 5px;">
-                    <label style="font-size: 13px; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" id="excludeMinor" checked style="cursor: pointer;">
-                        Искать только основные дороги
-                    </label>
-                </div>
             </div>
 
-            <div id="map-search-toolbar">
-                <div id="map-search-shell">
-                    <div id="map-search-header">
-                        <strong>🔎 Поиск</strong>
-                        <select id="searchModeSelect" aria-label="Режим поиска">
-                            <option value="address">Адрес</option>
-                            <option value="coords">Координаты</option>
-                            <option value="road">Дорога + км</option>
-                            <option value="msk">МСК-61</option>
-                        </select>
-                        <div id="searchToolbarActions"></div>
-                        <button id="map-search-toggle" type="button" aria-expanded="true" title="Свернуть поиск">⌃</button>
-                    </div>
-                    <div id="map-search-body"></div>
+            <div class="frame-card road-km-panel" id="roadKmPanel" hidden>
+                <h4 id="roadKmTitle">Километраж выбранной трассы</h4>
+                <label class="hint" for="roadKmNumber">Официальный километр трассы</label>
+                <div class="road-km-row">
+                    <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы">
+                    <button class="btn btn-small" id="roadKmApplyButton" onclick="applyRoadKmNumber()">Перейти</button>
                 </div>
+                <input id="roadKmSlider" type="range" min="0" max="0" step="0.001" value="0" aria-label="Ползунок километража по доступному участку">
+                <div class="hint" id="roadKmRange">Диапазон километража не загружен.</div>
+                <div class="hint" id="roadKmStatus" role="status" aria-live="polite"></div>
             </div>
-
-            <div class="settings-block">
-                <h4>⏱ Автоскриншот</h4>
-                <div class="settings-row">
-                    <label>Задержка (сек):</label>
-                    <input type="number" id="settingDelay" min="1" max="30" value="3">
-                </div>
-                <div class="settings-row">
-                    <label>Каталог на сервере:</label>
-                    <input type="text" id="serverPath" placeholder="screenshots" value="screenshots" readonly aria-label="Папка сохранения на сервере">
-                </div>
-                <div class="settings-row">
-                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="autoScreenshotCheckbox" style="cursor: pointer;">
-                        <span>Включить автоскриншот</span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="settings-block">
-                <h4>🗺️ Контур области</h4>
-                <div class="settings-row">
-                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="localBoundaryCheckbox" style="cursor: pointer;">
-                        <span>Локальный контур РО</span>
-                    </label>
-                </div>
-                <div class="hint">Быстрее, работает офлайн</div>
-            </div>
-
-            <div class="settings-block">
-                <h4>🎨 Интерфейс</h4>
-                <div class="settings-row theme-toggle">
-                    <span>🌙 Тёмная тема</span>
-                    <div class="theme-switch" id="themeSwitch" onclick="toggleTheme()"></div>
-                </div>
-            </div>
-
-            <div class="settings-block">
-                <h4>👤 Мой аккаунт</h4>
-                <div class="settings-row">
-                    <label>Текущий логин:</label>
-                    <b id="currentUserLogin">—</b>
-                </div>
-                <div class="settings-row">
-                    <input type="text" id="newOwnLogin" placeholder="Новый логин (необязательно)">
-                </div>
-                <div class="settings-row">
-                    <input type="password" id="currentPassword" placeholder="Текущий пароль" autocomplete="current-password">
-                </div>
-                <div class="settings-row">
-                    <input type="password" id="newOwnPassword" placeholder="Новый пароль (необязательно)" autocomplete="new-password">
-                </div>
-                <button class="btn btn-small" onclick="changeOwnCredentials()">💾 Сохранить логин/пароль</button>
-                <button class="btn btn-small btn-secondary" onclick="logoutUser()" style="margin-top: 6px;">🚪 Выйти</button>
-            </div>
-
-            <div class="settings-block" id="usersSettingsBlock" style="display: none;">
-                <h4>👥 Пользователи</h4>
-                <div class="users-list" id="usersList"></div>
-                <div class="settings-row">
-                    <input type="text" id="newUserName" placeholder="Имя">
-                </div>
-                <div class="settings-row">
-                    <input type="text" id="newUserLogin" placeholder="Логин">
-                </div>
-                <div class="settings-row">
-                    <input type="password" id="newUserPassword" placeholder="Пароль" autocomplete="new-password">
-                </div>
-                <div class="settings-row">
-                    <select id="newUserRole" style="flex: 1; padding: 6px; border: 1px solid var(--border-strong); border-radius: 4px;">
-                        <option value="admin">Администратор</option>
-                        <option value="editor" selected>Редактор</option>
-                    </select>
-                </div>
-                <button class="btn btn-small" onclick="createUser()">➕ Создать пользователя</button>
-            </div>
-
-            <button class="btn btn-small" onclick="saveScreenshotSettings()">💾 Сохранить все настройки</button>
-            <div class="folder-status" id="folderStatus">Загрузка...</div>
         </div>
+    </div>
+    </div><!-- /#app-main -->
+
+    <!-- СТАТУС-БАР -->
+    <div id="status-bar" role="toolbar" aria-label="Статус и быстрые действия">
+        <button class="sb-seg sb-copy" type="button" id="statusCopyBtn" title="Скопировать текущий объект" aria-label="Скопировать текущий объект">📋</button>
+        <div class="sb-seg sb-grow" id="statusPointSeg">
+            <span class="sb-point-text" id="statusPointText">Точка не выбрана</span>
+        </div>
+        <div class="sb-spacer"></div>
+        <button class="sb-seg" type="button" id="goToRostovButton" onclick="goToRostov()" title="Центрировать на Ростовской области" aria-label="Центрировать на Ростовской области">🎯</button>
+        <button class="sb-seg" type="button" id="autoScreenshotToggle" title="Автоскриншот" aria-label="Автоскриншот" aria-pressed="false">⏱<span id="autoScreenshotSeconds">3</span>с</button>
+        <button class="sb-seg" type="button" id="helpButton" onclick="toggleHelpFrame()" title="Справка" aria-label="Справка">❓</button>
+        <button class="sb-seg" type="button" id="settingsOpenButton" onclick="openSettingsModal()" title="Настройки" aria-label="Настройки" aria-haspopup="dialog">⚙️</button>
+        <button class="sb-seg" type="button" id="resetWorkspaceBtn" onclick="resetWorkspace()" title="Очистить рабочую сессию" aria-label="Очистить рабочую сессию">↺</button>
+    </div>
+
+    <!-- НАСТРОЙКИ: источники настроек для модального окна (переносятся при открытии) -->
+    <div id="settings-source" hidden>
+        <div class="settings-block" id="settingsSearchBlock">
+            <h4>🔎 Параметры поиска дороги</h4>
+            <div class="settings-row">
+                <label>Радиус (м):</label>
+                <input type="number" id="radius" value="2000" min="10" max="5000">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:auto;">
+                    <input type="checkbox" id="excludeMinor" checked style="cursor:pointer;">
+                    <span>Только основные дороги</span>
+                </label>
+            </div>
+        </div>
+        <div class="settings-block">
+            <h4>⏱ Автоскриншот</h4>
+            <div class="settings-row">
+                <label>Задержка (сек):</label>
+                <input type="number" id="settingDelay" min="1" max="30" value="3">
+            </div>
+            <div class="settings-row">
+                <label>Каталог на сервере:</label>
+                <input type="text" id="serverPath" placeholder="screenshots" value="screenshots" readonly aria-label="Папка сохранения на сервере">
+            </div>
+            <div class="settings-row">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="autoScreenshotCheckbox" style="cursor: pointer;">
+                    <span>Включить автоскриншот</span>
+                </label>
+            </div>
+        </div>
+        <div class="settings-block">
+            <h4>🗺️ Контур области</h4>
+            <div class="settings-row">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="localBoundaryCheckbox" style="cursor: pointer;">
+                    <span>Локальный контур РО</span>
+                </label>
+            </div>
+            <div class="hint">Быстрее, работает офлайн</div>
+        </div>
+        <div class="settings-block">
+            <h4>🎨 Интерфейс</h4>
+            <div class="settings-row theme-toggle">
+                <span>🌙 Тёмная тема</span>
+                <div class="theme-switch" id="themeSwitch" onclick="toggleTheme()"></div>
+            </div>
+        </div>
+        <div class="settings-block">
+            <h4>👤 Мой аккаунт</h4>
+            <div class="settings-row">
+                <label>Текущий логин:</label>
+                <b id="currentUserLogin">—</b>
+            </div>
+            <div class="settings-row">
+                <input type="text" id="newOwnLogin" placeholder="Новый логин (необязательно)">
+            </div>
+            <div class="settings-row">
+                <input type="password" id="currentPassword" placeholder="Текущий пароль" autocomplete="current-password">
+            </div>
+            <div class="settings-row">
+                <input type="password" id="newOwnPassword" placeholder="Новый пароль (необязательно)" autocomplete="new-password">
+            </div>
+            <button class="btn btn-small" onclick="changeOwnCredentials()">💾 Сохранить логин/пароль</button>
+            <button class="btn btn-small btn-secondary" onclick="logoutUser()" style="margin-top: 6px;">🚪 Выйти</button>
+        </div>
+        <div class="settings-block" id="usersSettingsBlock" style="display: none;">
+            <h4>👥 Пользователи</h4>
+            <div class="users-list" id="usersList"></div>
+            <div class="settings-row">
+                <input type="text" id="newUserName" placeholder="Имя">
+            </div>
+            <div class="settings-row">
+                <input type="text" id="newUserLogin" placeholder="Логин">
+            </div>
+            <div class="settings-row">
+                <input type="password" id="newUserPassword" placeholder="Пароль" autocomplete="new-password">
+            </div>
+            <div class="settings-row">
+                <select id="newUserRole" style="flex: 1; padding: 6px; border: 1px solid var(--border-strong); border-radius: 4px;">
+                    <option value="admin">Администратор</option>
+                    <option value="editor" selected>Редактор</option>
+                </select>
+            </div>
+            <button class="btn btn-small" onclick="createUser()">➕ Создать пользователя</button>
+        </div>
+        <div class="folder-status" id="folderStatus">Загрузка...</div>
     </div>
 
     <div class="toast" id="toast"></div>
@@ -1006,14 +1237,7 @@
             showToast('📡 Определяем местоположение...', 'info', 2000);
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
-                    const lat = pos.coords.latitude, lon = pos.coords.longitude;
-                    map.setView([lat, lon], 14);
-                    if (redPointMarker) map.removeLayer(redPointMarker);
-                    redPointMarker = L.circleMarker([lat, lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map);
-                    document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>📡 Ваше местоположение:</strong>Широта: ${lat.toFixed(6)}<br>Долгота: ${lon.toFixed(6)}</div>`;
-                    document.getElementById('clearPointBtn').style.display = 'block';
-                    document.getElementById('resultsFrame').style.display = 'block';
-                    locate(lat, lon, redPointMarker);
+                    commitPoint(pos.coords.latitude, pos.coords.longitude, 'geolocation');
                 },
                 (err) => { showToast('❌ Не удалось получить координаты: ' + err.message, 'error', 5000); },
                 { enableHighAccuracy: true, timeout: 10000 }
@@ -1068,13 +1292,7 @@
         function goToHistoryPoint(index) {
             const h = pointHistory[index];
             if (!h) return;
-            map.setView([h.lat, h.lon], 15);
-            if (redPointMarker) map.removeLayer(redPointMarker);
-            redPointMarker = L.circleMarker([h.lat, h.lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map);
-            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>✅ Точка из истории:</strong>Широта: ${h.lat}<br>Долгота: ${h.lon}</div>`;
-            document.getElementById('clearPointBtn').style.display = 'block';
-            document.getElementById('resultsFrame').style.display = 'block';
-            locate(h.lat, h.lon, redPointMarker);
+            commitPoint(Number(h.lat), Number(h.lon), 'history');
         }
         function clearHistory() {
             if (pointHistory.length === 0) return;
@@ -1084,17 +1302,21 @@
             showToast('🗑 История очищена', 'success');
         }
 
-        // === ЗАКЛАДКИ ===
+        // === ЗАКЛАДКИ (персональные, per-user на сервере) ===
         async function loadBookmarks() {
             try {
                 const res = await apiFetch('/api/bookmarks');
-                if (res.ok) { bookmarks = await res.json(); renderBookmarks(); }
+                if (res.ok) {
+                    const data = await res.json();
+                    bookmarks = Array.isArray(data) ? data : (data.bookmarks || []);
+                    renderBookmarks();
+                }
             } catch (e) { console.error('Ошибка загрузки закладок:', e); }
         }
         function renderBookmarks() {
             const list = document.getElementById('bookmarkList');
             const addBtn = document.getElementById('addBookmarkBtn');
-            addBtn.disabled = !redPointMarker;
+            addBtn.disabled = !activePoint;
             if (bookmarks.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'bookmark-empty';
@@ -1110,17 +1332,29 @@
                 info.addEventListener('click', () => goToBookmark(b.id));
                 const name = document.createElement('div');
                 name.className = 'bookmark-name';
+                // textContent: имя вводит пользователь, HTML не интерпретируем.
                 name.textContent = `⭐ ${b.name}`;
                 const meta = document.createElement('div');
                 meta.className = 'bookmark-meta';
                 meta.textContent = `${Number(b.lat).toFixed(4)}, ${Number(b.lon).toFixed(4)} · ${b.created_at || ''}`;
                 info.append(name, meta);
+                const rename = document.createElement('button');
+                rename.className = 'bookmark-delete';
+                rename.title = 'Переименовать';
+                rename.textContent = '✎';
+                rename.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    renameBookmark(b.id, b.name);
+                });
                 const remove = document.createElement('button');
                 remove.className = 'bookmark-delete';
                 remove.title = 'Удалить';
                 remove.textContent = '×';
-                remove.addEventListener('click', () => deleteBookmark(b.id));
-                item.append(info, remove);
+                remove.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    deleteBookmark(b.id);
+                });
+                item.append(info, rename, remove);
                 return item;
             });
             list.replaceChildren(...items);
@@ -1131,22 +1365,47 @@
             return div.innerHTML;
         }
         async function addBookmark() {
-            if (!redPointMarker) { showToast('⚠️ Сначала выберите точку', 'error'); return; }
+            if (!activePoint) { showToast('⚠️ Сначала выберите точку', 'error'); return; }
             const nameInput = document.getElementById('bookmarkName');
             const name = nameInput.value.trim();
             if (!name) { showToast('⚠️ Введите имя закладки', 'error'); return; }
-            const latlng = redPointMarker.getLatLng();
             try {
                 const res = await apiFetch('/api/bookmarks', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, lat: latlng.lat, lon: latlng.lng })
+                    body: JSON.stringify({
+                        name,
+                        lat: activePoint.lat,
+                        lon: activePoint.lon,
+                        metadata: {
+                            address: activePoint.address || '',
+                            district: activePoint.district || '',
+                            source: activePoint.source || '',
+                        },
+                    }),
                 });
                 if (!res.ok) throw new Error('Ошибка сервера');
                 const data = await res.json();
                 bookmarks.unshift(data.bookmark);
                 renderBookmarks();
                 nameInput.value = '';
-                showToast(`⭐ Закладка "${name}" добавлена`, 'success');
+                showToast(`⭐ Закладка «${name}» добавлена`, 'success');
+            } catch (e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
+        }
+        async function renameBookmark(id, currentName) {
+            const next = prompt('Новое имя закладки', currentName);
+            if (next === null) return;
+            const name = next.trim();
+            if (!name) return;
+            try {
+                const res = await apiFetch(`/api/bookmarks/${id}`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                if (!res.ok) throw new Error('Ошибка сервера');
+                const bookmark = bookmarks.find(b => b.id === id);
+                if (bookmark) bookmark.name = name;
+                renderBookmarks();
+                showToast('✎ Закладка переименована', 'success');
             } catch (e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
         }
         async function deleteBookmark(id) {
@@ -1161,13 +1420,10 @@
         function goToBookmark(id) {
             const b = bookmarks.find(x => x.id === id);
             if (!b) return;
-            map.setView([b.lat, b.lon], 15);
-            if (redPointMarker) map.removeLayer(redPointMarker);
-            redPointMarker = L.circleMarker([b.lat, b.lon], { radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1 }).addTo(map);
-            document.getElementById('selectedCoords').innerHTML = `<div class="selected-coords"><strong>⭐ ${escapeHtml(b.name)}:</strong>Широта: ${b.lat.toFixed(6)}<br>Долгота: ${b.lon.toFixed(6)}</div>`;
-            document.getElementById('clearPointBtn').style.display = 'block';
-            document.getElementById('resultsFrame').style.display = 'block';
-            locate(b.lat, b.lon, redPointMarker);
+            // Через единый поток: маркер, карточка и статус-бар обновятся синхронно.
+            commitPoint(Number(b.lat), Number(b.lon), 'bookmark', {
+                address: b.metadata && b.metadata.address ? b.metadata.address : undefined,
+            });
         }
 
 // === ГРАНИЦЫ РО (с переключателем) ===
@@ -1282,6 +1538,8 @@ function geojsonOuterRings(geojson) {
 function drawBoundaryFromGeoJSON(data) {
     const regionRings = geojsonOuterRings(data);
     if (!regionRings.length) throw new Error('В файле нет Polygon/MultiPolygon границы региона');
+    // Кольца в формате [lon, lat] для проверки попадания точки в область.
+    updateBoundaryRings(data);
 
     if (boundaryMaskLayer) map.removeLayer(boundaryMaskLayer);
     if (boundaryLineLayer) map.removeLayer(boundaryLineLayer);
@@ -1315,9 +1573,19 @@ function drawBoundaryFromGeoJSON(data) {
 
         function toggleHelpFrame() { document.getElementById('help-frame').classList.toggle('open'); }
 
+        // Двойной клик по карте ставит точку в обычном режиме. Если включён
+        // режим поиска, клики не должны менять точку до подтверждения кнопкой.
         map.on('dblclick', function(e) {
-            L.DomEvent.stopPropagation(e); 
-            selectPoint(e.latlng.lat, e.latlng.lng, 'click');
+            if (searchArmCheckbox.checked) {
+                showToast('Режим поиска: используйте кнопку «Поставить точку» или снимите флажок', 'info', 2500);
+                return;
+            }
+            if (batchEdit && batchEdit.activeId) {
+                showToast('Идёт редактирование пакетной точки', 'info', 2500);
+                return;
+            }
+            L.DomEvent.stopPropagation(e);
+            commitPoint(e.latlng.lat, e.latlng.lng, 'click');
         });
 
         map.on('click', function() {
@@ -1329,7 +1597,8 @@ function drawBoundaryFromGeoJSON(data) {
                 const response = await apiFetch('/api/screenshot-settings');
                 if (response.ok) {
                     const data = await response.json();
-                    screenshotSettings.delay = data.delay || 3;
+                    // delay=0 допустим на сервере, поэтому не подменяем его на 3.
+                    screenshotSettings.delay = Number.isFinite(data.delay) ? data.delay : 3;
                     screenshotSettings.savePath = 'screenshots';
                     screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
                     screenshotSettings.localBoundary = data.local_boundary !== false;
@@ -1346,7 +1615,7 @@ function drawBoundaryFromGeoJSON(data) {
             } catch (e) { console.error('Ошибка загрузки настроек:', e); }
         }
         
-        async function saveScreenshotSettings() {
+        async function saveScreenshotSettings(options = {}) {
             const delay = parseInt(document.getElementById('settingDelay').value);
             if (isNaN(delay) || delay < 1 || delay > 30) { showToast('Задержка: 1-30 сек', 'error'); return; }
             const savePath = 'screenshots';
@@ -1356,16 +1625,19 @@ function drawBoundaryFromGeoJSON(data) {
             screenshotSettings.savePath = savePath;
             screenshotSettings.autoScreenshotEnabled = autoEnabled;
             screenshotSettings.localBoundary = localBoundary;
+            updateAutoScreenshotIndicator();
             try {
                 const response = await apiFetch('/api/screenshot-settings', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ delay, save_path: savePath, auto_enabled: autoEnabled, local_boundary: localBoundary })
                 });
                 if (!response.ok) throw new Error('Ошибка сервера');
-                showToast('✅ Настройки сохранены', 'success');
+                if (!options.silent) showToast('✅ Настройки сохранены', 'success');
                 updateFolderStatus();
                 await loadRostovBoundary();
-            } catch (error) { showToast('❌ Ошибка: ' + error.message, 'error'); }
+            } catch (error) {
+                if (!options.silent) showToast('❌ Ошибка: ' + error.message, 'error');
+            }
         }
         
         function updateFolderStatus(customText = null) {
@@ -1383,6 +1655,76 @@ function drawBoundaryFromGeoJSON(data) {
             toast.textContent = message;
             toast.className = 'toast show ' + type;
             setTimeout(() => { toast.className = 'toast'; }, duration);
+        }
+
+        // === СТАТУС-БАР ===
+        // Приоритет отображения: трасса + км, затем адрес, затем координаты.
+        function currentStatusText() {
+            if (!activePoint) return 'Точка не выбрана';
+            if (activePoint.roadLabel && Number.isFinite(activePoint.roadKm)) {
+                return `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`;
+            }
+            if (activePoint.address) return activePoint.address;
+            return `${activePoint.lat.toFixed(6)}, ${activePoint.lon.toFixed(6)}`;
+        }
+
+        function updateStatusBar() {
+            document.getElementById('statusPointText').textContent = currentStatusText();
+            const hasPoint = Boolean(activePoint);
+            document.getElementById('statusCopyBtn').disabled = !hasPoint;
+        }
+
+        function statusCopyText() {
+            if (!activePoint) return '';
+            if (window.currentRoadCopyText) return window.currentRoadCopyText;
+            if (activePoint.roadLabel && Number.isFinite(activePoint.roadKm)) {
+                return `${activePoint.roadLabel}, ${formatKm(activePoint.roadKm)}`;
+            }
+            if (activePoint.address) return activePoint.address;
+            return `${activePoint.lat.toFixed(6)}, ${activePoint.lon.toFixed(6)}`;
+        }
+
+        function copyStatusObject() {
+            const text = statusCopyText();
+            if (!text) { showToast('Нет данных для копирования', 'error'); return; }
+            const done = () => showToast('📋 Скопировано', 'success');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+            } else fallbackCopy(text, done);
+        }
+
+        // === КОНТУР ОБЛАСТИ: ТОЧКА ВНУТРИ ПОЛИГОНА ===
+        // Кольца внешнего контура для проверки попадания точки в РО.
+        let boundaryRingPoints = [];
+
+        function pointInPolygon(lon, lat, ring) {
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const [xi, yi] = ring[i];
+                const [xj, yj] = ring[j];
+                if ((yi > lat) !== (yj > lat)
+                    && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        function updateBoundaryRings(geojson) {
+            boundaryRingPoints = [];
+            const features = geojson?.type === 'FeatureCollection'
+                ? (geojson.features || [])
+                : geojson?.type === 'Feature' ? [geojson] : [];
+            for (const feature of features) {
+                const geometry = feature?.geometry;
+                const polygons = geometry?.type === 'Polygon' ? [geometry.coordinates]
+                    : geometry?.type === 'MultiPolygon' ? geometry.coordinates : [];
+                for (const polygon of polygons) {
+                    if (Array.isArray(polygon?.[0]) && polygon[0].length >= 3) {
+                        boundaryRingPoints.push(polygon[0].map(([x, y]) => [x, y]));
+                    }
+                }
+            }
         }
 
         // === АВТОРИЗАЦИЯ И ПОЛЬЗОВАТЕЛИ ===
@@ -1420,6 +1762,14 @@ function drawBoundaryFromGeoJSON(data) {
         let roadSectionsSequence = 0;
         let roadKmState = null;
         let mskCopyText = '';
+
+        // Локальный километраж доступен только при выбранной локальной базе.
+        function updateLocalRoadControls() {
+            const button = document.getElementById('roadFindBtn');
+            if (!button) return;
+            button.disabled = !useLocalRoadData;
+            button.title = useLocalRoadData ? '' : 'Поиск дороги и километража доступен только в локальной базе';
+        }
 
         function updateDataSourceStatus(tileStatus = '') {
             const roadStatus = useLocalRoadData
@@ -1459,8 +1809,7 @@ function drawBoundaryFromGeoJSON(data) {
                 select.onchange = () => {
                     useLocalRoadData = select.value === 'local';
                     localStorage.setItem('albion_data_source', useLocalRoadData ? 'local' : 'external');
-                    document.getElementById('roadSearchButton').disabled = !useLocalRoadData;
-                    document.getElementById('roadSearchButton').title = useLocalRoadData ? '' : 'Поиск дороги и километража пока доступен только в локальной базе';
+                    updateLocalRoadControls();
                     if (useLocalRoadData && !localGeoAvailable) showToast('Локальная база не установлена: запрос завершится без внешнего fallback', 'error', 5000);
                     updateDataSourceStatus(tileStatus);
                 };
@@ -1476,8 +1825,7 @@ function drawBoundaryFromGeoJSON(data) {
                     }
                     updateDataSourceStatus(tileStatus);
                 };
-                document.getElementById('roadSearchButton').disabled = !useLocalRoadData;
-                document.getElementById('roadSearchButton').title = useLocalRoadData ? '' : 'Поиск дороги и километража пока реализован только в локальной базе';
+                updateLocalRoadControls();
                 void initializeYandexAddressSuggest();
             } catch (error) {
                 // Keep the map usable if the status endpoint is unavailable; make this source fallback visible.
@@ -1509,10 +1857,7 @@ function drawBoundaryFromGeoJSON(data) {
             container.classList.add('open');
         }
 
-        const addressQuery = document.getElementById('addressQuery');
-        const addressSearchStatus = document.getElementById('addressSearchStatus');
-        const roadQuery = document.getElementById('roadQuery');
-        const roadSearchStatus = document.getElementById('roadSearchStatus');
+        // === ССЫЛКИ НА ЭЛЕМЕНТЫ НОВОГО ИНТЕРФЕЙСА ===
         const roadSuggestions = document.getElementById('roadSuggestions');
         const roadKmPanel = document.getElementById('roadKmPanel');
         const roadKmTitle = document.getElementById('roadKmTitle');
@@ -1521,6 +1866,19 @@ function drawBoundaryFromGeoJSON(data) {
         const roadKmSlider = document.getElementById('roadKmSlider');
         const roadKmRange = document.getElementById('roadKmRange');
         const roadKmStatus = document.getElementById('roadKmStatus');
+        const addrCityInput = document.getElementById('addrCityInput');
+        const addrStreetInput = document.getElementById('addrStreetInput');
+        const addrStatus = document.getElementById('addrStatus');
+        const wgsInput = document.getElementById('wgsInput');
+        const mskInput = document.getElementById('mskInput');
+        const coordsStatus = document.getElementById('coordsStatus');
+        const crsCycleBtn = document.getElementById('crsCycleBtn');
+        const roadNameInput = document.getElementById('roadNameInput');
+        const roadKmInput = document.getElementById('roadKmInput');
+        const roadFindBtn = document.getElementById('roadFindBtn');
+        const roadFieldsStatus = document.getElementById('roadFieldsStatus');
+        const searchArmCheckbox = document.getElementById('searchArmCheckbox');
+        const placePointBtn = document.getElementById('placePointBtn');
         let yandexSuggestInitPromise = null;
 
         function loadYandexMapsApi(config) {
@@ -1564,19 +1922,21 @@ function drawBoundaryFromGeoJSON(data) {
         async function initializeYandexAddressSuggest() {
             if (yandexSuggestInitPromise) return yandexSuggestInitPromise;
             yandexSuggestInitPromise = (async () => {
-                addressSearchStatus.textContent = 'Загружаю адресные подсказки Яндекса…';
+                addrStatus.textContent = 'Загружаю адресные подсказки Яндекса…';
                 try {
                     const response = await apiFetch('/api/maps-config');
                     const config = await response.json();
                     if (!response.ok) throw new Error(typeof config.detail === 'string' ? config.detail : 'Не удалось получить настройки адресных подсказок');
                     if (!config.suggest_view_available) {
-                        addressSearchStatus.textContent = 'Не настроены YANDEX_JS_API_KEY и/или YANDEX_SUGGEST_API_KEY на сервере.';
-                        roadSearchStatus.textContent = 'Онлайн-подсказки дорог не настроены на сервере.';
+                        addrStatus.textContent = 'Не настроены YANDEX_JS_API_KEY и/или YANDEX_SUGGEST_API_KEY на сервере.';
+                        roadFieldsStatus.textContent = 'Онлайн-подсказки дорог не настроены на сервере.';
                         return;
                     }
                     const ymaps = await loadYandexMapsApi(config);
                     if (!yandexAddressSuggestView) {
-                        yandexAddressSuggestView = new ymaps.SuggestView(addressQuery, {
+                        // Подсказка по населённому пункту: выбор заполняет город и
+                        // открывает поле улицы (см. обработчик select ниже).
+                        yandexAddressSuggestView = new ymaps.SuggestView(addrCityInput, {
                             boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
                             strictBounds: true,
                             results: 8,
@@ -1585,78 +1945,106 @@ function drawBoundaryFromGeoJSON(data) {
                             const item = event.get('item') || {};
                             const selectedText = (typeof item.value === 'string' && item.value.trim())
                                 || (typeof item.displayName === 'string' && item.displayName.trim())
-                                || addressQuery.value.trim();
+                                || addrCityInput.value.trim();
                             if (!selectedText) return;
-                            addressQuery.value = selectedText;
-                            addressSuggestionSequence += 1;
-                            resolveOnlineAddress({query: selectedText, display_name: selectedText});
+                            addrCityInput.value = selectedText;
+                            addrStreetInput.disabled = false;
+                            addrStreetInput.focus();
+                            searchDraft.addressCity = selectedText;
+                            searchDraft.addressLat = null;
+                            searchDraft.addressLon = null;
+                            searchDraft.addressLabel = '';
+                            addrStatus.textContent = 'Выберите улицу и дом из подсказок.';
+                            updatePlacePointButton();
+                        });
+                    }
+                    if (!yandexStreetSuggestView) {
+                        yandexStreetSuggestView = new ymaps.SuggestView(addrStreetInput, {
+                            boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
+                            strictBounds: true,
+                            results: 8,
+                        });
+                        yandexStreetSuggestView.events.add('select', event => {
+                            const item = event.get('item') || {};
+                            const streetText = (typeof item.value === 'string' && item.value.trim())
+                                || (typeof item.displayName === 'string' && item.displayName.trim())
+                                || addrStreetInput.value.trim();
+                            if (!streetText) return;
+                            addrStreetInput.value = streetText;
+                            resolveAddressCandidate(`${addrCityInput.value}, ${streetText}`);
                         });
                     }
                     setupRoadSuggestView(ymaps);
-                    addressSearchStatus.textContent = config.geocoder_available
-                        ? 'Введите адрес и выберите подсказку. После выбора точка будет геокодирована.'
-                        : 'Подсказки загружены, но на сервере не настроен YANDEX_API_KEY для определения координат.';
-                    roadSearchStatus.textContent = config.geocoder_available
+                    addrStatus.textContent = config.geocoder_available
+                        ? 'Введите населённый пункт, затем улицу и дом.'
+                        : 'Подсказки загружены, но не настроен YANDEX_API_KEY для координат.';
+                    roadFieldsStatus.textContent = config.geocoder_available
                         ? 'Введите название трассы/дороги или код и выберите подсказку.'
-                        : 'Подсказки дорог загружены, но на сервере не настроен YANDEX_API_KEY.';
+                        : 'Подсказки дорог загружены, но не настроен YANDEX_API_KEY.';
                 } catch (error) {
-                    addressSearchStatus.textContent = error.message || 'Не удалось инициализировать онлайн-подсказки';
-                    roadSearchStatus.textContent = 'Не удалось инициализировать онлайн-поиск дорог.';
+                    addrStatus.textContent = error.message || 'Не удалось инициализировать онлайн-подсказки';
+                    roadFieldsStatus.textContent = 'Не удалось инициализировать онлайн-поиск дорог.';
                 }
             })();
             return yandexSuggestInitPromise;
         }
 
-        async function resolveOnlineAddress(item) {
-            const sequence = addressSuggestionSequence;
-            addressSearchStatus.textContent = 'Определяю координаты выбранного адреса…';
+        // Определяет координаты выбранного адреса, но НЕ ставит точку: точка
+        // появляется только по кнопке «Поставить точку».
+        async function resolveAddressCandidate(query) {
+            const sequence = ++addressSuggestionSequence;
+            addrStatus.textContent = 'Определяю координаты выбранного адреса…';
             try {
                 const response = await apiFetch('/api/address/online/geocode', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({query: item.query || item.display_name})
+                    body: JSON.stringify({query})
                 });
                 const data = await response.json();
                 if (sequence !== addressSuggestionSequence) return;
                 if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось определить координаты адреса');
-                const precisionLabels = {
-                    exact: 'точный объект по данным Яндекса (не кадастровая точность)',
-                    number: 'найден номер дома',
-                    street: 'координата улицы, может быть приблизительной',
-                    near: 'приблизительное совпадение',
-                    range: 'координаты диапазона',
-                    other: 'точность не уточнена',
-                };
-                const precision = precisionLabels[data.precision] || 'точность не уточнена';
-                addressSearchStatus.textContent = `Источник: Яндекс · ${data.address || item.display_name} · ${precision}`;
-                selectPoint(data.lat, data.lon, 'address');
+                searchDraft.addressLat = data.lat;
+                searchDraft.addressLon = data.lon;
+                searchDraft.addressLabel = data.address || query;
+                addrStatus.textContent = `Источник: Яндекс · ${data.address || query}`;
+                updatePlacePointButton();
             } catch (error) {
                 if (sequence !== addressSuggestionSequence) return;
-                addressSearchStatus.textContent = error.name === 'AbortError' ? '' : error.message;
+                searchDraft.addressLat = null;
+                searchDraft.addressLon = null;
+                addrStatus.textContent = error.message;
+                updatePlacePointButton();
             }
         }
 
-        addressQuery.addEventListener('input', () => {
+        addrCityInput.addEventListener('input', () => {
             addressSuggestionSequence += 1;
-            const queryLength = addressQuery.value.trim().length;
-            if (queryLength < 3) addressSearchStatus.textContent = queryLength ? 'Введите не менее 3 символов.' : '';
-            else if (!yandexAddressSuggestView) addressSearchStatus.textContent = 'Адресные подсказки пока не готовы.';
-            else addressSearchStatus.textContent = 'Выберите один из вариантов Яндекса.';
+            searchDraft.addressCity = addrCityInput.value.trim();
+            searchDraft.addressLat = null;
+            searchDraft.addressLon = null;
+            addrStreetInput.value = '';
+            addrStreetInput.disabled = true;
+            const city = normalizeQueryInput(addrCityInput);
+            if (city.length >= 3) addrStatus.textContent = 'Выберите населённый пункт из подсказок.';
+            updatePlacePointButton();
         });
-        addressQuery.addEventListener('keydown', event => {
-            if (event.key === 'Escape') {
-                addressSuggestionSequence += 1;
-                if (!yandexAddressSuggestView) addressSearchStatus.textContent = '';
-            }
+        addrStreetInput.addEventListener('input', () => {
+            addressSuggestionSequence += 1;
+            searchDraft.addressLat = null;
+            searchDraft.addressLon = null;
+            updatePlacePointButton();
         });
 
-        roadQuery.addEventListener('input', () => {
+        roadNameInput.addEventListener('input', () => {
             roadSuggestionSequence += 1;
             roadSectionsSequence += 1;
             roadKmState = null;
             roadKmPanel.hidden = true;
-            roadSearchStatus.textContent = roadQuery.value.trim().length < 2
-                ? (roadQuery.value.trim() ? 'Введите не менее 2 символов.' : '')
-                : (yandexRoadSuggestView ? 'Выберите трассу или дорогу из подсказок Яндекса.' : 'Подсказки дорог пока не готовы.');
+            searchDraft.road = null;
+            updatePlacePointButton();
+            const text = normalizeQueryInput(roadNameInput);
+            roadFieldsStatus.textContent = text.length < 2
+                ? (text ? 'Введите не менее 2 символов.' : '')
+                : (yandexRoadSuggestView ? 'Выберите трассу или дорогу из подсказок.' : 'Подсказки дорог пока не готовы.');
         });
 
         async function resolveOnlineRoad(item) {
@@ -1664,7 +2052,7 @@ function drawBoundaryFromGeoJSON(data) {
             roadSectionsSequence += 1;
             roadKmState = null;
             roadKmPanel.hidden = true;
-            roadSearchStatus.textContent = 'Ищу выбранную дорогу в Ростовской области…';
+            roadFieldsStatus.textContent = 'Ищу выбранную дорогу в Ростовской области…';
             roadSuggestions.classList.remove('open');
             try {
                 const response = await apiFetch('/api/roads/online/search', {
@@ -1685,19 +2073,19 @@ function drawBoundaryFromGeoJSON(data) {
                     ...road,
                     display_name: `${road.title} · ${road.road_code ? 'трасса' : 'дорога'} · ${precisionLabels[road.precision] || road.precision}`,
                 }));
-                roadSearchStatus.textContent = rows.length
-                    ? 'Выберите найденный вариант, чтобы поставить точку и определить ближайшую дорогу.'
+                roadFieldsStatus.textContent = rows.length
+                    ? 'Выберите найденный вариант, чтобы подготовить километраж.'
                     : 'Дорога не найдена в Ростовской области.';
                 renderSuggestionList(roadSuggestions, rows, road => {
                     roadSuggestions.classList.remove('open');
-                    roadQuery.value = road.title;
-                    roadSearchStatus.textContent = `Выбрано: ${road.title}. Определяю ближайшую дорогу…`;
-                    selectPoint(road.lat, road.lon, 'road-km');
+                    roadNameInput.value = road.title;
+                    searchDraft.road = road;
+                    roadFieldsStatus.textContent = `Выбрано: ${road.title}. Загружаю километраж.`;
                     void loadRoadSections(road);
                 }, 'Дорога не найдена в Ростовской области');
             } catch (error) {
                 if (sequence !== roadSuggestionSequence) return;
-                roadSearchStatus.textContent = error.message;
+                roadFieldsStatus.textContent = error.message;
             }
         }
 
@@ -1842,24 +2230,11 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function nearestOfficialKm(state, lon, lat) {
-            let best = null;
-            for (const section of state.sections) {
-                for (let index = 0; index < section.coordinates.length; index += 1) {
-                    const [pointLon, pointLat] = section.coordinates[index];
-                    const distanceKm = distanceKmBetween(lon, lat, pointLon, pointLat);
-                    if (!best || distanceKm < best.distanceKm) {
-                        const fraction = section.lengthKm > 0
-                            ? section.cumulativeKm[index] / section.lengthKm
-                            : 0;
-                        best = {
-                            distanceKm,
-                            officialKm: section.start_km
-                                + fraction * (section.finish_km - section.start_km),
-                        };
-                    }
-                }
-            }
-            return best;
+            // Официальный километр ищется по гео-ядру: проекция на отрезок, а не
+            // сравнение с вершинами. При редких вершинах прежний вариант давал
+            // заметную ошибку.
+            const best = window.AlbionGeo.nearestOfficialKmOnSections(lon, lat, state.sections);
+            return best ? { distanceKm: best.distanceKm, officialKm: best.officialKm } : null;
         }
 
         function setRoadKmControlsEnabled(enabled) {
@@ -1872,7 +2247,8 @@ function drawBoundaryFromGeoJSON(data) {
             const relativeKm = relativeKmForOfficialKm(state, officialKm);
             if (relativeKm !== null) roadKmSlider.value = String(relativeKm);
             roadKmNumber.value = formatRoadKmNumber(officialKm);
-            setRoadKmControlsEnabled(true);
+            // В режиме поиска километраж показывает значение, но не фиксирует точку.
+            setRoadKmControlsEnabled(!searchArmCheckbox.checked);
         }
 
         async function loadRoadSections(road) {
@@ -1914,9 +2290,10 @@ function drawBoundaryFromGeoJSON(data) {
                 roadKmRange.textContent = `Участок в Ростовской области: ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · ${state.totalLengthKm.toFixed(1)} км по официальному километражу СКДФ.`;
                 const nearest = nearestOfficialKm(state, road.lon, road.lat);
                 const initialKm = nearest ? nearest.officialKm : state.firstKm;
-                showRoadKmControls(state, initialKm);
+                // Выбор дороги готовит черновик километра, но не ставит точку.
+                previewRoadKm(initialKm);
                 roadKmStatus.textContent = nearest
-                    ? `Ближайший километр к точке Яндекса: ${formatKm(initialKm)}. Введите километр или отпустите ползунок, чтобы поставить точку.`
+                    ? `Ближайший километр к точке Яндекса: ${formatKm(initialKm)}. Нажмите «Поставить точку» или отпустите ползунок.`
                     : `Выберите километр в диапазоне ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)}.`;
             } catch (error) {
                 if (sequence !== roadSectionsSequence) return;
@@ -1927,6 +2304,42 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
+        // Ползунок/поле километража двигают черновик, а не активную точку.
+        // Позиция ползунка хранится отдельно от committed-километра, поэтому
+        // блокировка поиска не сбрасывает уже выбранное значение.
+        function previewRoadKm(officialKm) {
+            if (!roadKmState) return null;
+            const point = pointAtOfficialKm(roadKmState, officialKm);
+            if (!point) {
+                roadKmStatus.textContent = `Километр ${formatKm(officialKm)} не покрыт доступными участками СКДФ в Ростовской области.`;
+                return null;
+            }
+            showRoadKmControls(roadKmState, officialKm);
+            searchDraft.roadKm = officialKm;
+            searchDraft.roadLat = point.lat;
+            searchDraft.roadLon = point.lon;
+            searchDraft.roadLabel = roadKmTitle.textContent || 'Дорога';
+            searchDraft.previewVersion += 1;
+            renderRoadKmPreview(officialKm, point);
+            return point;
+        }
+
+        // Метаданные дороги для правого фрейма и статус-бара.
+        function roadMeta(officialKm) {
+            return {
+                roadLabel: (roadKmTitle.textContent || '').replace(/\s+—\s+.*$/, '').trim(),
+                roadKm: Number.isFinite(officialKm) ? officialKm : null,
+            };
+        }
+
+        function renderRoadKmPreview(officialKm, point) {
+            roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)} · ${formatKm(point.relativeKm)} от первого доступного километра · ${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+            // Черновик только обновляет поля и координаты-кандидата. Точку на
+            // карте ставит либо кнопка «Поставить точку», либо отпускание
+            // ползунка в обычном режиме (когда блокировка поиска выключена).
+            updatePlacePointButton();
+        }
+
         function applyRoadKmNumber() {
             if (!roadKmState) return;
             const officialKm = parseRoadKmNumber(roadKmNumber.value);
@@ -1934,19 +2347,11 @@ function drawBoundaryFromGeoJSON(data) {
                 roadKmStatus.textContent = 'Введите километр в формате 829+500 или 829.5.';
                 return;
             }
-            placeRoadKm(officialKm);
-        }
-
-        function placeRoadKm(officialKm, movePoint = true) {
-            if (!roadKmState) return;
-            const point = pointAtOfficialKm(roadKmState, officialKm);
-            if (!point) {
-                roadKmStatus.textContent = `Километр ${formatKm(officialKm)} не покрыт доступными участками СКДФ в Ростовской области.`;
-                return;
+            const point = previewRoadKm(officialKm);
+            // Кнопка «Перейти» в обычном режиме по-прежнему ставит точку.
+            if (point && !searchArmCheckbox.checked) {
+                commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
             }
-            showRoadKmControls(roadKmState, officialKm);
-            roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)} · ${formatKm(point.relativeKm)} от первого доступного километра · ${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
-            if (movePoint) selectPoint(point.lat, point.lon, 'road-km');
         }
 
         roadKmApplyButton.addEventListener('click', applyRoadKmNumber);
@@ -1957,21 +2362,32 @@ function drawBoundaryFromGeoJSON(data) {
             }
         });
         roadKmSlider.addEventListener('input', () => {
-            if (!roadKmState) return;
+            if (!roadKmState || roadKmSlider.disabled) return;
             const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
             if (!Number.isFinite(officialKm)) return;
             roadKmNumber.value = formatRoadKmNumber(officialKm);
-            roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)}. Отпустите ползунок, чтобы поставить точку.`;
+            const point = previewRoadKm(officialKm);
+            if (point) {
+                const hint = searchArmCheckbox.checked
+                    ? 'Нажмите «Поставить точку», чтобы зафиксировать.'
+                    : 'Отпустите ползунок, чтобы поставить точку.';
+                roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)}. ${hint}`;
+            }
         });
         roadKmSlider.addEventListener('change', () => {
-            if (!roadKmState) return;
+            if (!roadKmState || roadKmSlider.disabled) return;
             const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
-            if (Number.isFinite(officialKm)) placeRoadKm(officialKm);
+            if (!Number.isFinite(officialKm)) return;
+            const point = previewRoadKm(officialKm);
+            // В обычном режиме отпускание ползунка фиксирует точку, как раньше.
+            if (point && !searchArmCheckbox.checked) {
+                commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
+            }
         });
 
         function setupRoadSuggestView(ymaps) {
             if (yandexRoadSuggestView) return;
-            yandexRoadSuggestView = new ymaps.SuggestView(roadQuery, {
+            yandexRoadSuggestView = new ymaps.SuggestView(roadNameInput, {
                 boundedBy: [[45.951688, 38.22075], [50.214477, 44.319992]],
                 strictBounds: true,
                 results: 8,
@@ -1980,9 +2396,9 @@ function drawBoundaryFromGeoJSON(data) {
                 const item = event.get('item') || {};
                 const selectedText = (typeof item.value === 'string' && item.value.trim())
                     || (typeof item.displayName === 'string' && item.displayName.trim())
-                    || roadQuery.value.trim();
+                    || roadNameInput.value.trim();
                 if (!selectedText) return;
-                roadQuery.value = selectedText;
+                roadNameInput.value = selectedText;
                 roadSuggestionSequence += 1;
                 resolveOnlineRoad({query: selectedText});
             });
@@ -1992,19 +2408,32 @@ function drawBoundaryFromGeoJSON(data) {
             roadSectionsSequence += 1;
             roadKmState = null;
             roadKmPanel.hidden = true;
-            const km = document.getElementById('roadKm').value.trim();
+            const km = roadKmInput.value.trim();
             if (!km) { showToast('Для локального поиска укажите километраж', 'error'); return; }
-            const params = new URLSearchParams({q: document.getElementById('roadQuery').value, limit:'10', km});
+            const params = new URLSearchParams({q: roadNameInput.value, limit: '10', km});
             try {
                 const response = await apiFetch(`/api/roads/search?${params}`);
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || 'Локальная база дорог недоступна');
                 const rows = (data.roads || []).map(item => ({...item,
                     display_name: `${item.name || item.ref || 'Дорога'} · ${formatKm(item.selected_km)} · ${item.km_provenance === 'official start/finish' ? 'официальные начало/конец; промежуточный км интерполирован' : 'оценка по геометрии'} (${item.source})`}));
-                renderSuggestionList(document.getElementById('roadSuggestions'), rows, item => {
-                    document.getElementById('roadSuggestions').classList.remove('open');
-                    if (Number.isFinite(item.selected_lat) && Number.isFinite(item.selected_lon)) selectPoint(item.selected_lat, item.selected_lon, 'road-km');
-                    else showToast('Для дороги не рассчитана точка выбранного километража', 'error');
+                renderSuggestionList(roadSuggestions, rows, item => {
+                    roadSuggestions.classList.remove('open');
+                    if (Number.isFinite(item.selected_lat) && Number.isFinite(item.selected_lon)) {
+                        const lat = item.selected_lat;
+                        const lon = item.selected_lon;
+                        searchDraft.roadKm = item.selected_km;
+                        searchDraft.roadLat = lat;
+                        searchDraft.roadLon = lon;
+                        searchDraft.roadLabel = item.name || item.ref || 'Дорога';
+                        const meta = { roadLabel: searchDraft.roadLabel, roadKm: item.selected_km };
+                        if (searchArmCheckbox.checked) {
+                            updatePlacePointButton();
+                            roadFieldsStatus.textContent = `Выбран км ${formatKm(item.selected_km)}. Нажмите «Поставить точку».`;
+                        } else {
+                            commitPoint(lat, lon, 'road-km', meta);
+                        }
+                    } else showToast('Для дороги не рассчитана точка выбранного километража', 'error');
                 }, 'Дорога не найдена в локальной базе');
             } catch (error) { showToast(error.message, 'error', 5000); }
         }
@@ -2111,41 +2540,636 @@ function drawBoundaryFromGeoJSON(data) {
             } catch { /* coordinate display remains WGS84 if converter unavailable */ }
         }
 
-        function setupMapSearchToolbar() {
-            const body = document.getElementById('map-search-body');
-            const panels = [
-                ['address', 'addressSearchPanel'],
-                ['coords', 'coordsSearchPanel'],
-                ['road', 'roadSearchPanel'],
-                ['msk', 'mskSearchPanel'],
-            ];
-            for (const [, id] of panels) {
-                const panel = document.getElementById(id);
-                if (panel) body.appendChild(panel);
+        // === ПОИСК: ЧЕРНОВИК И ФИКСАЦИЯ ТОЧКИ ===
+        // searchDraft накапливает выбор пользователя до явного подтверждения.
+        // Только commitPoint двигает активную точку, историю и правый фрейм.
+        const searchDraft = {
+            mode: 'coords',
+            addressCity: '',
+            addressLabel: '',
+            addressLat: null,
+            addressLon: null,
+            road: null,
+            roadKm: null,
+            roadLat: null,
+            roadLon: null,
+            previewVersion: 0,
+        };
+        // Циклический выбор системы координат: МСК-61 (зоны 1..3) и GPS/WGS84.
+        const CRS_ORDER = ['msk1', 'msk2', 'msk3', 'gps'];
+        let crsState = 'msk2';
+        let mskZone = 2;
+        let activePoint = null;
+        let pointRevision = 0;
+
+        function normalizeQueryInput(input) {
+            const result = window.AlbionGeo.normalizeSearchQuery(input.value);
+            if (result.changed) {
+                input.value = result.text;
+                showToast('Раскладка исправлена на русскую', 'info', 2000);
             }
-            const mode = document.getElementById('searchModeSelect');
-            const activateMode = value => {
-                const chosen = panels.some(([key]) => key === value) ? value : 'coords';
-                mode.value = chosen;
-                localStorage.setItem('albion_search_mode', chosen);
-                for (const [key, id] of panels) document.getElementById(id)?.classList.toggle('active', key === chosen);
+            return input.value.trim();
+        }
+
+        function setSearchMode(mode) {
+            if (!['address', 'coords', 'road'].includes(mode)) mode = 'coords';
+            searchDraft.mode = mode;
+            for (const button of document.querySelectorAll('.mode-btn')) {
+                button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+            }
+            document.getElementById('addressFields').hidden = mode !== 'address';
+            document.getElementById('coordsFields').hidden = mode !== 'coords';
+            document.getElementById('roadFields').hidden = mode !== 'road';
+            try { localStorage.setItem('albion_search_mode', mode); } catch (e) { /* ignore */ }
+            updatePlacePointButton();
+            scheduleStateSave();
+        }
+
+        function updateCrsLabel() {
+            const labels = { msk1: 'МСК-61-1', msk2: 'МСК-61-2', msk3: 'МСК-61-3', gps: 'GPS (WGS84)' };
+            crsCycleBtn.textContent = labels[crsState];
+            mskZone = crsState === 'msk1' ? 1 : crsState === 'msk3' ? 3 : 2;
+            document.getElementById('mskZone').value = String(mskZone);
+        }
+
+        function cycleCrs() {
+            const index = CRS_ORDER.indexOf(crsState);
+            crsState = CRS_ORDER[(index + 1) % CRS_ORDER.length];
+            updateCrsLabel();
+            // Пересчитываем текущее поле под новую систему.
+            syncCoordsFromWgs();
+        }
+
+        // Проверка попадания в Ростовскую область по контуру, а не только bbox.
+        function pointInRostov(lat, lon) {
+            if (!boundaryRingPoints.length) return true; // контур ещё не загружен — не блокируем
+            return boundaryRingPoints.some(ring => pointInPolygon(lon, lat, ring));
+        }
+
+        function readDraftCoordinates() {
+            if (searchDraft.mode === 'address') {
+                if (!Number.isFinite(searchDraft.addressLat) || !Number.isFinite(searchDraft.addressLon)) return null;
+                return { lat: searchDraft.addressLat, lon: searchDraft.addressLon, label: searchDraft.addressLabel };
+            }
+            if (searchDraft.mode === 'road') {
+                if (!Number.isFinite(searchDraft.roadLat) || !Number.isFinite(searchDraft.roadLon)) return null;
+                return { lat: searchDraft.roadLat, lon: searchDraft.roadLon, label: searchDraft.roadLabel || 'Дорога и километраж' };
+            }
+            const parsed = window.AlbionGeo.parseWgsCoordinates(wgsInput.value);
+            if (!parsed) return null;
+            return { lat: parsed.lat, lon: parsed.lon, label: 'Координаты' };
+        }
+
+        function updatePlacePointButton() {
+            const coords = readDraftCoordinates();
+            placePointBtn.disabled = !coords;
+        }
+
+        function commitPoint(lat, lon, source, meta = {}) {
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+            pointRevision += 1;
+            activePoint = { lat, lon, source, ...meta };
+            if (!pointInRostov(lat, lon)) {
+                showToast('Точка вне Ростовской области — данные дорог могут отсутствовать', 'error', 4000);
+            }
+            // selectPoint оставлен низкоуровневым: расставляет маркеры и запускает поиск.
+            selectPoint(lat, lon, source);
+            renderActivePoint();
+            updateStatusBar();
+            if (!searchArmCheckbox.checked) {
+                // В обычном режиме поиск завершён — снимаем черновик.
+                searchDraft.previewVersion += 1;
+            }
+            scheduleStateSave();
+        }
+
+        function renderActivePoint() {
+            const empty = document.getElementById('currentPointEmpty');
+            const details = document.getElementById('currentPointDetails');
+            if (!activePoint) {
+                empty.hidden = false;
+                details.hidden = true;
+                document.getElementById('saveFavoriteBtn').disabled = true;
+                return;
+            }
+            empty.hidden = true;
+            details.hidden = false;
+            const { lat, lon } = activePoint;
+            document.getElementById('cpWgs').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            document.getElementById('cpSource').textContent = SOURCE_LABELS[activePoint.source] || '';
+            document.getElementById('cpAddress').textContent = activePoint.address || 'не определено';
+            document.getElementById('cpDistrict').textContent = activePoint.district || 'не определено';
+            document.getElementById('saveFavoriteBtn').disabled = false;
+            // МСК и адрес считаются асинхронно и подставляются в карточку.
+            refreshMskForActive(lat, lon);
+            if (!activePoint.address || !activePoint.district) {
+                void resolveReverseAddress(lat, lon);
+            }
+        }
+
+        // Обратный геокодер: координаты -> адрес/район. Ошибка не мешает точке —
+        // поля просто остаются «не определено».
+        async function resolveReverseAddress(lat, lon) {
+            const revision = pointRevision;
+            try {
+                const response = await apiFetch('/api/geocode/reverse', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lon }),
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                if (revision !== pointRevision || !activePoint) return;
+                if (data.address) activePoint.address = data.address;
+                if (data.district) activePoint.district = data.district;
+                if (data.address || data.district) {
+                    document.getElementById('cpAddress').textContent = activePoint.address || 'не определено';
+                    document.getElementById('cpDistrict').textContent = activePoint.district || 'не определено';
+                    updateStatusBar();
+                    scheduleStateSave();
+                }
+            } catch (error) {
+                // Внешний сервис недоступен — оставляем пустые поля.
+            }
+        }
+
+        async function refreshMskForActive(lat, lon) {
+            const sequence = pointRevision;
+            try {
+                const response = await apiFetch('/api/msk61/from-geographic', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({lat, lon, zone: mskZone, profile: document.getElementById('mskProfile').value}),
+                });
+                const data = await response.json();
+                if (!response.ok || sequence !== pointRevision) return;
+                document.getElementById('cpMsk').textContent =
+                    `X ${data.x.toFixed(2)}, Y ${data.y.toFixed(2)} (зона ${data.zone}, предварительно)`;
+            } catch (e) {
+                if (sequence === pointRevision) document.getElementById('cpMsk').textContent = 'не рассчитано';
+            }
+        }
+
+        // === СИНХРОНИЗАЦИЯ WGS ↔ МСК В РЕЖИМЕ КООРДИНАТ ===
+        let coordSyncSequence = 0;
+
+        async function syncCoordsFromWgs() {
+            if (searchDraft.mode !== 'coords') return;
+            const parsed = window.AlbionGeo.parseWgsCoordinates(wgsInput.value);
+            if (!parsed) {
+                mskInput.value = '';
+                coordsStatus.textContent = wgsInput.value.trim() ? 'Не удалось разобрать координаты WGS84.' : '';
+                updatePlacePointButton();
+                return;
+            }
+            // Отражаем распознанный формат обратно, чтобы пользователь видел, как понят ввод.
+            wgsInput.value = `${parsed.lat.toFixed(6)}, ${parsed.lon.toFixed(6)}`;
+            coordsStatus.textContent = parsed.format === 'dms' ? 'Распознаны градусы/минуты/секунды.' : '';
+            updatePlacePointButton();
+            if (crsState === 'gps') {
+                mskInput.value = '';
+                return;
+            }
+            const sequence = ++coordSyncSequence;
+            try {
+                const response = await apiFetch('/api/msk61/from-geographic', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({lat: parsed.lat, lon: parsed.lon, zone: mskZone, profile: document.getElementById('mskProfile').value}),
+                });
+                const data = await response.json();
+                if (sequence !== coordSyncSequence) return;
+                if (response.ok) mskInput.value = `${data.x.toFixed(3)}, ${data.y.toFixed(3)}`;
+            } catch (e) { /* оставляем поле как есть */ }
+        }
+
+        async function syncWgsFromMsk() {
+            if (searchDraft.mode !== 'coords' || crsState === 'gps') return;
+            const raw = mskInput.value.trim();
+            if (!raw) return;
+            const numbers = raw.replace(/;/g, ',').split(/[\s,]+/).map(Number).filter(Number.isFinite);
+            if (numbers.length < 2) {
+                coordsStatus.textContent = 'Введите X (север) и Y (восток) через запятую.';
+                updatePlacePointButton();
+                return;
+            }
+            const sequence = ++coordSyncSequence;
+            coordsStatus.textContent = 'Пересчитываю из МСК-61 в WGS84…';
+            try {
+                const response = await apiFetch('/api/msk61/to-geographic', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({x: numbers[0], y: numbers[1], zone: mskZone, profile: document.getElementById('mskProfile').value}),
+                });
+                const data = await response.json();
+                if (sequence !== coordSyncSequence) return;
+                if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Ошибка преобразования');
+                if (!data.can_place_on_map) {
+                    coordsStatus.textContent = 'Профиль без сдвига датума: результат не является WGS84.';
+                    return;
+                }
+                wgsInput.value = `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`;
+                coordsStatus.textContent = `Пересчитано из МСК-61 (зона ${data.zone}, предварительно).`;
+                updatePlacePointButton();
+            } catch (error) {
+                if (sequence !== coordSyncSequence) return;
+                coordsStatus.textContent = error.message;
+            }
+        }
+
+        wgsInput.addEventListener('change', syncCoordsFromWgs);
+        mskInput.addEventListener('change', syncWgsFromMsk);
+        crsCycleBtn.addEventListener('click', cycleCrs);
+
+        // === ЗАХВАТ РЕЖИМА ПОИСКА ===
+        function applySearchArmState() {
+            const armed = searchArmCheckbox.checked;
+            const roadCard = document.getElementById('roadKmPanel');
+            document.getElementById('sidebar-left').classList.toggle('search-armed', armed);
+            // Пока поиск активен, километраж и обычные клики карты не должны
+            // менять активную точку — их фиксирует только кнопка.
+            if (roadKmState) {
+                setRoadKmControlsEnabled(!armed && !roadKmPanel.hidden);
+                roadKmPanel.classList.toggle('locked', armed);
+            } else {
+                setRoadKmControlsEnabled(false);
+            }
+            updatePlacePointButton();
+            if (armed) showHotkeyHint('Режим поиска: клики по карте и километраж заблокированы');
+            scheduleStateSave();
+        }
+
+        searchArmCheckbox.addEventListener('change', applySearchArmState);
+        placePointBtn.addEventListener('click', () => {
+            const coords = readDraftCoordinates();
+            if (!coords) { showToast('Выберите объект или введите координаты', 'error'); return; }
+            let meta = {};
+            if (searchDraft.mode === 'address') {
+                meta = { address: coords.label };
+            } else if (searchDraft.mode === 'road') {
+                meta = {
+                    roadLabel: searchDraft.roadLabel || (searchDraft.road && searchDraft.road.title) || 'Дорога',
+                    roadKm: searchDraft.roadKm,
+                };
+            }
+            commitPoint(coords.lat, coords.lon,
+                searchDraft.mode === 'address' ? 'address'
+                    : searchDraft.mode === 'road' ? 'road-km' : 'coords', meta);
+            if (searchArmCheckbox.checked) {
+                searchArmCheckbox.checked = false;
+                applySearchArmState();
+            }
+            showToast('📍 Точка поставлена', 'success');
+        });
+
+        const SOURCE_LABELS = {
+            click: '✅ Точка выбрана (двойной клик по карте)',
+            coords: '✅ Точка по координатам',
+            history: '✅ Точка из истории',
+            bookmark: '⭐ Закладка',
+            geolocation: '📡 Ваше местоположение',
+            photo: '📷 Из фото',
+            address: '🏠 Онлайн-адрес (Яндекс)',
+            'road-km': '🛣️ Дорога и километраж',
+            msk61: '📐 Координаты МСК-61',
+        };
+
+        // === ПЕРСОНАЛЬНОЕ СОСТОЯНИЕ (preferences + workspace) ===
+        // Сервер — источник истины. Клиент шлёт документы целиком с номером
+        // версии; при конфликте (409) перечитывает и повторяет один раз.
+        const uiState = {
+            preferences: {},
+            workspace: {},
+            prefsVersion: 0,
+            workspaceVersion: 0,
+            saveTimer: null,
+            saving: false,
+            ready: false,
+        };
+        let activateFrameTab = () => {};
+
+        function collectPreferences() {
+            return {
+                theme: document.body.classList.contains('dark') ? 'dark' : 'light',
+                radius: parseInt(document.getElementById('radius').value, 10) || 2000,
+                excludeMinor: document.getElementById('excludeMinor').checked,
+                dataSource: document.getElementById('dataSourceSelect').value,
+                mapSource: document.getElementById('mapSourceSelect').value,
+                delay: parseInt(document.getElementById('settingDelay').value, 10) || 3,
+                autoScreenshot: document.getElementById('autoScreenshotCheckbox').checked,
+                localBoundary: document.getElementById('localBoundaryCheckbox').checked,
+                searchMode: searchDraft.mode,
+                crs: crsState,
             };
-            activateMode(localStorage.getItem('albion_search_mode') || 'coords');
-            mode.addEventListener('change', () => activateMode(mode.value));
-            const shell = document.getElementById('map-search-shell');
-            const toggle = document.getElementById('map-search-toggle');
-            toggle.addEventListener('click', () => {
-                const collapsed = shell.classList.toggle('collapsed');
-                toggle.textContent = collapsed ? '⌄' : '⌃';
-                toggle.setAttribute('aria-expanded', String(!collapsed));
-                toggle.title = collapsed ? 'Развернуть поиск' : 'Свернуть поиск';
-            });
-            const actions = document.getElementById('searchToolbarActions');
-            actions.append(document.getElementById('goToRostovButton'), document.getElementById('helpButton'));
-            if (window.matchMedia('(max-width: 640px)').matches) {
-                document.getElementById('sidebar-left').classList.add('collapsed');
-                setTimeout(() => map.invalidateSize(), 350);
+        }
+
+        function collectWorkspace() {
+            const center = map.getCenter();
+            return {
+                tab: document.querySelector('.frame-tab[aria-selected="true"]')?.dataset.tab || 'point',
+                map: { lat: center.lat, lon: center.lng, zoom: map.getZoom() },
+                leftCollapsed: document.getElementById('sidebar-left').classList.contains('collapsed'),
+                rightCollapsed: document.getElementById('sidebar-right').classList.contains('collapsed'),
+                searchMode: searchDraft.mode,
+                searchArmed: searchArmCheckbox.checked,
+                activePoint: activePoint ? {
+                    lat: activePoint.lat, lon: activePoint.lon, source: activePoint.source,
+                    address: activePoint.address || null, roadLabel: activePoint.roadLabel || null,
+                    roadKm: activePoint.roadKm ?? null,
+                } : null,
+                batch: batchPoints.map(point => ({
+                    id: point.id, name: point.name, filename: point.filename,
+                    lat: point.lat, lon: point.lon,
+                })),
+            };
+        }
+
+        function applyPreferences(preferences) {
+            if (!preferences || typeof preferences !== 'object') return;
+            if (preferences.theme === 'dark' || preferences.theme === 'light') {
+                applyTheme(preferences.theme === 'dark');
             }
+            if (Number.isFinite(preferences.radius)) {
+                document.getElementById('radius').value = preferences.radius;
+            }
+            if (typeof preferences.excludeMinor === 'boolean') {
+                document.getElementById('excludeMinor').checked = preferences.excludeMinor;
+            }
+            if (Number.isFinite(preferences.delay)) {
+                document.getElementById('settingDelay').value = preferences.delay;
+            }
+            if (typeof preferences.autoScreenshot === 'boolean') {
+                document.getElementById('autoScreenshotCheckbox').checked = preferences.autoScreenshot;
+                screenshotSettings.autoScreenshotEnabled = preferences.autoScreenshot;
+            }
+            if (typeof preferences.localBoundary === 'boolean') {
+                document.getElementById('localBoundaryCheckbox').checked = preferences.localBoundary;
+            }
+            if (preferences.searchMode) setSearchMode(preferences.searchMode);
+            if (preferences.crs && CRS_ORDER.includes(preferences.crs)) {
+                crsState = preferences.crs;
+                updateCrsLabel();
+            }
+            // Источники применяем через change, чтобы сработали их обработчики.
+            const dataSelect = document.getElementById('dataSourceSelect');
+            const mapSelect = document.getElementById('mapSourceSelect');
+            if (preferences.dataSource && dataSelect.value !== preferences.dataSource) {
+                dataSelect.value = preferences.dataSource;
+                dataSelect.dispatchEvent(new Event('change'));
+            }
+            if (preferences.mapSource && mapSelect.value !== preferences.mapSource) {
+                mapSelect.value = preferences.mapSource;
+                mapSelect.dispatchEvent(new Event('change'));
+            }
+            updateAutoScreenshotIndicator();
+        }
+
+        function applyWorkspace(workspace) {
+            if (!workspace || typeof workspace !== 'object') return;
+            const mapState = workspace.map;
+            if (mapState && Number.isFinite(mapState.lat) && Number.isFinite(mapState.lon)) {
+                map.setView([mapState.lat, mapState.lon], Number.isFinite(mapState.zoom) ? mapState.zoom : 7);
+            }
+            if (workspace.tab) activateFrameTab(workspace.tab);
+            if (workspace.leftCollapsed) document.getElementById('sidebar-left').classList.add('collapsed');
+            if (workspace.rightCollapsed) document.getElementById('sidebar-right').classList.add('collapsed');
+            if (workspace.searchMode) setSearchMode(workspace.searchMode);
+            searchArmCheckbox.checked = Boolean(workspace.searchArmed);
+            applySearchArmState();
+            if (Array.isArray(workspace.batch)) {
+                batchPoints = workspace.batch
+                    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+                    .map((point, index) => ({
+                        id: point.id || `bp-restored-${index}`,
+                        name: point.name || `Точка ${index + 1}`,
+                        filename: point.filename || '',
+                        lat: point.lat,
+                        lon: point.lon,
+                    }));
+                renderBatchList();
+                updateBatchShowButton();
+            }
+            const saved = workspace.activePoint;
+            if (saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lon)) {
+                activePoint = {
+                    lat: saved.lat,
+                    lon: saved.lon,
+                    source: saved.source || 'coords',
+                    address: saved.address || undefined,
+                    roadLabel: saved.roadLabel || undefined,
+                    roadKm: Number.isFinite(saved.roadKm) ? saved.roadKm : null,
+                };
+                renderActivePoint();
+                updateStatusBar();
+                selectPoint(saved.lat, saved.lon, saved.source || 'coords');
+            }
+        }
+
+        async function loadUserState() {
+            try {
+                const [prefsResponse, workspaceResponse] = await Promise.all([
+                    apiFetch('/api/user/preferences'),
+                    apiFetch('/api/user/workspace'),
+                ]);
+                if (prefsResponse.ok) {
+                    const documentData = await prefsResponse.json();
+                    uiState.prefsVersion = documentData.version || 0;
+                    uiState.preferences = documentData.payload || {};
+                    applyPreferences(uiState.preferences);
+                }
+                if (workspaceResponse.ok) {
+                    const documentData = await workspaceResponse.json();
+                    uiState.workspaceVersion = documentData.version || 0;
+                    uiState.workspace = documentData.payload || {};
+                    applyWorkspace(uiState.workspace);
+                }
+            } catch (error) {
+                console.warn('Не удалось восстановить состояние:', error);
+            } finally {
+                // Только после восстановления разрешаем автосохранение, иначе
+                // значения по умолчанию затёрли бы серверное состояние.
+                uiState.ready = true;
+            }
+        }
+
+        function scheduleStateSave() {
+            if (!uiState.ready) return;
+            clearTimeout(uiState.saveTimer);
+            uiState.saveTimer = setTimeout(saveUserState, 700);
+        }
+
+        async function putState(path, payload, version) {
+            const response = await apiFetch(path, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ payload, version }),
+            });
+            if (response.status === 409) return { conflict: true };
+            if (!response.ok) throw new Error(`Состояние не сохранено (${response.status})`);
+            return response.json();
+        }
+
+        async function saveUserState() {
+            if (uiState.saving) { scheduleStateSave(); return; }
+            uiState.saving = true;
+            try {
+                const preferences = collectPreferences();
+                const workspace = collectWorkspace();
+                const prefsResult = await putState('/api/user/preferences', preferences, uiState.prefsVersion);
+                if (prefsResult.conflict) {
+                    const latest = await apiFetch('/api/user/preferences');
+                    if (latest.ok) uiState.prefsVersion = (await latest.json()).version || 0;
+                    const retry = await putState('/api/user/preferences', preferences, uiState.prefsVersion);
+                    if (!retry.conflict) {
+                        uiState.prefsVersion = retry.version;
+                        uiState.preferences = preferences;
+                    }
+                } else {
+                    uiState.prefsVersion = prefsResult.version;
+                    uiState.preferences = preferences;
+                }
+                const workspaceResult = await putState('/api/user/workspace', workspace, uiState.workspaceVersion);
+                if (workspaceResult.conflict) {
+                    const latest = await apiFetch('/api/user/workspace');
+                    if (latest.ok) uiState.workspaceVersion = (await latest.json()).version || 0;
+                    const retry = await putState('/api/user/workspace', workspace, uiState.workspaceVersion);
+                    if (!retry.conflict) {
+                        uiState.workspaceVersion = retry.version;
+                        uiState.workspace = workspace;
+                    }
+                } else {
+                    uiState.workspaceVersion = workspaceResult.version;
+                    uiState.workspace = workspace;
+                }
+            } catch (error) {
+                console.warn(error.message);
+            } finally {
+                uiState.saving = false;
+            }
+        }
+
+        // === НАСТРОЙКА ПАНЕЛИ ПОИСКА ===
+        function setupSearchPanel() {
+            for (const button of document.querySelectorAll('.mode-btn')) {
+                button.addEventListener('click', () => setSearchMode(button.dataset.mode));
+            }
+            roadFindBtn.addEventListener('click', searchLocalRoad);
+            roadKmInput.addEventListener('keydown', event => {
+                if (event.key === 'Enter') { event.preventDefault(); searchLocalRoad(); }
+            });
+            // Автосохранение настроек: чувствительные операции (аккаунт,
+            // пользователи) по-прежнему отправляются кнопками.
+            for (const id of ['radius', 'excludeMinor', 'settingDelay',
+                'autoScreenshotCheckbox', 'localBoundaryCheckbox']) {
+                document.getElementById(id).addEventListener('change', () => {
+                    scheduleStateSave();
+                    if (id === 'settingDelay' || id === 'autoScreenshotCheckbox' || id === 'localBoundaryCheckbox') {
+                        saveScreenshotSettings({ silent: true });
+                    }
+                });
+            }
+            map.on('moveend zoomend', scheduleStateSave);
+            updateCrsLabel();
+            let savedMode = null;
+            try { savedMode = localStorage.getItem('albion_search_mode'); } catch (e) { /* ignore */ }
+            setSearchMode(savedMode === 'address' || savedMode === 'road' ? savedMode : 'coords');
+            applySearchArmState();
+            renderActivePoint();
+            updateStatusBar();
+
+            // Кнопки копирования полей карточки точки.
+            for (const button of document.querySelectorAll('.copy-icon')) {
+                button.addEventListener('click', () => copyField(button));
+            }
+            document.getElementById('statusCopyBtn').addEventListener('click', copyStatusObject);
+            document.getElementById('autoScreenshotToggle').addEventListener('click', toggleAutoScreenshot);
+            document.getElementById('resetWorkspaceBtn').addEventListener('click', resetWorkspace);
+            updateAutoScreenshotIndicator();
+        }
+
+        function copyField(button) {
+            const target = document.getElementById(button.dataset.copy);
+            const text = target ? target.textContent.trim() : '';
+            if (!text || text === '—' || text === 'не определено') {
+                showToast('Нет данных для копирования', 'error');
+                return;
+            }
+            const done = () => showToast('📋 Скопировано', 'success');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+            } else fallbackCopy(text, done);
+        }
+
+        function updateAutoScreenshotIndicator() {
+            const toggle = document.getElementById('autoScreenshotToggle');
+            toggle.setAttribute('aria-pressed', String(screenshotSettings.autoScreenshotEnabled));
+            toggle.classList.toggle('hl', screenshotSettings.autoScreenshotEnabled);
+            document.getElementById('autoScreenshotSeconds').textContent = String(screenshotSettings.delay);
+        }
+
+        async function toggleAutoScreenshot() {
+            screenshotSettings.autoScreenshotEnabled = !screenshotSettings.autoScreenshotEnabled;
+            const checkbox = document.getElementById('autoScreenshotCheckbox');
+            if (checkbox) checkbox.checked = screenshotSettings.autoScreenshotEnabled;
+            updateAutoScreenshotIndicator();
+            try {
+                await saveScreenshotSettings({ silent: true });
+            } catch (e) { /* статус-индикатор уже отражает локальное значение */ }
+        }
+
+        // Сброс рабочей сессии: состояние карты/панелей/черновика, но не избранное.
+        async function resetWorkspace() {
+            if (!confirm('Очистить рабочую сессию? Избранное и настройки сохранятся.')) return;
+            clearBatchPoints?.();
+            clearSelectedPoint();
+            searchDraft.mode = 'coords';
+            searchDraft.addressLat = null;
+            searchDraft.addressLon = null;
+            searchDraft.road = null;
+            searchDraft.roadKm = null;
+            searchArmCheckbox.checked = false;
+            applySearchArmState();
+            map.setView(DEFAULT_CENTER, 7);
+            try {
+                await apiFetch('/api/user/workspace', { method: 'DELETE' });
+                uiState.workspaceVersion = 0;
+                uiState.workspace = {};
+            } catch (error) {
+                console.warn('Не удалось очистить серверную сессию:', error);
+            }
+            showToast('↺ Рабочая сессия очищена', 'success');
+        }
+
+        // === ВКЛАДКИ ЛЕВОГО ФРЕЙМА ===
+        function setupFrameTabs() {
+            const buttons = Array.from(document.querySelectorAll('.frame-tab'));
+            const panels = buttons.map(button => document.getElementById(button.getAttribute('aria-controls')));
+            const activate = (name) => {
+                buttons.forEach((button, index) => {
+                    const active = button.dataset.tab === name;
+                    button.setAttribute('aria-selected', String(active));
+                    button.tabIndex = active ? 0 : -1;
+                    panels[index].classList.toggle('active', active);
+                });
+                try { localStorage.setItem('albion_left_tab', name); } catch (e) { /* приватный режим */ }
+                scheduleStateSave();
+            };
+            activateFrameTab = activate;
+            buttons.forEach((button, index) => {
+                button.addEventListener('click', () => activate(button.dataset.tab));
+                button.addEventListener('keydown', event => {
+                    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+                    event.preventDefault();
+                    const step = event.key === 'ArrowRight' ? 1 : -1;
+                    const next = buttons[(index + step + buttons.length) % buttons.length];
+                    next.focus();
+                    activate(next.dataset.tab);
+                });
+            });
+            let saved = null;
+            try { saved = localStorage.getItem('albion_left_tab'); } catch (e) { /* ignore */ }
+            activate(buttons.some(b => b.dataset.tab === saved) ? saved : 'point');
+        }
+
+        if (window.matchMedia('(max-width: 640px)').matches) {
+            document.getElementById('sidebar-left').classList.add('collapsed');
+            setTimeout(() => map.invalidateSize(), 350);
         }
 
         let settingsReturnFocus = null;
@@ -2177,22 +3201,14 @@ function drawBoundaryFromGeoJSON(data) {
             close.addEventListener('click', closeSettingsModal);
             header.append(title, close);
             const content = document.createElement('div'); content.id = 'settings-dialog-content';
-            const roadFilters = document.createElement('div'); roadFilters.className = 'settings-block';
-            const filtersTitle = document.createElement('h4'); filtersTitle.textContent = '🔎 Параметры поиска дороги'; roadFilters.appendChild(filtersTitle);
-            const resultFrame = document.getElementById('resultsFrame');
-            const radius = document.getElementById('radius')?.closest('.radius-row');
-            const exclusions = document.getElementById('excludeMinor')?.closest('.radius-row');
-            if (radius) roadFilters.appendChild(radius);
-            if (exclusions) roadFilters.appendChild(exclusions);
-            content.appendChild(roadFilters);
+            // Разделы настроек лежат в скрытом #settings-source: он служит единым
+            // источником и позволяет обойтись без пересоздания полей.
+            const source = document.getElementById('settings-source');
             const sourcePanel = document.getElementById('geoStatusPanel');
-            if (sourcePanel) content.appendChild(sourcePanel);
-            const rightContent = document.querySelector('#sidebar-right .panel-content');
-            if (rightContent) {
-                for (const node of Array.from(rightContent.children)) {
-                    if (node !== resultFrame && node.id !== 'map-search-toolbar') content.appendChild(node);
-                }
+            if (source) {
+                for (const node of Array.from(source.children)) content.appendChild(node);
             }
+            if (sourcePanel) content.appendChild(sourcePanel);
             dialog.append(header, content); modal.appendChild(dialog); document.body.appendChild(modal);
             modal.addEventListener('mousedown', event => { if (event.target === modal) closeSettingsModal(); });
             document.getElementById('settingsOpenButton')?.addEventListener('click', openSettingsModal);
@@ -2222,6 +3238,9 @@ function drawBoundaryFromGeoJSON(data) {
                 await loadScreenshotSettings();
                 loadHistory();
                 loadBookmarks();
+                // Восстанавливаем персональные настройки/сессию после того,
+                // как источники и скриншот-настройки уже применены.
+                await loadUserState();
             } catch (error) {
                 showAuthOverlay('Сервер недоступен');
             }
@@ -2519,7 +3538,7 @@ function drawBoundaryFromGeoJSON(data) {
             rect.style.display = 'none'; menu.style.display = 'none';
             domtoimage.toPng(document.getElementById('map'), {
                 bgcolor: '#ffffff',
-                filter: node => !['map-search-toolbar', 'map-source-notice'].includes(node.id)
+                filter: node => !['map-source-notice', 'status-bar'].includes(node.id)
             }).then(function (dataUrl) {
                 const img = new Image();
                 img.onload = function() {
@@ -2650,9 +3669,7 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function setMapChromeVisible(visible) {
-            const toolbar = document.getElementById('map-search-toolbar');
             const notice = document.getElementById('map-source-notice');
-            if (toolbar) toolbar.style.visibility = visible ? '' : 'hidden';
             if (notice) notice.style.visibility = visible ? '' : 'hidden';
             const rightPanelContent = document.querySelector('#sidebar-right .panel-content');
             if (rightPanelContent) rightPanelContent.style.visibility = visible ? '' : 'hidden';
@@ -2660,20 +3677,15 @@ function drawBoundaryFromGeoJSON(data) {
         function clearScreenshotUI() { menu.style.display = 'none'; rect.style.display = 'none'; overlay.style.display = 'none'; countdownLabel.style.display = 'none'; capturedImageData = null; capturedBlob = null; setMapChromeVisible(true); }
         function goToRostov() { map.setView([47.23, 39.72], 7); }
         
+        // Разбор координат вынесен в гео-ядро (window.AlbionGeo): старая версия
+        // теряла DMS и направления S/W. Здесь оставлен только тонкий адаптер.
         function parseCoords(input) {
-            if (!input || !input.trim()) return null;
-            let s = input.trim().replace(/,/g, '.').replace(/[°′'"\s]+/g, ' ').replace(/[NSEW]/gi, ' ').replace(/\s+/g, ' ').trim();
-            const parts = s.split(/[\s;]+/).filter(x => x && !isNaN(parseFloat(x)));
-            if (parts.length >= 2) {
-                const a = parseFloat(parts[0]), b = parseFloat(parts[1]);
-                if (!isNaN(a) && !isNaN(b)) return Math.abs(a) > 90 && Math.abs(b) <= 90 ? { lat: b, lon: a } : { lat: a, lon: b };
-            }
-            return null;
+            const parsed = window.AlbionGeo.parseWgsCoordinates(input);
+            return parsed ? { lat: parsed.lat, lon: parsed.lon } : null;
         }
-        
+
         function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
         function showError(msg) { const c = document.getElementById('errorContainer'); const box = document.createElement('div'); box.className = 'error-msg'; box.textContent = `⚠️ ${msg}`; c.replaceChildren(box); setTimeout(() => { c.replaceChildren(); }, 5000); }
-        function handleEnter(event) { if (event.key === 'Enter') { event.preventDefault(); locateByCoords(); } }
 
         function getSafeFilename() {
             let text = window.currentRoadCopyText;
@@ -2740,14 +3752,16 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function clearSearch() {
-    // Очищаем поле ввода
-    document.getElementById('coordSingle').value = '';
-    // Вызываем полную очистку
-    clearSelectedPoint();
-    showToast('🗑 Поиск очищен', 'success');
-}
+            // Очищаем черновик и активную точку.
+            wgsInput.value = '';
+            mskInput.value = '';
+            clearSelectedPoint();
+            showToast('🗑 Поиск очищен', 'success');
+        }
 
-function clearSelectedPoint() {
+        function clearSelectedPoint() {
+            pointRevision += 1;
+            activePoint = null;
             if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
             if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
             if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
@@ -2757,9 +3771,10 @@ function clearSelectedPoint() {
             document.getElementById('resultsFrame').style.display = 'none';
             document.getElementById('results').innerHTML = '';
             document.getElementById('errorContainer').innerHTML = '';
-            document.getElementById('coordSingle').value = '';
             window.currentRoadCopyText = '';
             document.getElementById('addBookmarkBtn').disabled = true;
+            renderActivePoint();
+            updateStatusBar();
         }
 
         const dropZone = document.getElementById('dropZone');
@@ -2776,7 +3791,6 @@ function clearSelectedPoint() {
 
         async function handleFile(file) {
             if (!file) return;
-            clearSelectedPoint();
             document.getElementById('resultsFrame').style.display = 'block';
             document.getElementById('loader').style.display = 'block';
             document.getElementById('errorContainer').innerHTML = '';
@@ -2789,39 +3803,29 @@ function clearSelectedPoint() {
                 if (!exif || typeof exif.lat !== 'number' || typeof exif.lon !== 'number') {
                     throw new Error('Не удалось извлечь координаты из EXIF');
                 }
-                await locate(exif.lat, exif.lon, null, true);
+                // Фото идёт через единый поток: маркер и результат ставит commitPoint.
+                commitPoint(exif.lat, exif.lon, 'photo');
             } catch (e) {
                 showError(e.message);
                 document.getElementById('loader').style.display = 'none';
             }
         }
 
-                function selectPoint(lat, lon, source = 'manual') {
+        // Низкоуровневая расстановка точки: маркеры и запуск поиска.
+        // Вызывается только через commitPoint, чтобы состояние и карта не разъезжались.
+        function selectPoint(lat, lon, source = 'manual') {
             // === ВАЖНО: Удаляем ВСЕ старые маркеры ===
             if (redPointMarker) { map.removeLayer(redPointMarker); redPointMarker = null; }
             if (photoMarker) { map.removeLayer(photoMarker); photoMarker = null; }
             if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
             if (roadLine) { map.removeLayer(roadLine); roadLine = null; }
-            
+
             // Ставим новую красную точку
             redPointMarker = L.circleMarker([lat, lon], {
                 radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1
             }).addTo(map);
-            
-            // Показываем координаты
-            const sourceLabels = {
-                'click': '✅ Точка выбрана (клик)',
-                'coords': '✅ Точка по координатам',
-                'history': '✅ Точка из истории',
-                'bookmark': '⭐ Закладка',
-                'geolocation': '📡 Ваше местоположение',
-                'photo': '📷 Из фото',
-                'address': '🏠 Онлайн-адрес (Яндекс)',
-                'road-km': '🛣️ Дорога и километраж',
-                'msk61': '📐 Координаты МСК-61'
-            };
-            const label = sourceLabels[source] || '✅ Точка выбрана';
-            
+
+            const label = SOURCE_LABELS[source] || '✅ Точка выбрана';
             document.getElementById('selectedCoords').innerHTML = `
                 <div class="selected-coords">
                     <strong>${label}:</strong>
@@ -2829,26 +3833,23 @@ function clearSelectedPoint() {
                     Долгота: ${lon.toFixed(6)}
                 </div>
             `;
-            displayMskForSelectedPoint(lat, lon);
 
-            // Обновляем поле ввода координат
-            document.getElementById('coordSingle').value = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-            
-            // Показываем кнопку очистки
+            // Поле WGS синхронизируется с поставленной точкой.
+            wgsInput.value = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
             document.getElementById('clearPointBtn').style.display = 'block';
             document.getElementById('resultsFrame').style.display = 'block';
-            
 
             document.getElementById('errorContainer').innerHTML = '';
             document.getElementById('results').innerHTML = '';
             document.getElementById('loader').style.display = 'block';
-            
+
             // Центрируем карту
             map.setView([lat, lon], 15);
-            
+
             // Запускаем поиск
             locate(lat, lon, redPointMarker);
-            
+
             // Привязываем видимость красной линии к popup ЭТОГО маркера
             redPointMarker.off('popupopen').off('popupclose');
             redPointMarker.on('popupopen', function() {
@@ -2859,16 +3860,10 @@ function clearSelectedPoint() {
             });
         }
 
-        function locateByCoords() {
-            const coords = parseCoords(document.getElementById('coordSingle').value);
-            if (!coords || typeof coords.lat !== 'number' || typeof coords.lon !== 'number' || Math.abs(coords.lat) > 90 || Math.abs(coords.lon) > 180) {
-                return showError('Неверные координаты. Пример: 47.23, 39.72');
-            }
-            // Вызываем универсальную функцию
-            selectPoint(coords.lat, coords.lon, 'coords');
-        }
-
-        async function locate(lat, lon, marker = null, isPhotoOrManual = false) {
+        async function locate(lat, lon, marker = null) {
+            // Защита от устаревших ответов: если за время запроса поставили новую
+            // точку, результат по старой не должен перерисовать правый фрейм.
+            const revision = pointRevision;
             try {
                 const radius = parseInt(document.getElementById('radius').value) || 2000;
                 const excludeMinor = document.getElementById('excludeMinor').checked;
@@ -2876,25 +3871,24 @@ function clearSelectedPoint() {
                 const res = await apiFetch('/api/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: parseFloat(lat), lon: parseFloat(lon), radius: radius, exclude_categories: excludeCategories, use_local: useLocalRoadData }) });
                 if (!res.ok) throw new Error(`Ошибка сервера ${res.status}`);
                 const data = await res.json();
+                if (revision !== pointRevision) return;
                 document.getElementById('loader').style.display = 'none';
-                
+
                 addToHistory(lat, lon);
-                
-                const resultsHTML = renderResultsHTML(data);
-                
-                // Маркер для фото или ручного ввода координат
-                if (isPhotoOrManual) {
-                    if (photoMarker) map.removeLayer(photoMarker);
-                    photoMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'custom-photo-marker', html: '<div style="background-color: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map);
-                    map.setView([lat, lon], 15);
-                }
-                document.getElementById('results').innerHTML = resultsHTML;
+                document.getElementById('results').innerHTML = renderResultsHTML(data);
                 document.getElementById('addBookmarkBtn').disabled = false;
-                
+
                 if (data.road && data.side && !data.side.error) {
+                    // Статус-бар показывает приоритет «трасса + км», поэтому
+                    // сохраняем данные дороги в активной точке.
+                    if (activePoint) {
+                        activePoint.roadLabel = data.road.full_name || data.road.skdf_name || '';
+                        activePoint.roadKm = Number.isFinite(Number(data.side.km_estimate))
+                            ? Number(data.side.km_estimate) : null;
+                    }
                     if (roadLine) map.removeLayer(roadLine);
                     roadLine = L.polyline([[lat, lon], [data.side.projected_lat, data.side.projected_lon]], { color: '#dc3545', weight: 2, dashArray: '5, 5' , opacity: 0 }).addTo(map);
-                    
+
                     // Привязываем видимость красной линии к popup маркера
                     if (marker) {
                         marker.off('popupopen').off('popupclose');
@@ -2906,11 +3900,16 @@ function clearSelectedPoint() {
                         });
                     }
 
-                    
                     // Отрисовываем вектор трассы с километражом
                     drawRoadVector(data.road, data.side);
                 }
-            } catch (e) { showError(e.message); document.getElementById('loader').style.display = 'none'; if (marker) marker.setPopupContent('❌ Ошибка загрузки данных'); }
+                updateStatusBar();
+            } catch (e) {
+                if (revision !== pointRevision) return;
+                showError(e.message);
+                document.getElementById('loader').style.display = 'none';
+                if (marker) marker.setPopupContent('❌ Ошибка загрузки данных');
+            }
         }
 
 
@@ -3013,32 +4012,122 @@ function clearSelectedPoint() {
         }
 
         // === ИНИЦИАЛИЗАЦИЯ ===
-        setupMapSearchToolbar();
+        setupFrameTabs();
         setupSettingsModal();
+        setupSearchPanel();
         initApp();
         // === ПАКЕТНАЯ ОБРАБОТКА ===
+        // Панель живёт во вкладке «Пакетный поиск»; отдельных overlay/panel нет.
 let batchLayerGroup = L.featureGroup().addTo(map);
-
-function openBatchPanel() {
-    document.getElementById('batch-panel').classList.add('open');
-    document.getElementById('batch-overlay').classList.add('open');
-}
-
-function closeBatchPanel() {
-    document.getElementById('batch-panel').classList.remove('open');
-    document.getElementById('batch-overlay').classList.remove('open');
-}
+// Состояние пакетного режима: список точек и активная редактируемая точка.
+let batchPoints = [];
+let batchEdit = { activeId: null, original: null, showAll: false };
+let batchMarkerIndex = new Map();
 
 function clearBatchPoints() {
-    batchLayerGroup.clearLayers();
-    window.batchPendingPoints = [];
-    document.querySelectorAll('.batch-item.active').forEach(el => el.classList.remove('active'));
-    document.getElementById('batchList').innerHTML = '';
+    if (batchPoints.length && !confirm('Очистить список точек и убрать их с карты?')) return;
+    batchEdit.activeId = null;
+    batchEdit.original = null;
+    batchPoints = [];
+    batchMarkerIndex.clear();
+    renderBatchList({ removeMarkers: true });
     document.getElementById('batchStatus').textContent = '';
     document.getElementById('batchFileInput').value = '';
+    updateBatchShowButton();
+    showToast('🗑 Пакетный список очищен', 'success');
+}
+
+// Отрисовывает список точек. Маркеры появляются либо по «Показать все», либо
+// при выборе отдельной строки — чтобы клик по загруженному фото не засорял карту.
+function renderBatchList({ removeMarkers = false } = {}) {
+    if (removeMarkers) batchLayerGroup.clearLayers();
+    const list = document.getElementById('batchList');
+    list.replaceChildren();
+    batchPoints.forEach((point, index) => {
+        const row = document.createElement('div');
+        row.className = 'batch-item';
+        row.dataset.id = point.id;
+        if (batchEdit.activeId === point.id) row.classList.add('active');
+        row.addEventListener('click', () => selectBatchPoint(point.id));
+
+        const body = document.createElement('div');
+        body.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;';
+        const name = document.createElement('span');
+        name.className = 'batch-filename';
+        name.textContent = point.name || `Точка ${index + 1}`;
+        const coords = document.createElement('span');
+        coords.className = 'batch-status-ok';
+        coords.textContent = `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+        body.append(name, coords);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:2px;flex-shrink:0;';
+        const edit = document.createElement('button');
+        edit.className = 'bookmark-delete';
+        edit.type = 'button';
+        edit.title = 'Переместить точку';
+        edit.textContent = '✎';
+        edit.addEventListener('click', (event) => { event.stopPropagation(); editBatchPoint(point.id); });
+        const rename = document.createElement('button');
+        rename.className = 'bookmark-delete';
+        rename.type = 'button';
+        rename.title = 'Переименовать';
+        rename.textContent = '🏷';
+        rename.addEventListener('click', (event) => { event.stopPropagation(); renameBatchPoint(point.id); });
+        const remove = document.createElement('button');
+        remove.className = 'bookmark-delete';
+        remove.type = 'button';
+        remove.title = 'Удалить';
+        remove.textContent = '×';
+        remove.addEventListener('click', (event) => { event.stopPropagation(); removeBatchPoint(point.id); });
+        actions.append(edit, rename, remove);
+        row.append(body, actions);
+        list.appendChild(row);
+    });
+    // Любое изменение списка (загрузка, переименование, удаление) сохраняем
+    // в персональной сессии. Во время восстановления ready=false — пропуск.
+    scheduleStateSave();
+}
+
+function updateBatchShowButton() {
     const showBtn = document.getElementById('batchShowBtn');
-    if (showBtn) showBtn.style.display = 'none';
-    showToast('🗑 Пакетные точки очищены', 'success');
+    if (!showBtn) return;
+    showBtn.style.display = batchPoints.length ? 'inline-block' : 'none';
+    showBtn.textContent = batchEdit.showAll ? '🙈 Скрыть с карты' : `🗺️ Показать все (${batchPoints.length})`;
+}
+
+function batchMarker(point) {
+    return batchMarkerIndex.get(point.id) || null;
+}
+
+// Пакетная точка — L.marker с divIcon: CircleMarker в Leaflet не перетаскивается,
+// а нам нужен режим перемещения. Цвет задаётся прямо в иконке.
+function batchIcon(color) {
+    return L.divIcon({
+        className: 'batch-marker',
+        html: `<div style="background:${color};width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+    });
+}
+
+function createBatchMarker(point) {
+    const marker = L.marker([point.lat, point.lon], {
+        icon: batchIcon('#17a2b8'),
+        draggable: false,
+    });
+    marker.bindTooltip(point.name || 'Точка', {direction: 'top'});
+    marker.on('click', () => selectBatchPoint(point.id));
+    marker.on('dragend', () => {
+        if (batchEdit.activeId !== point.id) return;
+        const latlng = marker.getLatLng();
+        point.lat = latlng.lat;
+        point.lon = latlng.lng;
+        renderBatchList();
+    });
+    batchMarkerIndex.set(point.id, marker);
+    batchLayerGroup.addLayer(marker);
+    return marker;
 }
 
 async function handleBatchFiles(input) {
@@ -3046,10 +4135,7 @@ async function handleBatchFiles(input) {
     if (!files || files.length === 0) return;
 
     const status = document.getElementById('batchStatus');
-    const list = document.getElementById('batchList');
     status.textContent = `⏳ Загрузка ${files.length} файлов...`;
-    list.replaceChildren();
-    batchLayerGroup.clearLayers();
 
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
@@ -3061,213 +4147,158 @@ async function handleBatchFiles(input) {
         if (!res.ok) throw new Error('Ошибка сервера');
         const data = await res.json();
 
-        // Сохраняем валидные точки для последующего отображения
-        window.batchPendingPoints = [];
         let successCount = 0;
         let errorCount = 0;
-
         data.forEach(item => {
-            const row = document.createElement('div');
-            row.className = 'batch-item';
-            
-            if (item.error) {
-                errorCount++;
-                const fileName = document.createElement('span');
-                fileName.className = 'batch-filename';
-                fileName.title = item.filename || '';
-                fileName.textContent = `❌ ${item.filename || 'Файл'}`;
-                const errorText = document.createElement('span');
-                errorText.className = 'batch-status-err';
-                errorText.textContent = item.error || 'Ошибка обработки';
-                row.append(fileName, errorText);
-            } else {
-                successCount++;
-                window.batchPendingPoints.push(item);
-                row.dataset.lat = item.lat;
-                row.dataset.lon = item.lon;
-                row.dataset.filename = item.filename;
-                row.onclick = function() { selectBatchPoint(this, item.lat, item.lon); };
-                const fileName = document.createElement('span');
-                fileName.className = 'batch-filename';
-                fileName.title = item.filename || '';
-                fileName.textContent = `✅ ${item.filename || 'Файл'}`;
-                const coordinates = document.createElement('span');
-                coordinates.className = 'batch-status-ok';
-                coordinates.textContent = `${item.lat.toFixed(4)}, ${item.lon.toFixed(4)}`;
-                row.append(fileName, coordinates);
-            }
-            list.appendChild(row);
+            if (item.error) { errorCount++; return; }
+            successCount++;
+            // clientId — стабильный ключ строки и маркера, не зависит от координат.
+            batchPoints.push({
+                id: `bp-${Date.now().toString(36)}-${successCount}-${batchPoints.length}`,
+                name: `Точка ${batchPoints.length + 1}`,
+                filename: item.filename || '',
+                lat: item.lat,
+                lon: item.lon,
+            });
         });
-
+        renderBatchList();
+        updateBatchShowButton();
         status.textContent = `✅ Успешно: ${successCount} | ❌ Ошибок: ${errorCount}`;
-        
-        // Показываем кнопку "Отобразить на карте" только если есть валидные точки
-        const showBtn = document.getElementById('batchShowBtn');
-        if (showBtn) {
-            showBtn.style.display = successCount > 0 ? 'inline-block' : 'none';
-            showBtn.textContent = `🗺️ Отобразить ${successCount} точек`;
-        }
-        
-        if (successCount > 0) {
-            showToast(`📦 Загружено точек: ${successCount}. Нажмите «Отобразить»`, 'info');
-        } else {
-            showToast('⚠️ Ни в одном файле не найдены GPS-координаты', 'error');
-        }
-
+        if (batchEdit.showAll) showBatchPointsOnMap();
+        showToast(successCount ? `📦 Загружено точек: ${successCount}` : '⚠️ GPS-координаты не найдены', successCount ? 'info' : 'error');
     } catch (e) {
         console.error(e);
         status.textContent = `❌ Ошибка: ${e.message}`;
     }
 }
 
+// Выбор строки центрирует карту и синхронизирует правый фрейм с этой точкой.
+function selectBatchPoint(id) {
+    const point = batchPoints.find(item => item.id === id);
+    if (!point) return;
+    batchEdit.activeId = id;
+    if (!batchMarker(point)) createBatchMarker(point);
+    const marker = batchMarker(point);
+    map.setView([point.lat, point.lon], 16);
+    if (marker) marker.openTooltip();
+    renderBatchList();
+    commitPoint(point.lat, point.lon, 'batch', { address: point.name });
+}
 
+function renameBatchPoint(id) {
+    const point = batchPoints.find(item => item.id === id);
+    if (!point) return;
+    const next = prompt('Новое имя точки', point.name);
+    if (next === null) return;
+    point.name = next.trim() || point.name;
+    const marker = batchMarker(point);
+    if (marker) marker.setTooltipContent(point.name);
+    renderBatchList();
+}
 
-function selectBatchPoint(element, lat, lon) {
-    // Убираем подсветку со всех элементов
-    document.querySelectorAll('.batch-item.active').forEach(el => el.classList.remove('active'));
-    
-    // Подсвечиваем текущий
-    element.classList.add('active');
-    
-    // Центрируем карту на точке
-    map.setView([lat, lon], 16);
-    
-    // Находим маркер на карте и открываем его popup
-    let found = false;
-    batchLayerGroup.eachLayer(function(layer) {
-        if (layer.getLatLng && 
-            Math.abs(layer.getLatLng().lat - lat) < 0.0001 && 
-            Math.abs(layer.getLatLng().lng - lon) < 0.0001) {
-            layer.openPopup();
-            found = true;
-        }
+function removeBatchPoint(id) {
+    const point = batchPoints.find(item => item.id === id);
+    if (!point) return;
+    batchPoints = batchPoints.filter(item => item.id !== id);
+    const marker = batchMarker(point);
+    if (marker) { batchLayerGroup.removeLayer(marker); batchMarkerIndex.delete(id); }
+    if (batchEdit.activeId === id) batchEdit.activeId = null;
+    renderBatchList();
+    updateBatchShowButton();
+}
+
+// Режим перемещения: выбранный маркер становится зелёным и перетаскиваемым,
+// остальные — неинтерактивными. Обычные клики карты не двигают точку.
+function editBatchPoint(id) {
+    const point = batchPoints.find(item => item.id === id);
+    if (!point) return;
+    if (batchEdit.activeId && batchEdit.activeId !== id) cancelBatchEdit();
+    if (!batchMarker(point)) createBatchMarker(point);
+    batchEdit.activeId = id;
+    batchEdit.original = { lat: point.lat, lon: point.lon };
+    batchMarkerIndex.forEach((marker, markerId) => {
+        const active = markerId === id;
+        marker.setIcon(batchIcon(active ? '#2f9e44' : '#17a2b8'));
+        if (active && !marker.dragging) marker.dragging = new L.Handler.MarkerDrag(marker);
+        if (active) marker.dragging?.enable();
+        else marker.dragging?.disable();
     });
-    
-    if (!found) {
-        showToast(`📍 ${element.dataset.filename}: ${lat.toFixed(6)}, ${lon.toFixed(6)}`, 'info');
+    map.setView([point.lat, point.lon], 17);
+    renderBatchList();
+    showToast('Перетащите зелёную точку, затем нажмите «Сохранить»', 'info', 4000);
+    showBatchEditControls(point);
+}
+
+function showBatchEditControls(point) {
+    const status = document.getElementById('batchStatus');
+    status.replaceChildren();
+    const hint = document.createElement('span');
+    hint.textContent = `Перемещение «${point.name}». `;
+    const save = document.createElement('button');
+    save.className = 'btn btn-small';
+    save.type = 'button';
+    save.textContent = '💾 Сохранить';
+    save.style.cssText = 'width:auto;margin-left:6px;';
+    save.addEventListener('click', () => {
+        batchEdit.original = null;
+        batchEdit.activeId = null;
+        resetBatchMarkerStyles();
+        renderBatchList();
+        commitPoint(point.lat, point.lon, 'batch', { address: point.name });
+        status.textContent = `Точка «${point.name}» сохранена.`;
+    });
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-secondary btn-small';
+    cancel.type = 'button';
+    cancel.textContent = 'Отмена';
+    cancel.style.cssText = 'width:auto;margin-left:6px;';
+    cancel.addEventListener('click', cancelBatchEdit);
+    status.append(hint, save, cancel);
+}
+
+function cancelBatchEdit() {
+    const point = batchPoints.find(item => item.id === batchEdit.activeId);
+    if (point && batchEdit.original) {
+        point.lat = batchEdit.original.lat;
+        point.lon = batchEdit.original.lon;
+        const marker = batchMarker(point);
+        if (marker) marker.setLatLng([point.lat, point.lon]);
     }
+    batchEdit.original = null;
+    batchEdit.activeId = null;
+    resetBatchMarkerStyles();
+    renderBatchList();
+    document.getElementById('batchStatus').textContent = '';
+}
+
+function resetBatchMarkerStyles() {
+    batchMarkerIndex.forEach(marker => {
+        marker.dragging?.disable();
+        marker.setIcon(batchIcon('#17a2b8'));
+    });
 }
 
 function showBatchPointsOnMap() {
-    const points = window.batchPendingPoints;
-    if (!points || points.length === 0) {
-        showToast('Нет точек для отображения', 'error');
+    if (!batchPoints.length) { showToast('Нет точек для отображения', 'error'); return; }
+    batchEdit.showAll = !batchEdit.showAll;
+    if (!batchEdit.showAll) {
+        batchLayerGroup.clearLayers();
+        batchMarkerIndex.clear();
+        updateBatchShowButton();
         return;
     }
-
-    // Исправление 4: Очищаем СТАРЫЕ точки перед добавлением новых
     batchLayerGroup.clearLayers();
-    
-    const list = document.getElementById('batchList');
-    
-    points.forEach(item => {
-        const marker = L.circleMarker([item.lat, item.lon], {
-            radius: 7, fillColor: "#17a2b8", color: "#ffffff", weight: 2, fillOpacity: 0.9
-        });
-        
-        const popupContent = document.createElement('div');
-        popupContent.style.minWidth = '220px';
-        const title = document.createElement('b');
-        title.style.fontSize = '13px';
-        title.textContent = `📷 ${item.filename || 'Файл'}`;
-        const coords = document.createElement('span');
-        coords.style.cssText = 'font-size:11px;color:#666';
-        coords.textContent = `${item.lat.toFixed(6)}, ${item.lon.toFixed(6)}`;
-        const searchButton = document.createElement('button');
-        searchButton.className = 'batch-popup-btn';
-        searchButton.textContent = '🔍 Найти дорогу';
-        searchButton.addEventListener('click', () => findRoadForBatchPoint(item.lat, item.lon, searchButton));
-        const info = document.createElement('div');
-        info.className = 'batch-road-info';
-        info.style.display = 'none';
-        popupContent.append(title, document.createElement('br'), coords, document.createElement('br'), searchButton, info);
-        marker.bindPopup(popupContent);
-        batchLayerGroup.addLayer(marker);
-    });
-
-    // Подгоняем карту под все точки
+    batchMarkerIndex.clear();
+    for (const point of batchPoints) createBatchMarker(point);
+    if (batchEdit.activeId) {
+        const active = batchMarkerIndex.get(batchEdit.activeId);
+        if (active) active.setIcon(batchIcon('#2f9e44'));
+    }
     const bounds = batchLayerGroup.getBounds();
     if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
-    
-    showToast(`🗺️ Отображено точек: ${points.length}`, 'success');
-    
-    // Скрываем кнопку после отображения
-    const showBtn = document.getElementById('batchShowBtn');
-    if (showBtn) showBtn.style.display = 'none';
-}
-
-async function findRoadForBatchPoint(lat, lon, btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ Поиск...';
-    const infoDiv = btn.parentElement.querySelector('.batch-road-info');
-    
-    try {
-        const radius = parseInt(document.getElementById('radius').value) || 2000;
-        const excludeMinor = document.getElementById('excludeMinor').checked;
-        const excludeCategories = excludeMinor ? [6] : [];
-        
-        const res = await apiFetch('/api/locate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat, lon, radius, exclude_categories: excludeCategories, use_local: useLocalRoadData })
-        });
-        
-        if (!res.ok) throw new Error('Ошибка API');
-        const data = await res.json();
-        
-        if (data.road && data.side && !data.side.error) {
-            const sideText = data.side.side === 1 ? 'справа по ходу движения' : (data.side.side === -1 ? 'слева по ходу движения' : 'на оси дороги');
-            const roadName = document.createElement('b');
-            roadName.textContent = data.road.full_name || 'Дорога';
-            const details = document.createElement('span');
-            details.textContent = `${formatKm(data.side.km_estimate)} · ${sideText} · ${data.side.perpendicular_m} м до оси`;
-            infoDiv.replaceChildren(roadName, document.createElement('br'), details);
-            infoDiv.style.display = 'block';
-            btn.style.display = 'none';
-        } else {
-            infoDiv.textContent = '⚠️ Дорога не найдена в радиусе поиска';
-            infoDiv.style.display = 'block';
-            btn.style.display = 'none';
-        }
-    } catch (e) {
-        infoDiv.textContent = '❌ Ошибка поиска';
-        infoDiv.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = '🔄 Повторить';
-    }
+    updateBatchShowButton();
+    showToast(`🗺️ Отображено точек: ${batchPoints.length}`, 'success');
 }
     </script>
-    <!-- ПАКЕТНАЯ ОБРАБОТКА -->
-<div id="batch-overlay" onclick="closeBatchPanel()"></div>
-<div id="batch-panel">
-    <div class="panel-header">
-        <span class="panel-header-text">📦 Пакетная обработка</span>
-        <button class="collapse-btn" onclick="closeBatchPanel()" title="Закрыть">×</button>
-    </div>
-    <div class="panel-content">
-        <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-            Выберите несколько фото для извлечения GPS-точек. Точки появятся на карте без всплывающих окон.
-        </p>
-        
-        <div id="batchDropZone" class="batch-drop-zone" 
-             ondragover="event.preventDefault(); this.classList.add('hover');"
-             ondragleave="this.classList.remove('hover');"
-             ondrop="event.preventDefault(); this.classList.remove('hover'); if(event.dataTransfer.files.length > 0) handleBatchFiles({files: event.dataTransfer.files});">
-            <p style="margin:0; font-size:13px; color:var(--text-muted);">📂 Перетащите фото сюда или нажмите кнопку ниже</p>
-        </div>
-        <input type="file" id="batchFileInput" multiple accept="image/*" style="display: none" onchange="handleBatchFiles(this)">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn" onclick="document.getElementById('batchFileInput').click()">📂 Выбрать файлы</button>
-            <button class="btn" id="batchShowBtn" onclick="showBatchPointsOnMap()" style="display:none; background:var(--accent); color:white;">🗺️ Отобразить точки</button>
-        </div>
-        
-        <div id="batchStatus" class="hint" style="margin-top:15px;"></div>
-        <div class="batch-list" id="batchList"></div>
-        
-        <div style="margin-top: 20px; display: flex; gap: 8px;">
-            <button class="btn btn-secondary" onclick="clearBatchPoints()" style="flex:1;">🗑 Очистить точки на карте</button>
-        </div>
-    </div>
-</div>
 </body>
 </html>

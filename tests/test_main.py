@@ -881,3 +881,45 @@ def test_location_picks_closest_line_geometry_and_returns_it(monkeypatch, tmp_pa
     assert result["road"]["geometry"]["type"] == "LineString"
     assert result["road"]["category"] == "Автомагистраль"
     assert result["side"]["km_estimate"] == pytest.approx(2.0, abs=0.1)
+
+
+def test_reverse_geocode_returns_address_and_district(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    requests = []
+    _stub_http_client(monkeypatch, _stub_http_response({"response": {"GeoObjectCollection": {"featureMember": [{
+        "GeoObject": {
+            "Point": {"pos": "39.7123 47.2345"},
+            "metaDataProperty": {"GeocoderMetaData": {
+                "text": "Ростов-на-Дону, проспект Ворошиловский, 1",
+                "Address": {"Components": [
+                    {"kind": "province", "name": "Ростовская область"},
+                    {"kind": "district", "name": "Кировский район"},
+                ]},
+            }},
+        }
+    }]}}}), requests=requests)
+    response = client.post("/api/geocode/reverse", json={"lat": 47.2345, "lon": 39.7123})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["address"].startswith("Ростов-на-Дону")
+    assert data["district"] == "Кировский район"
+    assert data["source"] == "Yandex Geocoder"
+    assert requests[0][1]["geocode"] == "39.7123,47.2345"
+    assert requests[0][1]["sco"] == "longlat"
+
+
+def test_reverse_geocode_without_key_returns_empty_fields(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_API_KEY", "")
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    response = client.post("/api/geocode/reverse", json={"lat": 47.2, "lon": 39.7})
+    assert response.status_code == 200
+    assert response.json()["address"] is None
+    assert response.json()["district"] is None
+
+
+def test_reverse_geocode_validates_coordinates():
+    response = client.post("/api/geocode/reverse", json={"lat": 91, "lon": 39.7})
+    assert response.status_code == 422
