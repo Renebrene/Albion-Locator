@@ -188,6 +188,15 @@
     }
 
     /** Форматирует градусы в строку вида 47°14'42.2"N. */
+    /** По долготе определяет вероятную зону МСК-61 для Ростовской области. */
+    function suggestMskZone(lon) {
+        if (!isFiniteNumber(lon)) return 2;
+        // Зоны по центральным меридианам: зона 1 = 38°, зона 2 = 41°, зона 3 = 44°.
+        if (lon < 39.2) return 1;
+        if (lon > 42.5) return 3;
+        return 2;
+    }
+
     function formatDms(value, axis) {
         if (!isFiniteNumber(value)) return '';
         const negative = value < 0;
@@ -316,6 +325,7 @@
 
     return {
         EARTH_RADIUS_KM,
+        suggestMskZone,
         LATIN_TO_CYRILLIC,
         looksLikeWrongLayout,
         toCyrillicLayout,

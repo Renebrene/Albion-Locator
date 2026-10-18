@@ -98,6 +98,19 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_user_bookmarks_user
                 ON user_bookmarks(user_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS user_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                lat REAL NOT NULL,
+                lon REAL NOT NULL,
+                label TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'manual',
+                created_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_history_user
+                ON user_history(user_id, created_at DESC);
             """
         )
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -640,6 +653,57 @@ def delete_bookmark(user_id: int, bookmark_id: str) -> None:
             "DELETE FROM user_bookmarks WHERE id = ? AND user_id = ?",
             (bookmark_id, user_id),
         )
+        conn.commit()
+
+
+# ========== ИСТОРИЯ ТОЧЕК ==========
+
+def push_history(user_id: int, lat: float, lon: float,
+                 label: str = "", source: str = "manual") -> None:
+    now = time.time()
+    with closing(_connect()) as conn:
+        # Нормализация: храним не более 50 записей, новые первыми.
+        conn.execute(
+            "INSERT INTO user_history (user_id, lat, lon, label, source, created_at) VALUES (?,?,?,?,?,?)",
+            (user_id, lat, lon, label, source, now),
+        )
+        conn.execute(
+            "DELETE FROM user_history WHERE id NOT IN "
+            "(SELECT id FROM user_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 50)",
+            (user_id,),
+        )
+        conn.commit()
+
+
+def list_history(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT id, lat, lon, label, source, created_at "
+            "FROM user_history WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "lat": round(row["lat"], 6),
+            "lon": round(row["lon"], 6),
+            "label": row["label"],
+            "source": row["source"],
+            "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(row["created_at"])),
+        }
+        for row in rows
+    ]
+
+
+def delete_history(user_id: int, entry_id: int | None = None) -> None:
+    with closing(_connect()) as conn:
+        if entry_id is not None:
+            conn.execute(
+                "DELETE FROM user_history WHERE id = ? AND user_id = ?",
+                (entry_id, user_id),
+            )
+        else:
+            conn.execute("DELETE FROM user_history WHERE user_id = ?", (user_id,))
         conn.commit()
 
 

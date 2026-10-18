@@ -1915,6 +1915,36 @@ async def delete_bookmark(bookmark_id: str, request: Request):
     auth.delete_bookmark(user["id"], bookmark_id)
     return {"status": "ok"}
 
+
+# ========== ИСТОРИЯ ТОЧЕК ==========
+@app.get("/api/history")
+async def get_history(request: Request, limit: int = Query(default=20, ge=1, le=100)):
+    user = _request_user(request)
+    return {"entries": auth.list_history(user["id"], limit)}
+
+
+@app.post("/api/history")
+async def push_history(payload: BookmarkCreate, request: Request):
+    user = _request_user(request)
+    auth.push_history(user["id"], payload.lat, payload.lon,
+                      payload.name or "", payload.metadata.get("source", "manual"))
+    return {"status": "ok"}
+
+
+@app.delete("/api/history")
+async def clear_history(request: Request):
+    user = _request_user(request)
+    auth.delete_history(user["id"])
+    return {"status": "ok"}
+
+
+@app.delete("/api/history/{entry_id}")
+async def delete_history_entry(entry_id: int, request: Request):
+    user = _request_user(request)
+    auth.delete_history(user["id"], entry_id)
+    return {"status": "ok"}
+
+
 # ========== СТАТИКА ==========
 _STATIC_DIR = PROJECT_DIR.parent / "static"
 

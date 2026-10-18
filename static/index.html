@@ -1004,6 +1004,14 @@
         </div>
         <div class="panel-content">
 
+            <!-- Источник и результат -->
+            <div id="resultsFrame" class="results-frame">
+                <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
+                <div id="errorContainer"></div>
+                <div id="results"></div>
+            </div>
+
+            <!-- Текущая точка -->
             <div class="frame-card" id="currentPointCard">
                 <h4>Текущая точка</h4>
                 <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
@@ -1011,34 +1019,29 @@
                     <div class="point-row">
                         <span class="point-label">WGS84</span>
                         <span class="point-value" id="cpWgs">—</span>
-                        <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84" aria-label="Скопировать координаты WGS84">⧉</button>
+                        <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84">⧉</button>
                     </div>
                     <div class="point-row">
                         <span class="point-label">МСК-61</span>
                         <span class="point-value" id="cpMsk">—</span>
-                        <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61" aria-label="Скопировать координаты МСК-61">⧉</button>
+                        <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61">⧉</button>
                     </div>
                     <div class="point-row">
                         <span class="point-label">Адрес</span>
                         <span class="point-value" id="cpAddress">не определено</span>
-                        <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес" aria-label="Скопировать адрес">⧉</button>
+                        <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес">⧉</button>
                     </div>
                     <div class="point-row">
                         <span class="point-label">Район</span>
                         <span class="point-value" id="cpDistrict">не определено</span>
-                        <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район" aria-label="Скопировать район">⧉</button>
+                        <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район">⧉</button>
                     </div>
                     <div class="point-source hint" id="cpSource"></div>
                 </div>
                 <button class="btn btn-small" id="saveFavoriteBtn" onclick="addBookmark()" disabled style="margin-top:8px;">⭐ Сохранить в избранное</button>
             </div>
 
-            <div id="resultsFrame" class="results-frame">
-                <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
-                <div id="errorContainer"></div>
-                <div id="results"></div>
-            </div>
-
+            <!-- Километраж -->
             <div class="frame-card road-km-panel" id="roadKmPanel" hidden>
                 <h4 id="roadKmTitle">Километраж выбранной трассы</h4>
                 <label class="hint" for="roadKmNumber">Официальный километр трассы</label>
@@ -1251,24 +1254,27 @@
 
         // === ИСТОРИЯ ===
         function loadHistory() {
-            try { pointHistory = JSON.parse(localStorage.getItem('albion_history') || '[]'); }
-            catch { pointHistory = []; }
-            renderHistory();
+            void fetchHistory();
         }
-        function saveHistory() {
-            localStorage.setItem('albion_history', JSON.stringify(pointHistory));
-            renderHistory();
+        async function fetchHistory() {
+            try {
+                const res = await apiFetch('/api/history');
+                if (res.ok) {
+                    const data = await res.json();
+                    pointHistory = data.entries || [];
+                    renderHistory();
+                }
+            } catch (e) { console.warn('История временно недоступна:', e); }
         }
-        function addToHistory(lat, lon) {
-            const entry = {
-                lat: parseFloat(lat.toFixed(6)),
-                lon: parseFloat(lon.toFixed(6)),
-                time: new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-            };
-            pointHistory = pointHistory.filter(h => !(h.lat === entry.lat && h.lon === entry.lon));
-            pointHistory.unshift(entry);
-            pointHistory = pointHistory.slice(0, 10);
-            saveHistory();
+        async function addToHistory(lat, lon, source = 'manual', label = '') {
+            try {
+                await apiFetch('/api/history', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: label || '', lat, lon, metadata: { source } }),
+                });
+            } catch (e) { /* событие не ломает точку */ }
+            void fetchHistory();
         }
         function renderHistory() {
             const list = document.getElementById('historyList');
@@ -1279,32 +1285,32 @@
                 list.replaceChildren(empty);
                 return;
             }
-            const items = pointHistory.map((point, index) => {
+            const items = pointHistory.map((entry, index) => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
-                item.addEventListener('click', () => goToHistoryPoint(index));
+                item.addEventListener('click', () => {
+                    commitPoint(Number(entry.lat), Number(entry.lon), 'history');
+                });
                 const coords = document.createElement('span');
                 coords.className = 'coords';
-                coords.textContent = `${Number(point.lat)}, ${Number(point.lon)}`;
+                coords.textContent = entry.label || `${Number(entry.lat).toFixed(6)}, ${Number(entry.lon).toFixed(6)}`;
                 const time = document.createElement('span');
                 time.className = 'time';
-                time.textContent = String(point.time || '');
+                time.textContent = String(entry.time || '');
                 item.append(coords, time);
                 return item;
             });
             list.replaceChildren(...items);
         }
-        function goToHistoryPoint(index) {
-            const h = pointHistory[index];
-            if (!h) return;
-            commitPoint(Number(h.lat), Number(h.lon), 'history');
-        }
-        function clearHistory() {
+        async function clearHistory() {
             if (pointHistory.length === 0) return;
             if (!confirm('Очистить всю историю?')) return;
-            pointHistory = [];
-            saveHistory();
-            showToast('🗑 История очищена', 'success');
+            try {
+                await apiFetch('/api/history', { method: 'DELETE' });
+                pointHistory = [];
+                renderHistory();
+                showToast('🗑 История очищена', 'success');
+            } catch (e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
         }
 
         // === ЗАКЛАДКИ (персональные, per-user на сервере) ===
@@ -2683,6 +2689,8 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('cpAddress').textContent = activePoint.address || 'не определено';
             document.getElementById('cpDistrict').textContent = activePoint.district || 'не определено';
             document.getElementById('saveFavoriteBtn').disabled = false;
+            // Пытаемся подобрать зону МСК-61 автоматически по долготе.
+            autoMskZone(lon);
             // МСК и адрес считаются асинхронно и подставляются в карточку.
             refreshMskForActive(lat, lon);
             if (!activePoint.address || !activePoint.district) {
@@ -2715,7 +2723,20 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
-        async function refreshMskForActive(lat, lon) {
+        async // Автоопределение зоны МСК-61: если координата уточняется, зона
+        // подсказывается на лету без ручного сброса.
+        function autoMskZone(lat) {
+            if (!Number.isFinite(lat)) return;
+            const zone = window.AlbionGeo.suggestMskZone(lat); // geo-core: по долготе
+            if (zone && Number(zone) >= 1 && Number(zone) <= 3) {
+                mskZone = Number(zone);
+                crsState = `msk${mskZone}`;
+                document.getElementById('mskZone').value = String(mskZone);
+                updateCrsLabel();
+            }
+        }
+
+        function refreshMskForActive(lat, lon) {
             const sequence = pointRevision;
             try {
                 const response = await apiFetch('/api/msk61/from-geographic', {
@@ -3914,7 +3935,10 @@ function drawBoundaryFromGeoJSON(data) {
                 if (revision !== pointRevision) return;
                 document.getElementById('loader').style.display = 'none';
 
-                addToHistory(lat, lon);
+                const historyLabel = (activePoint?.roadLabel && Number.isFinite(activePoint?.roadKm)
+                    ? `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`
+                    : activePoint?.address) || '';
+                addToHistory(lat, lon, source || 'manual', historyLabel);
                 document.getElementById('results').innerHTML = renderResultsHTML(data);
                 document.getElementById('addBookmarkBtn').disabled = false;
 
