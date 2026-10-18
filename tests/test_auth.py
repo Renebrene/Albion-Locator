@@ -38,6 +38,13 @@ def test_root_serves_login_gated_app_without_caching():
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-frame-options"] == "DENY"
     assert 'id="authOverlay"' in response.text
+    for element_id in (
+        "map-search-toolbar", "searchModeSelect", "coordsSearchPanel",
+        "addressSearchPanel", "roadSearchPanel", "mskSearchPanel",
+        "sidebar-left", "sidebar-right", "resultsFrame", "batch-panel",
+    ):
+        assert f'id="{element_id}"' in response.text
+    assert "setupSettingsModal()" in response.text
 
 
 def test_protected_api_requires_auth():
