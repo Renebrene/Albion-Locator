@@ -386,7 +386,10 @@
         .btn:disabled { background: #6c757d; cursor: not-allowed; opacity: 0.6; }
         .btn-small { padding: 6px 12px; font-size: 12px; }
         
-        .results-frame { margin-top: 15px; padding: 15px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border); display: none; }
+        .results-frame { margin-top: 0; padding: 15px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border); display: block; flex: none; }
+        .result-source-line { display: flex; gap: 5px; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-subtle); }
+        .result-source-line strong { color: var(--accent); font-weight: 600; }
+        .result-empty { padding: 12px; color: var(--text-subtle); font-size: 12px; font-style: italic; background: var(--bg-card); border-radius: 6px; }
         .radius-row { display: flex; align-items: center; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-strong); }
         .radius-row input { width: 80px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--text-main); }
         
@@ -434,21 +437,22 @@
         /* === КАРТОЧКА ТЕКУЩЕЙ ТОЧКИ === */
         .point-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 6px;
             padding: 3px 0;
             font-size: 12px;
         }
-        .point-label { flex: 0 0 62px; color: var(--text-subtle); font-size: 11px; }
+        .point-label { flex: 0 0 62px; color: var(--text-subtle); font-size: 11px; line-height: 1.45; }
         .point-value {
             flex: 1;
             min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: normal;
             color: var(--text-main);
             font-family: monospace;
             font-size: 11px;
+            line-height: 1.45;
         }
         .copy-icon {
             flex: 0 0 auto;
@@ -987,11 +991,12 @@
         </div>
         <div class="panel-content">
 
-            <!-- Источник и результат -->
+            <!-- Источник СКДФ и результат: блок всегда виден; содержимое обновляется -->
             <div id="resultsFrame" class="results-frame">
+                <div class="result-source-line"><span>Источник:</span> <strong id="resultSourceValue">СКДФ WFS</strong></div>
                 <div id="loader" style="display: none;">⏳ Ищем ближайшую дорогу...</div>
                 <div id="errorContainer"></div>
-                <div id="results"></div>
+                <div id="results"><div class="result-empty">Точка не выбрана. Выберите её на карте или в левом фрейме.</div></div>
             </div>
 
             <!-- Текущая точка -->
@@ -1025,16 +1030,16 @@
             </div>
 
             <!-- Километраж -->
-            <div class="frame-card road-km-panel" id="roadKmPanel" hidden>
-                <h4 id="roadKmTitle">Километраж выбранной трассы</h4>
-                <label class="hint" for="roadKmNumber">Официальный километр трассы</label>
+            <div class="frame-card road-km-panel" id="roadKmPanel">
+                <h4 id="roadKmTitle">Официальный километраж</h4>
+                <label class="hint" for="roadKmNumber">Км трассы</label>
                 <div class="road-km-row">
-                    <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы">
-                    <button class="btn btn-small" id="roadKmApplyButton" onclick="applyRoadKmNumber()">Перейти</button>
+                    <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы" disabled>
+                    <button class="btn btn-small" id="roadKmApplyButton" onclick="applyRoadKmNumber()" disabled>Перейти</button>
                 </div>
-                <input id="roadKmSlider" type="range" min="0" max="0" step="0.001" value="0" aria-label="Ползунок километража по доступному участку">
-                <div class="hint" id="roadKmRange">Диапазон километража не загружен.</div>
-                <div class="hint" id="roadKmStatus" role="status" aria-live="polite"></div>
+                <input id="roadKmSlider" type="range" min="0" max="0" step="0.001" value="0" aria-label="Ползунок километража по доступному участку" disabled>
+                <div class="hint" id="roadKmRange">Выберите трассу, чтобы загрузить диапазон километража.</div>
+                <div class="hint" id="roadKmStatus" role="status" aria-live="polite">Ползунок станет активен после выбора трассы.</div>
             </div>
         </div>
     </div>
@@ -2026,7 +2031,11 @@ function drawBoundaryFromGeoJSON(data) {
             roadSuggestionSequence += 1;
             roadSectionsSequence += 1;
             roadKmState = null;
-            roadKmPanel.hidden = true;
+            roadKmState = null;
+            roadKmNumber.value = '';
+            roadKmRange.textContent = 'Выберите трассу, чтобы загрузить диапазон километража.';
+            roadKmStatus.textContent = 'Ползунок станет активен после выбора трассы.';
+            setRoadKmControlsEnabled(false);
             searchDraft.road = null;
             updatePlacePointButton();
             const text = normalizeQueryInput(modeInput1);
@@ -2039,7 +2048,7 @@ function drawBoundaryFromGeoJSON(data) {
             const sequence = roadSuggestionSequence;
             roadSectionsSequence += 1;
             roadKmState = null;
-            roadKmPanel.hidden = true;
+            roadKmPanel.hidden = false;
             modeStatus.textContent = 'Ищу выбранную дорогу в Ростовской области…';
             roadSuggestions.classList.remove('open');
             try {
@@ -2406,7 +2415,7 @@ function drawBoundaryFromGeoJSON(data) {
         async function searchLocalRoad() {
             roadSectionsSequence += 1;
             roadKmState = null;
-            roadKmPanel.hidden = true;
+            roadKmPanel.hidden = false;
             const km = modeInput2.value.trim();
             if (!km) { showToast('Для локального поиска укажите километраж', 'error'); return; }
             const params = new URLSearchParams({q: modeInput1.value, limit: '10', km});
@@ -3770,24 +3779,34 @@ function drawBoundaryFromGeoJSON(data) {
         function showError(msg) { const c = document.getElementById('errorContainer'); const box = document.createElement('div'); box.className = 'error-msg'; box.textContent = `⚠️ ${msg}`; c.replaceChildren(box); setTimeout(() => { c.replaceChildren(); }, 5000); }
 
         function getSafeFilename() {
-            let text = window.currentRoadCopyText;
-            if (!text || text.trim() === '') {
-                if (redPointMarker) { const latlng = redPointMarker.getLatLng(); text = `albion_${latlng.lat.toFixed(4)}_${latlng.lng.toFixed(4)}`; }
-                else text = `albion-screenshot_${Date.now()}`;
+            // Имя снимка: только название дороги и километраж.
+            // Без даты в конце и без указания стороны движения.
+            let text = '';
+            if (window.currentRoadName) {
+                text = `${window.currentRoadName} ${window.currentRoadKmText || ''}`.trim();
+            } else if (redPointMarker) {
+                const latlng = redPointMarker.getLatLng();
+                text = `albion_${latlng.lat.toFixed(4)}_${latlng.lng.toFixed(4)}`;
+            } else {
+                text = 'albion-screenshot';
             }
-            let safeName = text.replace(/[«»""'"]/g, '').replace(/[^\wа-яА-ЯёЁ\s\-+]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-            if (safeName.length > 50) { safeName = safeName.substring(safeName.length - 50); safeName = safeName.replace(/^_+/, ''); }
-            if (!safeName || safeName.length < 3) safeName = `albion_${Date.now()}`;
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-            return `${safeName}_${timestamp}.png`;
+            let safeName = text
+                .replace(/[«»""'"]/g, '')
+                .replace(/[^\wа-яА-ЯёЁ\s\-]/g, ' ')
+                .replace(/\s+/g, '_')
+                .replace(/_+/g, '_')
+                .replace(/^_|_$/g, '');
+            if (safeName.length > 80) safeName = safeName.substring(0, 80).replace(/_+$/, '');
+            if (!safeName || safeName.length < 3) safeName = 'albion-screenshot';
+            return `${safeName}.png`;
         }
 
         function renderResultsHTML(data) {
             const { road, side } = data;
-            let html = '', copyText = '';
+            let html = '', copyText = '', kmText = '';
             if (road && side && !side.error) {
                 const sideText = side.side === 1 ? 'справа по ходу движения' : (side.side === -1 ? 'слева по ходу движения' : (side.side === 0 ? 'на оси дороги' : 'сторона не определена'));
-                const kmText = formatKm(side.km_estimate);
+                kmText = formatKm(side.km_estimate);
                 copyText = `${road.full_name}, ${kmText}, ${sideText}`;
                 html += `<div class="result-card">
                     <p class="no-select">Источник: ${escapeHtml(road.source || 'СКДФ WFS')}</p>
@@ -3808,6 +3827,9 @@ function drawBoundaryFromGeoJSON(data) {
                 html = `<div class="result-card"><p style="color: #856404; font-weight: 600; margin: 0 0 5px 0;">Дорога не найдена</p><p style="font-size: 13px; color: #856404; margin: 0;">В заданном радиусе нет данных о дорогах в ФГИС СКДФ.</p></div>`;
             }
             window.currentRoadCopyText = copyText;
+            // Отдельные поля для имени файла: только дорога и километраж.
+            window.currentRoadName = (road && road.full_name) || '';
+            window.currentRoadKmText = kmText || '';
             return html;
         }
 
@@ -3853,6 +3875,8 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('results').innerHTML = '';
             document.getElementById('errorContainer').innerHTML = '';
             window.currentRoadCopyText = '';
+            window.currentRoadName = '';
+            window.currentRoadKmText = '';
             document.getElementById('addBookmarkBtn').disabled = true;
             renderActivePoint();
             updateStatusBar();

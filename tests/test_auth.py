@@ -39,13 +39,14 @@ def test_root_serves_login_gated_app_without_caching():
     assert response.headers["x-frame-options"] == "DENY"
     assert 'id="authOverlay"' in response.text
     for element_id in (
-        # Новый каркас варианта A: вкладки, карточка точки, статус-бар.
+        # Новый каркас варианта A: вкладки, единые поля, карточка точки, статус-бар.
         "app-main", "status-bar", "tabPoint", "tabBatch", "tabSaved",
-        "searchArmCheckbox", "placePointBtn", "addrCityInput", "addrStreetInput",
-        "wgsInput", "mskInput", "crsCycleBtn", "roadNameInput", "roadKmInput",
+        "searchArmCheckbox", "placePointBtn",
+        "modeInput1", "modeInput2", "modeLabel1", "modeLabel2",
+        "modeActionBtn", "modeStatus",
         "roadKmPanel", "roadKmNumber", "roadKmSlider", "roadKmApplyButton",
         "currentPointCard", "currentPointDetails", "cpWgs", "cpMsk", "cpAddress",
-        "settings-source", "mskDirection", "wgsLat", "wgsLon",
+        "resultSourceValue", "settings-source", "mskDirection", "wgsLat", "wgsLon",
         "mskZoneHelpButton", "mskZoneTooltip",
         "sidebar-left", "sidebar-right", "resultsFrame",
     ):
