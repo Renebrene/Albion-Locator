@@ -1,6 +1,6 @@
 """SQLite schema and schema-version metadata for the standalone offline index."""
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 PACKAGE_VERSION = "0.4.0"
 
 SCHEMA_SQL = """
@@ -51,6 +51,22 @@ CREATE TABLE IF NOT EXISTS roads (
 );
 CREATE INDEX IF NOT EXISTS roads_name_idx ON roads(normalized_name);
 CREATE INDEX IF NOT EXISTS roads_ref_idx ON roads(normalized_ref);
+-- Segment-level geometry is needed for a cheap nearest-road prefilter.
+-- The RTree stores only bounding boxes; exact projection still runs in Python.
+CREATE TABLE IF NOT EXISTS road_segments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    road_id TEXT NOT NULL REFERENCES roads(id) ON DELETE CASCADE,
+    segment_index INTEGER NOT NULL,
+    lon1 REAL NOT NULL,
+    lat1 REAL NOT NULL,
+    lon2 REAL NOT NULL,
+    lat2 REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS road_segments_road_idx
+    ON road_segments(road_id, segment_index);
+CREATE VIRTUAL TABLE IF NOT EXISTS road_segments_rtree USING rtree(
+    id, min_lon, max_lon, min_lat, max_lat
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS settlements_fts USING fts5(
     name, content='settlements', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2'
 );

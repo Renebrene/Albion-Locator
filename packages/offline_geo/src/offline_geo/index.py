@@ -258,6 +258,24 @@ def _load_inputs(conn: sqlite3.Connection, settlements: Iterable[Mapping[str, An
                       json.dumps(geometry, separators=(",", ":")) if geometry else None, source, provenance,
                       json.dumps(source_ids, ensure_ascii=False, sort_keys=True) if source_ids is not None else None,
                       json.dumps(attributes, ensure_ascii=False, sort_keys=True) if attributes is not None else None))
+        if geometry:
+            for segment_index, (first, second) in enumerate(zip(geometry, geometry[1:])):
+                cursor = conn.execute(
+                    "INSERT INTO road_segments"
+                    "(road_id,segment_index,lon1,lat1,lon2,lat2) VALUES(?,?,?,?,?,?)",
+                    (ident, segment_index, first[0], first[1], second[0], second[1]),
+                )
+                conn.execute(
+                    "INSERT INTO road_segments_rtree"
+                    "(id,min_lon,max_lon,min_lat,max_lat) VALUES(?,?,?,?,?)",
+                    (
+                        cursor.lastrowid,
+                        min(first[0], second[0]),
+                        max(first[0], second[0]),
+                        min(first[1], second[1]),
+                        max(first[1], second[1]),
+                    ),
+                )
         counts["roads"] += 1
     return counts
 
@@ -384,9 +402,15 @@ class GeoIndex:
         self._conn = sqlite3.connect(f"file:{self.path.as_posix()}?mode=ro", uri=True)
         self._conn.row_factory = sqlite3.Row
         version = self._conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
-        if not version or json.loads(version[0]) != SCHEMA_VERSION:
+        # Schema 4 has no road_segments_rtree; it remains readable via the
+        # linear fallback. Rebuild to get the accelerated nearest-road path.
+        schema_version = json.loads(version[0]) if version else None
+        if schema_version not in {4, SCHEMA_VERSION}:
             self._conn.close()
             raise ValueError("unsupported or missing offline geodata schema version")
+        self._has_segment_rtree = bool(self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='road_segments_rtree'"
+        ).fetchone())
 
     def close(self) -> None:
         self._conn.close()
@@ -522,6 +546,69 @@ class GeoIndex:
                 "selected_lon": selected[0] if selected else None,
                 "selected_lat": selected[1] if selected else None}
 
+    @staticmethod
+    def _segment_metrics(lon: float, lat: float, cos_lat: float,
+                         first: list[float], second: list[float]) -> tuple[float, float, float, float]:
+        """Return exact-ish distance and snap point for one segment."""
+        ax = math.radians(first[0] - lon) * EARTH_RADIUS_M * cos_lat
+        ay = math.radians(first[1] - lat) * EARTH_RADIUS_M
+        bx = math.radians(second[0] - lon) * EARTH_RADIUS_M * cos_lat
+        by = math.radians(second[1] - lat) * EARTH_RADIUS_M
+        dx, dy = bx - ax, by - ay
+        denom = dx * dx + dy * dy
+        fraction = 0.0 if denom == 0 else min(1.0, max(0.0, -(ax * dx + ay * dy) / denom))
+        snapped_lon = first[0] + (second[0] - first[0]) * fraction
+        snapped_lat = first[1] + (second[1] - first[1]) * fraction
+        return _haversine((lon, lat), (snapped_lon, snapped_lat)), fraction, snapped_lon, snapped_lat
+
+    def _nearest_road_linear(self, lon: float, lat: float):
+        cos_lat = max(1e-8, math.cos(math.radians(lat)))
+        best = None
+        for row in self._conn.execute("SELECT * FROM roads WHERE geometry_json IS NOT NULL"):
+            coords = json.loads(row["geometry_json"])
+            for index, (first, second) in enumerate(zip(coords, coords[1:])):
+                distance, fraction, snapped_lon, snapped_lat = self._segment_metrics(
+                    lon, lat, cos_lat, first, second
+                )
+                if best is None or distance < best[0]:
+                    best = (distance, row, coords, index, fraction, snapped_lon, snapped_lat)
+        return best
+
+    def _nearest_road_rtree(self, lon: float, lat: float, max_search_m: float | None = None):
+        """BBox prefilter, then exact projection on candidate segments."""
+        cos_lat = max(1e-8, math.cos(math.radians(lat)))
+        limit_m = 100_000.0 if max_search_m is None else max(1.0, float(max_search_m))
+        radius_m = min(2_000.0, limit_m)
+        while radius_m <= limit_m:
+            delta_lat = radius_m / 111_320.0
+            delta_lon = radius_m / (111_320.0 * cos_lat)
+            rows = self._conn.execute(
+                "SELECT s.id, s.road_id, s.segment_index, s.lon1, s.lat1, s.lon2, s.lat2 "
+                "FROM road_segments_rtree r JOIN road_segments s ON s.id = r.id "
+                "WHERE r.max_lon >= ? AND r.min_lon <= ? "
+                "AND r.max_lat >= ? AND r.min_lat <= ?",
+                (lon - delta_lon, lon + delta_lon, lat - delta_lat, lat + delta_lat),
+            )
+            best = None
+            for segment in rows:
+                first = [segment["lon1"], segment["lat1"]]
+                second = [segment["lon2"], segment["lat2"]]
+                distance, fraction, snapped_lon, snapped_lat = self._segment_metrics(
+                    lon, lat, cos_lat, first, second
+                )
+                if best is None or distance < best[0]:
+                    best = (distance, segment["road_id"], segment["segment_index"],
+                            fraction, snapped_lon, snapped_lat)
+            if best is not None:
+                row = self._conn.execute(
+                    "SELECT * FROM roads WHERE id = ?", (best[1],)
+                ).fetchone()
+                if row is not None:
+                    coords = json.loads(row["geometry_json"])
+                    return (best[0], row, coords, best[2], best[3], best[4], best[5])
+            radius_m *= 2
+        return None
+
     def nearest_road(self, lon: float, lat: float, *, max_distance_m: float | None = None) -> dict[str, Any] | None:
         """Project a WGS84 point onto the nearest indexed road segment."""
         lon, lat = float(lon), float(lat)
@@ -529,21 +616,16 @@ class GeoIndex:
             raise ValueError("query point must be finite WGS84 longitude/latitude")
         if max_distance_m is not None and (not math.isfinite(max_distance_m) or max_distance_m < 0):
             raise ValueError("max_distance_m must be finite and non-negative")
-        best: tuple[float, sqlite3.Row, list[list[float]], int, float, float, float] | None = None
-        cos_lat = max(1e-8, math.cos(math.radians(lat)))
-        for row in self._conn.execute("SELECT * FROM roads WHERE geometry_json IS NOT NULL"):
-            coords = json.loads(row["geometry_json"])
-            for index, (a, b) in enumerate(zip(coords, coords[1:])):
-                # Local equirectangular plane is accurate for segment projection at city scale.
-                ax, ay = math.radians(a[0] - lon) * EARTH_RADIUS_M * cos_lat, math.radians(a[1] - lat) * EARTH_RADIUS_M
-                bx, by = math.radians(b[0] - lon) * EARTH_RADIUS_M * cos_lat, math.radians(b[1] - lat) * EARTH_RADIUS_M
-                dx, dy = bx - ax, by - ay
-                denom = dx * dx + dy * dy
-                fraction = 0.0 if denom == 0 else min(1.0, max(0.0, -(ax * dx + ay * dy) / denom))
-                snapped = (a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction)
-                distance = _haversine((lon, lat), snapped)
-                if best is None or distance < best[0]:
-                    best = (distance, row, coords, index, fraction, snapped[0], snapped[1])
+        if self._has_segment_rtree:
+            best = self._nearest_road_rtree(lon, lat, max_distance_m)
+            # При явном лимите отсутствие кандидата в радиусе уже означает
+            # корректный результат None; линейный fallback нужен только без лимита.
+            if best is None and max_distance_m is not None:
+                return None
+        else:
+            best = None
+        if best is None:
+            best = self._nearest_road_linear(lon, lat)
         if best is None:
             return None
         distance, row, coords, segment_index, fraction, snapped_lon, snapped_lat = best

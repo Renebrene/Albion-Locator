@@ -39,7 +39,7 @@ class OfflineGeoIndexTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_manifest_and_version_counts(self) -> None:
-        self.assertEqual(self.metadata["schema_version"], 4)
+        self.assertEqual(self.metadata["schema_version"], 5)
         with GeoIndex(self.db) as index:
             manifest = index.manifest
             self.assertEqual(manifest["source"], "synthetic test records")
@@ -86,6 +86,17 @@ class OfflineGeoIndexTests(unittest.TestCase):
         self.assertAlmostEqual(nearest["snapped_lon"], 39.71, places=4)
         self.assertAlmostEqual(nearest["km"], 11.0, places=2)
         self.assertIsNone(too_far)
+
+    def test_nearest_road_uses_segment_rtree(self) -> None:
+        with GeoIndex(self.db) as index:
+            self.assertTrue(index._has_segment_rtree)
+            accelerated = index.nearest_road(39.71, 47.21)
+            linear = index._nearest_road_linear(39.71, 47.21)
+        self.assertIsNotNone(accelerated)
+        self.assertIsNotNone(linear)
+        assert accelerated is not None and linear is not None
+        self.assertEqual(accelerated["id"], linear[1]["id"])
+        self.assertEqual(accelerated["segment_index"], linear[3])
 
     def test_failed_rebuild_preserves_existing_database(self) -> None:
         with self.assertRaises(ValueError):

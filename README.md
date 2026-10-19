@@ -4,7 +4,7 @@
 
 ## Возможности
 
-- Интерфейс «Вариант A»: левый фрейм с вкладками **Точка / Пакетный поиск / Сохранённое**, карта в центре, правый фрейм с текущей точкой (WGS84, МСК-61, адрес, район) и результатом дороги/километража, нижний статус-бар с копированием, справкой, автоскриншотом и настройками. Поиск только готовит черновик — точку фиксирует кнопка «Поставить точку»; чекбокс режима поиска блокирует клики карты и километраж до подтверждения.
+- Интерфейс «Вариант A»: левый фрейм с вкладками **Точка / Пакетный поиск / Сохранённое** и карточкой текущей точки (WGS84, МСК-61, адрес, район), карта в центре, правый фрейм с результатом дороги/километража, нижний статус-бар с быстрыми действиями. Единый однострочный блок поиска (чекбокс активации, иконки Адрес/Координаты/Дороги, контекстное поле и кнопка-лупа) размещается сверху карты или в статус-баре — положение переключается в настройках. Поиск только готовит черновик; точку фиксирует кнопка-лупа или Enter, чекбокс активации блокирует клики карты и километраж до подтверждения.
 - Интерактивная Leaflet-карта: выбор точки, геолокация, история точек, закладки, тема и граница Ростовской области. OSM-подложка сейчас загружается онлайн.
 - Выбор источника дорожных данных: текущий SKDF WFS online либо локальная база (если оператор отдельно импортировал её в `ALBION_GEO_DATA_DIR`). При выборе отсутствующей локальной базы запрос завершается ошибкой, без скрытого переключения на онлайн.
 - Онлайн-поиск адресов через Yandex JavaScript API `SuggestView` и геокодирование выбранного варианта серверным Yandex Geocoder. Ключи JS API и Geosuggest передаются браузеру только после входа и должны быть ограничены доменом приложения; ключ Геокодера остаётся только на сервере. Локальный endpoint подсказок сохраняется отдельно, UI использует онлайн-режим.
@@ -20,8 +20,8 @@
 ## Архитектура и стек
 
 - **Backend:** Python 3.11+, FastAPI, Uvicorn, Pydantic; `httpx` для сетевых запросов; Pillow и `piexif` для EXIF.
-- **Frontend:** статическая страница HTML/CSS/JavaScript, Leaflet 1.9.4 и `dom-to-image-more` с публичных CDN; клиентская логика находится в `static/index.html`.
-- **Локальный поиск:** пакет `packages/offline_geo` использует SQLite/FTS5/RTree. Optional CLI умеет обновлять локальный Geofabrik PBF через `pyosmium-up-to-date` и импортировать его через polygon clip+osmium в SQLite snapshot. Требуются отдельные `osmium`/Python `osmium` tools. Данные/SQLite index/MBTiles не включены; импорт обязан пройти coverage QA перед production use.
+- **Frontend:** статическая страница HTML/CSS/JavaScript; Leaflet 1.9.4 и `dom-to-image-more` лежат в `static/vendor/` и отдаются локально. Клиентская логика находится в `static/index.html`.
+- **Локальный поиск:** пакет `packages/offline_geo` использует SQLite/FTS5; `nearest_road` использует segment-level RTree-префильтр (schema v5), точная проекция выполняется в Python. Optional CLI умеет обновлять локальный Geofabrik PBF через `pyosmium-up-to-date` и импортировать его через polygon clip+osmium в SQLite snapshot. Требуются отдельные `osmium`/Python `osmium` tools. Данные/SQLite index/MBTiles не включены; импорт обязан пройти coverage QA перед production use.
 - **Данные приложения:** `src/roads.py` — словарь дорог; `rostov_boundary.geojson` / `static/rostov_boundary.geojson` — граница; учётные записи, персональные настройки, рабочая сессия и закладки хранятся в SQLite `src/users.db` (`ALBION_USERS_DB`). MBTiles/SQLite offline data располагаются отдельно через `ALBION_GEO_DATA_DIR` и `ALBION_BASEMAP_MBTILES`.
 - **PostgreSQL:** установлен локально, но приложение/поисковый модуль его пока не используют; основной local index — portable SQLite.
 
@@ -31,7 +31,7 @@
 2. `/api/locate` использует локальную базу при `use_local=true` (или `ALBION_OFFLINE=1` по умолчанию) и иначе запрашивает SKDF WFS. Локальный режим никогда не переключается на WFS автоматически.
 3. После входа UI получает JS API и Geosuggest ключи через защищённый `/api/maps-config`, загружает `ymaps.SuggestView` в браузере и использует серверный `/api/address/online/geocode` для координат выбранного варианта. Ключ Геокодера в браузер не передаётся. Локальные `/api/address/suggest` и `/api/roads/search` остаются отдельными функциями SQLite index; готовый index не включён.
 4. МСК-61 API конвертирует координаты по выбранным зоне и профилю, возвращает `preliminary_unverified` и предупреждение; установка точки требует дополнительного подтверждения. Геодезическую/кадастровую точность не гарантирует.
-5. Закладки и настройки пишутся в JSON-файлы; скриншоты сохраняются в заданную директорию. Геоистория, тема и выбранные источники карты/дорог ведутся браузером.
+5. Персональные настройки, рабочая сессия, история и закладки хранятся в SQLite; общий `user_settings.json` содержит только настройки скриншота. Скриншоты сохраняет браузер. Выбранные источники карты/дорог и тема дополнительно кэшируются браузером.
 5. Пакетный endpoint извлекает GPS из каждого файла и возвращает результаты пофайлово; UI может показать точки на карте и запрашивать дорогу для каждой отдельно.
 
 ## HTTP API
@@ -50,7 +50,7 @@
 | `PATCH /api/users/{id}` | JSON `login?`, `name?`, `role?`, `is_active?` | Изменить пользователя. |
 | `POST /api/users/{id}/password` | JSON `password` | Сменить пароль пользователя. |
 | `GET /api/screenshot-settings` | — | Прочитать настройки снимков из JSON (либо значения по умолчанию); `save_path` всегда возвращается как `screenshots`. |
-| `POST /api/screenshot-settings` | JSON `delay` (0–60), `save_path`, `auto_enabled`, `local_boundary` | Изменить настройки; сервер принудительно фиксирует `save_path` в `screenshots`. |
+| `POST /api/screenshot-settings` | JSON `delay` (1–60), `save_path`, `auto_enabled`, `local_boundary` | Изменить настройки; сервер принудительно фиксирует `save_path` в `screenshots`. |
 | `POST /api/save-screenshot` | JSON `image` (PNG data URL/base64, ≤6 МБ), `filename` (имя `.png`) | Проверить и сохранить скриншот только в `src/screenshots`; удаляет старые PNG старше 7 дней. |
 | `POST /api/exif` | multipart поле `photo` | Вернуть `{lat, lon}` из GPS EXIF; 400 при пустом/нечитаемом файле или отсутствии GPS. |
 | `POST /api/locate` | JSON `lat`, `lon`, `radius`, `exclude_categories`, `use_local?` | Поиск ближайшей дороги. `use_local=true` требует установленный `offline_geo.sqlite3` и никогда не переключается на WFS. Внешний режим использует SKDF WFS; в нём `use_local=false`. |
@@ -107,10 +107,10 @@
 ```bash
 uv venv .venv
 uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python -m uvicorn main:app --app-dir src --host 127.0.0.1 --port 8019
+.venv/bin/python -m uvicorn main:app --app-dir src --host 127.0.0.1 --port 8021
 ```
 
-Интерфейс будет на <http://127.0.0.1:8019/>. Приложение также можно запустить как `python src/main.py`; прямой запуск также привязывается к loopback `127.0.0.1:8019`.
+Интерфейс будет на <http://127.0.0.1:8021/>. Приложение также можно запустить как `python src/main.py`; прямой запуск также привязывается к loopback `127.0.0.1:8021`.
 
 Переменные окружения можно задать в процессе сервера или в локальном корневом `.env` (он загружается через `python-dotenv`; в Git не добавлять). Нужны `YANDEX_JS_API_KEY` и `YANDEX_SUGGEST_API_KEY` для SuggestView, `YANDEX_API_KEY` — только server-side Geocoder/reverse-geocoding. JS API и Geosuggest ключи отправляются вошедшему браузеру через защищённый `/api/maps-config`, поэтому ограничьте их точным hostname приложения и соответствующими продуктами/квотами в кабинете Яндекса. `YANDEX_API_KEY` в браузер не передаётся. Адресный текст отправляется Яндексу. Не помещайте реальные ключи в HTML, документацию, Git или логи; после изменения `.env` перезапустите приложение. Ранее ключи были включены в историю исходников и вспомогательный `check_keys.py`; удаление fallback не отзывает их — рекомендуется вручную проверить/заменить у провайдера и удалить из публичной Git-истории при необходимости.
 
@@ -118,12 +118,30 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 ```bash
 uv pip install --python .venv/bin/python -r requirements-dev.txt
-.venv/bin/pytest -q
+.venv/bin/pytest -q tests --ignore=tests/e2e
+bun test tests/js
+PYTHONPATH=packages/offline_geo/src .venv/bin/pytest -q packages/offline_geo/tests
+```
+
+Browser E2E (Playwright; в CI запускается отдельным job):
+
+```bash
+uv pip install --python .venv/bin/python -r requirements-e2e.txt
+.venv/bin/playwright install chromium
+.venv/bin/pytest -q tests/e2e
+```
+
+Производительность `nearest_road`:
+
+```bash
+PYTHONPATH=packages/offline_geo/src \
+  .venv/bin/python packages/offline_geo/benchmarks/bench_nearest_road.py \
+  --roads 20000 --points 12 --queries 100
 ```
 
 ## Пользовательский systemd
 
-В установленной локальной конфигурации используется unit `albion-locator-autonom.service`, virtualenv вне репозитория и порт 8019. Управление:
+В установленной локальной конфигурации используется unit `albion-locator-autonom.service`, virtualenv вне репозитория и порт 8021. Управление:
 
 ```bash
 systemctl --user status albion-locator-autonom.service
@@ -156,4 +174,4 @@ journalctl --user -u albion-locator-autonom.service -f
 
 ## Ограничения и риски текущего состояния
 
-Это промежуточная версия локального поиска. Пакет предоставляет SQLite API и API/UI подключение, но клон не включает адресную/дорожную SQLite базу, OSM PBF, MBTiles или vendored CDN assets; PBF importer/clipping и месячный atomic data refresh ещё не реализованы. Поэтому выбор локального источника без установленного индекса/тайлов вернёт явную ошибку, а карта/внешний режим сохраняют сетевые зависимости. Для небольшого WFS bbox проверены `count/startIndex` совместно с `sortBy=id A`; без явного порядка WFS выдавал ошибку natural order. Полный областной экспорт, надёжность paging на объёме и право на bulk-кэш пока не подтверждены; официальный SKDF `geo_road_axis_lr` возвращает permission denied. МСК-61 конвертер предварительный и должен быть сверён с официальной методикой/контрольными точками. Пользовательская аутентификация включена, но перед LAN/Internet публикацией проверьте cookie `Secure`, proxy/origin и секреты.
+Это промежуточная версия локального поиска. Пакет предоставляет SQLite API и API/UI подключение, но клон не включает адресную/дорожную SQLite базу, OSM PBF или MBTiles; браузерные Leaflet/dom-to-image уже поставляются локально, но OSM-тайлы остаются сетевыми. PBF importer/clipping и месячный atomic data refresh ещё не реализованы. Поэтому выбор локального источника без установленного индекса/тайлов вернёт явную ошибку, а карта/внешний режим сохраняют сетевые зависимости. Для небольшого WFS bbox проверены `count/startIndex` совместно с `sortBy=id A`; без явного порядка WFS выдавал ошибку natural order. Полный областной экспорт, надёжность paging на объёме и право на bulk-кэш пока не подтверждены; официальный SKDF `geo_road_axis_lr` возвращает permission denied. МСК-61 конвертер предварительный и должен быть сверён с официальной методикой/контрольными точками. Пользовательская аутентификация включена, но перед LAN/Internet публикацией проверьте cookie `Secure`, proxy/origin и секреты.

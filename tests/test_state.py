@@ -93,8 +93,34 @@ def test_state_documents_are_per_user():
     assert admin.put(
         "/api/user/preferences", json={"payload": {"theme": "dark"}}
     ).status_code == 200
-    # Другой пользователь не видит настройки администратора.
+    assert admin.put(
+        "/api/user/workspace", json={"payload": {"map": {"lat": 47.23, "lon": 39.72}}}
+    ).status_code == 200
+    # Другой пользователь не видит настройки/рабочую сессию администратора.
     assert editor.get("/api/user/preferences").json()["payload"] == {}
+    assert editor.get("/api/user/workspace").json()["payload"] == {}
+
+
+def test_history_accepts_empty_label():
+    client = admin_client()
+    response = client.post(
+        "/api/history",
+        json={"name": "", "lat": 47.2, "lon": 39.7, "metadata": {"source": "coords"}},
+    )
+    assert response.status_code == 200, response.text
+    entries = client.get("/api/history").json()["entries"]
+    assert any(entry["lat"] == 47.2 and entry["lon"] == 39.7 for entry in entries)
+
+
+def test_screenshot_settings_are_global_but_have_no_last_point():
+    client = admin_client()
+    settings = client.get("/api/screenshot-settings")
+    assert settings.status_code == 200
+    assert "last_point" not in settings.json()
+    assert client.post(
+        "/api/screenshot-settings",
+        json={"delay": 0, "save_path": "screenshots", "auto_enabled": False, "local_boundary": True},
+    ).status_code == 422
 
 
 def test_state_payload_size_is_limited():

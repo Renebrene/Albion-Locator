@@ -152,7 +152,7 @@ def test_mutating_api_rejects_cross_origin_requests():
 
 def test_mutating_api_allows_same_origin_requests():
     response = client.post("/api/bookmarks", json={"name": "test", "lat": 47.2, "lon": 39.7},
-                           headers={"origin": "http://127.0.0.1:8019"})
+                           headers={"origin": "http://127.0.0.1:8021"})
     assert response.status_code == 200
 
 
@@ -160,6 +160,18 @@ def test_static_assets_allowlist_only():
     assert client.get("/static/rostov_boundary.geojson").status_code == 200
     assert client.get("/static/main.py").status_code == 404
     assert client.get("/static/index.html.save").status_code == 404
+
+
+def test_vendored_frontend_assets_are_served_from_local_allowlist():
+    leaflet = client.get("/static/vendor/leaflet.js")
+    assert leaflet.status_code == 200
+    assert "javascript" in leaflet.headers["content-type"]
+    assert client.get("/static/vendor/leaflet.css").status_code == 200
+    assert client.get("/static/vendor/dom-to-image-more.min.js").status_code == 200
+    assert client.get("/static/vendor/images/marker-icon.png").status_code == 200
+    # Посторонние файлы и обход пути не публикуются.
+    assert client.get("/static/vendor/README.md").status_code == 404
+    assert client.get("/static/vendor/../main.py").status_code in {404, 400}
 
 
 def test_static_js_serves_only_allowlisted_modules():

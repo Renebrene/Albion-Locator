@@ -89,7 +89,7 @@ The supplied XSD declares: `road_id` (road ID), `road_part_id` (road-section ID)
 
 - `GeoIndex.suggest_context(query='', *, settlement=None, street=None, limit=10)` returns bounded settlement suggestions, street suggestions scoped to a settlement, or house suggestions scoped to a street. House suggestions include `lon` and `lat` when provided in the input.
 - `GeoIndex.search_roads(query=None, *, ref=None, km=None, limit=20)` searches local road name/reference data. A chainage such as `5+250` is interpreted as 5.25 km. Matching road records include geometry, source, km provenance, and an interpolated selected location when possible.
-- `GeoIndex.nearest_road(lon, lat, *, max_distance_m=None)` projects a WGS84 point onto local road geometry and returns the closest segment, snapped point, distance, and interpolated km when both endpoint km values exist.
+- `GeoIndex.nearest_road(lon, lat, *, max_distance_m=None)` projects a WGS84 point onto local road geometry and returns the closest segment, snapped point, distance, and interpolated km when both endpoint km values exist. Schema v5 keeps segment bounding boxes in `road_segments_rtree` and uses them as a prefilter; schema v4 indexes fall back to a linear scan.
 - `GeoIndex.manifest` exposes package/schema versions, build timestamp, counts, and caller-provided source/version/license metadata.
 
 Builds are staged beside the destination, checked for SQLite integrity and foreign-key consistency, then atomically replaced. A failed staging build leaves a prior database in place. Applications should close index connections during rebuilds.

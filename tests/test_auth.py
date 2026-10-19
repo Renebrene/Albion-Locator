@@ -42,6 +42,8 @@ def test_root_serves_login_gated_app_without_caching():
         # Новый каркас варианта A: вкладки, единые поля, карточка точки, статус-бар.
         "app-main", "status-bar", "tabPoint", "tabBatch", "tabSaved",
         "searchArmCheckbox", "placePointBtn",
+        "searchDock", "searchDockTopHost", "searchDockBottomHost",
+        "searchPositionSelect",
         "modeInput1", "modeInput2", "modeLabel1", "modeLabel2",
         "modeActionBtn", "modeStatus",
         "roadKmPanel", "roadKmNumber", "roadKmSlider", "roadKmApplyButton",
@@ -57,6 +59,8 @@ def test_root_serves_login_gated_app_without_caching():
     assert "initializeYandexAddressSuggest()" in response.text
     assert "ymaps.SuggestView" in response.text
     assert "/api/maps-config" in response.text
+    assert "/static/vendor/leaflet.js" in response.text
+    assert "/static/vendor/dom-to-image-more.min.js" in response.text
     assert "api-maps.yandex.ru/2.1/" in response.text
     assert "/api/roads/online/search" in response.text
     assert "/api/roads/online/sections" in response.text

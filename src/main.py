@@ -1,6 +1,6 @@
 """
 АЛЬБИОН: Локатор-Навигатор (Автономная экспериментальная версия)
-Версия: 4.2.1 — порт 8019, стабильная версия
+Версия: 4.2.1 — порт 8021, стабильная версия
 """
 from __future__ import annotations
 
@@ -185,7 +185,7 @@ def _origin_allowed(origin: bytes, headers: dict[bytes, bytes]) -> bool:
     netloc = parsed.netloc.lower()
     if host and netloc == host:
         return True
-    if netloc in {"127.0.0.1:8019", "localhost:8019"}:
+    if netloc in {"127.0.0.1:8021", "localhost:8021"}:
         return True
 
     extra = os.getenv("ALBION_ALLOWED_ORIGINS", "")
@@ -823,7 +823,9 @@ class LocateResponse(BaseModel):
     side: dict[str, Any] | None = None
 
 class ScreenshotSettings(BaseModel):
-    delay: int = Field(default=3, ge=0, le=60)
+    # Задержка автоскриншота: ноль не поддерживается UI и создаёт мгновенный
+    # цикл сохранения, поэтому минимальное значение — 1 секунда.
+    delay: int = Field(default=3, ge=1, le=60)
     save_path: str = "screenshots"
     auto_enabled: bool = False
     local_boundary: bool = True
@@ -834,6 +836,19 @@ class SaveScreenshotRequest(BaseModel):
 
 class BookmarkCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    lat: FiniteFloat = Field(ge=-90, le=90)
+    lon: FiniteFloat = Field(ge=-180, le=180)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HistoryCreate(BaseModel):
+    """Событие истории может быть без текстовой метки.
+
+    В отличие от закладки имя здесь необязательно: точка с карты, геолокация
+    или EXIF могут не иметь адреса/названия дороги, но событие всё равно
+    должно сохраняться.
+    """
+    name: str = Field(default="", max_length=120)
     lat: FiniteFloat = Field(ge=-90, le=90)
     lon: FiniteFloat = Field(ge=-180, le=180)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -957,7 +972,7 @@ SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
 
 def load_settings() -> dict:
     defaults = {"delay": 3, "save_path": "screenshots", "auto_enabled": False,
-                "local_boundary": True, "last_point": {"lat": 47.23, "lon": 39.72}}
+                "local_boundary": True}
     if SETTINGS_FILE.exists():
         try:
             loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -966,6 +981,13 @@ def load_settings() -> dict:
         except (OSError, ValueError):
             pass
     defaults["save_path"] = "screenshots"
+    # Общая last_point больше не используется: координаты принадлежат
+    # пользователю и восстанавливаются из его workspace.
+    defaults.pop("last_point", None)
+    try:
+        defaults["delay"] = max(1, min(60, int(defaults.get("delay", 3))))
+    except (TypeError, ValueError):
+        defaults["delay"] = 3
     return defaults
 
 _SETTINGS_LOCK = asyncio.Lock()
@@ -1175,11 +1197,6 @@ async def api_locate(req: LocateRequest):
     if use_local:
         return await _api_locate_offline(req)
 
-    async with _SETTINGS_LOCK:
-        settings = load_settings()
-        settings["last_point"] = {"lat": lat, "lon": lon}
-        save_settings(settings)
-
     bbox = _bbox_from_radius(lat, lon, max(radius, 150))
     async with httpx.AsyncClient(headers={"User-Agent": "albion/4.2.1"}) as client:
         results = await _wfs_getfeature(client, ROAD_LAYER, bbox_deg=bbox, max_features=50)
@@ -1296,12 +1313,7 @@ def _offline_nearest_response(lat: float, lon: float, radius: int, exclude_categ
 
 
 async def _api_locate_offline(req: LocateRequest):
-    result = _offline_nearest_response(req.lat, req.lon, req.radius, req.exclude_categories)
-    async with _SETTINGS_LOCK:
-        settings = load_settings()
-        settings["last_point"] = {"lat": req.lat, "lon": req.lon}
-        save_settings(settings)
-    return result
+    return _offline_nearest_response(req.lat, req.lon, req.radius, req.exclude_categories)
 
 
 @app.get("/api/data-sources")
@@ -1924,7 +1936,7 @@ async def get_history(request: Request, limit: int = Query(default=20, ge=1, le=
 
 
 @app.post("/api/history")
-async def push_history(payload: BookmarkCreate, request: Request):
+async def push_history(payload: HistoryCreate, request: Request):
     user = _request_user(request)
     auth.push_history(user["id"], payload.lat, payload.lon,
                       payload.name or "", payload.metadata.get("source", "manual"))
@@ -1969,6 +1981,41 @@ async def static_js(filename: str):
     response.headers["Cache-Control"] = "no-cache"
     return response
 
+
+# Vendored browser libraries: приложение не зависит от CDN и продолжает
+# работать при блокировке внешних скриптов (Opera blocker/offline LAN).
+_STATIC_VENDOR_FILES = {
+    "leaflet.js",
+    "leaflet.css",
+    "dom-to-image-more.min.js",
+    "images/marker-icon.png",
+    "images/marker-icon-2x.png",
+    "images/marker-shadow.png",
+    "images/layers.png",
+    "images/layers-2x.png",
+}
+_VENDOR_MEDIA_TYPES = {
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".png": "image/png",
+}
+
+
+@app.get("/static/vendor/{filename:path}")
+async def static_vendor(filename: str):
+    if filename not in _STATIC_VENDOR_FILES:
+        raise HTTPException(404, "not found")
+    vendor_dir = _STATIC_DIR / "vendor"
+    path = (vendor_dir / filename).resolve()
+    if vendor_dir.resolve() not in path.parents or not path.is_file():
+        raise HTTPException(404, "not found")
+    response = FileResponse(
+        path,
+        media_type=_VENDOR_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
 @app.get("/", include_in_schema=False)
 async def root():
     response = FileResponse(_STATIC_DIR / "index.html")
@@ -1979,4 +2026,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8019)
+    uvicorn.run(app, host="127.0.0.1", port=8021)

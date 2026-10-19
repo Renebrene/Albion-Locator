@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АЛЬБИОН: Локатор (Autonom) v5.0</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dom-to-image-more@3.4.5/dist/dom-to-image-more.min.js"></script>
+    <link rel="stylesheet" href="/static/vendor/leaflet.css" />
+    <script src="/static/vendor/leaflet.js"></script>
+    <script src="/static/vendor/dom-to-image-more.min.js"></script>
     <script src="/static/js/geo-core.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -27,7 +27,7 @@
             --danger: #dc3545;
             --warning: #ffc107;
             --panel-width-left: 360px;
-            --panel-width-right: 320px;
+            --panel-width-right: 360px;
             --panel-collapsed: 40px;
         }
         body.dark {
@@ -102,6 +102,7 @@
             flex-shrink: 0;
         }
         .panel-header-text {
+            margin: 0;
             font-weight: 600;
             font-size: 14px;
             white-space: nowrap;
@@ -236,7 +237,7 @@
             padding: 10px;
             flex: none;
         }
-        .frame-card h4 {
+        .frame-card h2 {
             margin: 0 0 8px;
             font-size: 12px;
             color: var(--text-muted);
@@ -270,6 +271,158 @@
             font-size: 12px;
             overflow: hidden;
         }
+        /* Вариант 2: статус-бар выше в 1.5 раза, поиск занимает левую часть. */
+        #status-bar.search-bottom { height: 54px; overflow: visible; position: relative; z-index: 950; }
+        #status-bar.search-bottom .search-dock .geo-suggestions,
+        #status-bar.search-bottom .search-dock .mode-hint {
+            top: auto;
+            bottom: calc(100% + 5px);
+            max-height: 240px;
+        }
+        /* В статус-баре блок поиска не рисуется отдельной карточкой:
+           его элементы становятся прямыми flex-сегментами статус-бара. */
+        #status-bar.search-bottom .sb-search-host,
+        #status-bar.search-bottom #searchDock { display: contents; }
+        #status-bar.search-bottom .sb-spacer { display: none; }
+        #status-bar.search-bottom .search-fields { flex: 1 1 auto; min-width: 0; }
+        #status-bar.search-bottom .search-main-input {
+            flex: 1 1 auto;
+            min-width: 120px;
+            background: transparent;
+            border-color: rgba(255, 255, 255, .22);
+            color: #f2f7fc;
+        }
+        #status-bar.search-bottom .search-main-input::placeholder { color: #9fb6cc; }
+        #status-bar.search-bottom .search-secondary-input {
+            background: rgba(255, 255, 255, .10);
+            border-color: rgba(255, 255, 255, .22);
+            color: #f2f7fc;
+        }
+        #status-bar.search-bottom .mode-btn {
+            background: transparent;
+            border-color: rgba(255, 255, 255, .22);
+            color: #cfe0f2;
+        }
+        #status-bar.search-bottom .mode-btn[aria-pressed="true"] {
+            background: #2a5f93;
+            border-color: #2a5f93;
+            color: #fff;
+        }
+        #status-bar.search-bottom .crs-btn {
+            background: rgba(255, 255, 255, .10);
+            border-color: rgba(255, 255, 255, .22);
+            color: #f2f7fc;
+        }
+        #status-bar.search-bottom .search-arm { color: #cfe0f2; }
+        #status-bar.search-bottom .search-submit-btn { background: #ff8c00; }
+        #status-bar.search-bottom .search-dock[data-search-active="false"] > * { opacity: .78; }
+        #status-bar .sb-search-host {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+        }
+        /* Когда поиск сверху, в статус-баре снова виден текущий объект. */
+        #status-bar:not(.search-bottom) .sb-search-host { flex: 1 1 auto; min-width: 0; }
+        #status-bar:not(.search-bottom) .sb-point-text { flex: 1 1 auto; min-width: 0; }
+        #status-bar:not(.search-bottom) .sb-spacer { display: none; }
+
+        /* === ПЛАВАЮЩИЙ БЛОК ПОИСКА (вариант 1) === */
+        .search-dock-host.top-host {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 24px);
+            z-index: 900;
+        }
+        .search-dock {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            padding: 4px 6px;
+            border: 1px solid var(--border-strong);
+            border-radius: 8px;
+            background: var(--bg-card);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+        }
+        .search-dock .search-mode-row {
+            flex: 0 0 auto;
+            flex-wrap: nowrap;
+            gap: 2px;
+        }
+        .search-dock .mode-btn {
+            flex: 0 0 auto;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            font-size: 15px;
+            line-height: 1;
+        }
+        .search-dock .search-arm { padding: 0 3px; }
+        .search-dock .search-fields {
+            flex: 1 1 auto;
+            min-width: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 4px;
+            position: relative;
+        }
+        .search-dock .search-fields input { width: auto; padding: 6px 8px; }
+        .search-dock .search-main-input { flex: 1 1 auto; min-width: 60px; font-size: 13px; background: transparent; }
+        .search-dock .search-secondary-input { flex: 0 0 100px; width: 100px; font-size: 12px; }
+        .search-dock .crs-btn { padding: 5px 7px; font-size: 10px; }
+        .search-dock .search-submit-btn {
+            flex: 0 0 auto;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border: 0;
+            border-radius: 6px;
+            background: var(--accent);
+            color: #fff;
+            cursor: pointer;
+            font-size: 15px;
+        }
+        .search-dock .search-submit-btn:disabled { opacity: .45; cursor: not-allowed; }
+        .search-dock .geo-suggestions {
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            right: 0;
+            margin: 0;
+            z-index: 1002;
+        }
+        .search-dock .mode-hint {
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            right: 0;
+            display: none;
+            max-height: 64px;
+            overflow: auto;
+            padding: 3px 6px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-card);
+            font-size: 10px;
+            z-index: 1001;
+        }
+        .search-dock .mode-hint:not(:empty) { display: block; }
+        .search-dock[data-search-active="false"] { opacity: .78; }
+        .search-dock .field-label, .search-dock .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+        }
+        .search-bottom-host { width: 100%; }
         #status-bar .sb-seg {
             display: flex;
             align-items: center;
@@ -335,6 +488,12 @@
             #settings-modal { padding: 8px; }
             #settings-dialog { max-height: 94vh; }
             #status-bar .sb-point-text { font-size: 10px; }
+            .search-dock .search-mode-row .mode-btn {
+                flex: 0 0 30px;
+                width: 30px;
+                font-size: 15px;
+            }
+            .search-dock-host.top-host { width: calc(100% - 12px); }
         }
 
         /* === СПРАВКА === */
@@ -362,8 +521,8 @@
         }
         #help-frame-close { background: none; border: none; color: white; font-size: 20px; cursor: pointer; padding: 0 4px; }
         #help-frame-content { flex: 1; overflow-y: auto; padding: 16px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
-        #help-frame-content h4 { margin: 16px 0 8px 0; color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
-        #help-frame-content h4:first-child { margin-top: 0; }
+        #help-frame-content h2 { margin: 16px 0 8px 0; color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        #help-frame-content h2:first-child { margin-top: 0; }
         #help-frame-content ul { margin: 4px 0 12px 0; padding-left: 20px; }
         #help-frame-content li { margin-bottom: 4px; }
         #help-frame-content kbd { background: var(--bg-muted); border: 1px solid var(--border-strong); border-radius: 3px; padding: 1px 5px; font-size: 11px; font-family: monospace; }
@@ -421,14 +580,14 @@
         .geo-suggestion { display: block; width: 100%; padding: 7px 9px; border: 0; text-align: left; background: transparent; color: var(--text-main); cursor: pointer; font-size: 12px; }
         .geo-suggestion:hover, .geo-suggestion.active { background: var(--bg-muted); }
         .geo-panel { padding: 8px; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-muted); }
-        .geo-panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--text-muted); }
+        .geo-panel h2 { margin: 0 0 6px; font-size: 12px; color: var(--text-muted); }
         .geo-panel .hint { margin: 4px 0; }
         .geo-panel input, .geo-panel select { width: 100%; padding: 7px; margin: 3px 0; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-input); color: var(--text-main); }
         .geo-panel .btn { margin-top: 4px; }
         .geo-panel .geo-result { margin-top: 6px; font-size: 12px; white-space: pre-wrap; }
         .road-km-panel { margin-top: 8px; padding: 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg-card); }
         .road-km-panel[hidden] { display: none; }
-        .road-km-panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--text-main); }
+        .road-km-panel h2 { margin: 0 0 6px; font-size: 12px; color: var(--text-main); }
         .road-km-panel input[type="range"] { width: 100%; padding: 0; margin: 8px 0 3px; accent-color: var(--accent); }
         .road-km-row { display: flex; gap: 6px; align-items: stretch; }
         .road-km-row input { flex: 1 1 auto; width: auto; min-width: 0; }
@@ -488,13 +647,13 @@
         .resize-handle.w  { top: calc(50% - 5px); left: -6px; cursor: ew-resize; }
 
         #screenshot-menu { position: absolute; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); padding: 8px 0; z-index: 1001; display: none; min-width: 220px; }
-        .screenshot-menu-item { padding: 8px 16px; cursor: pointer; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+        .screenshot-menu-item { width: 100%; border: 0; background: transparent; padding: 8px 16px; cursor: pointer; font: inherit; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 8px; text-align: left; }
         .screenshot-menu-item:hover { background: var(--bg-muted); }
         .screenshot-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
         .countdown-label { padding: 6px 16px; font-size: 11px; color: var(--text-subtle); font-style: italic; display: none; }
 
         .settings-block { background: var(--bg-muted); border-radius: 6px; padding: 12px; margin-bottom: 12px; }
-        .settings-block h4 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .settings-block h2 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
         .settings-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text-muted); }
         .settings-row:last-child { margin-bottom: 0; }
         .settings-row input[type="number"] { width: 60px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 3px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
@@ -507,7 +666,7 @@
         .toast.error { background: var(--danger); }
 
         .history-block { background: var(--bg-muted); border-radius: 6px; padding: 10px; margin-top: 10px; }
-        .history-block h4 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+        .history-block h2 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
         .history-clear { background: none; border: none; color: var(--text-subtle); cursor: pointer; font-size: 11px; padding: 2px 6px; }
         .history-clear:hover { color: var(--danger); }
         .history-list { max-height: 150px; overflow-y: auto; }
@@ -518,7 +677,7 @@
         .history-empty { text-align: center; color: var(--text-subtle); font-size: 11px; padding: 8px; font-style: italic; }
 
         .bookmarks-block { background: var(--bg-muted); border-radius: 6px; padding: 10px; margin-top: 10px; }
-        .bookmarks-block h4 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .bookmarks-block h2 { margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
         .bookmark-add { display: flex; gap: 5px; margin-bottom: 8px; }
         .bookmark-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
         .bookmark-add button { padding: 5px 10px; background: var(--success); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
@@ -696,7 +855,7 @@
     </style>
 </head>
 <body>
-    <div id="authOverlay" class="auth-overlay">
+    <div id="authOverlay" class="auth-overlay" role="region" aria-label="Вход в приложение">
         <form id="authForm" class="auth-card">
             <h2>🔒 АЛЬБИОН: Вход</h2>
             <input id="authLogin" class="auth-field" type="text" value="админ"
@@ -709,10 +868,10 @@
         </form>
     </div>
     <!-- ЛЕВЫЙ ФРЕЙМ -->
-    <div id="app-main">
-    <div id="sidebar-left">
+    <div id="app-main" role="main">
+    <div id="sidebar-left" role="complementary" aria-label="Левая панель">
         <div class="panel-header">
-            <span class="panel-header-text">🗺️ АЛЬБИОН: Локатор</span>
+            <h1 class="panel-header-text">🗺️ АЛЬБИОН: Локатор</h1>
             <button class="collapse-btn" onclick="toggleLeftPanel()" title="Свернуть/Развернуть (Ctrl+1)">◀</button>
         </div>
         <div class="panel-content">
@@ -727,38 +886,36 @@
 
             <!-- ВКЛАДКА: ТОЧКА -->
             <div class="tab-panel active" id="tabPoint" role="tabpanel" aria-labelledby="tabPointBtn">
-                <div id="dropZone" class="drop-zone">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/*" style="display: none"></div>
+                <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="Загрузить фото для извлечения GPS">Перетащите фото сюда<br>или кликните для выбора<input type="file" id="fileInput" accept="image/jpeg,image/tiff" style="display: none"></div>
                 <div class="drop-hint">Координаты будут взяты из EXIF</div>
 
-                <div class="frame-card">
-                    <h4>Поиск</h4>
-                    <div class="search-mode-row" role="group" aria-label="Режим поиска">
-                        <button class="mode-btn" type="button" id="modeAddressBtn" data-mode="address" aria-pressed="false">🏠 Адрес</button>
-                        <button class="mode-btn" type="button" id="modeCoordsBtn" data-mode="coords" aria-pressed="false">📐 Координаты</button>
-                        <button class="mode-btn" type="button" id="modeRoadBtn" data-mode="road" aria-pressed="false">🛣️ Дороги</button>
-                        <label class="search-arm" for="searchArmCheckbox"
-                               title="Блокирует клики по карте и километраж до подтверждения точки">
-                            <input type="checkbox" id="searchArmCheckbox">
-                            <span>Поиск</span>
-                        </label>
-                    </div>
-
-                    <!-- Единые поля поиска — подписи и поведение меняются при переключении режима -->
-                    <div class="search-fields" id="modeFields">
-                        <label class="field-label" id="modeLabel1" for="modeInput1">Населённый пункт</label>
-                        <input id="modeInput1" placeholder="Город или село" autocomplete="off" maxlength="160">
-                        <div id="modeSuggestions" class="geo-suggestions" role="listbox"></div>
-                        <label class="field-label" id="modeLabel2" for="modeInput2">Улица и дом</label>
-                        <div class="field-row" id="modeRow2">
-                            <input id="modeInput2" placeholder="Улица, дом" autocomplete="off" maxlength="160">
-                            <button class="crs-btn" type="button" id="modeActionBtn"
-                                    title="Переключить: МСК-61-1 / МСК-61-2 / МСК-61-3 / GPS"
-                                    hidden>МСК-61-2</button>
+                <div class="frame-card" id="currentPointCard">
+                    <h2>Текущая точка</h2>
+                    <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
+                    <div id="currentPointDetails" hidden>
+                        <div class="point-row">
+                            <span class="point-label">WGS84</span>
+                            <span class="point-value" id="cpWgs">—</span>
+                            <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84">⧉</button>
                         </div>
-                        <div id="modeStatus" class="mode-hint" role="status" aria-live="polite"></div>
+                        <div class="point-row">
+                            <span class="point-label">МСК-61</span>
+                            <span class="point-value" id="cpMsk">—</span>
+                            <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61">⧉</button>
+                        </div>
+                        <div class="point-row">
+                            <span class="point-label">Адрес</span>
+                            <span class="point-value" id="cpAddress">не определено</span>
+                            <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес">⧉</button>
+                        </div>
+                        <div class="point-row">
+                            <span class="point-label">Район</span>
+                            <span class="point-value" id="cpDistrict">не определено</span>
+                            <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район">⧉</button>
+                        </div>
+                        <div class="point-source hint" id="cpSource"></div>
                     </div>
-
-                    <button class="search-open-btn" type="button" id="placePointBtn" disabled>📍 Поставить точку</button>
+                    <button class="btn btn-small" id="saveFavoriteBtn" onclick="addBookmark()" disabled style="margin-top:8px;">⭐ Сохранить в избранное</button>
                 </div>
 
                 <div class="hint">💡 Двойной клик: точка<br>💡 Правый клик + тянуть: скриншот</div>
@@ -774,7 +931,7 @@
                      ondrop="event.preventDefault(); this.classList.remove('hover'); if(event.dataTransfer.files.length > 0) handleBatchFiles({files: event.dataTransfer.files});">
                     <p style="margin:0; font-size:12px; color:var(--text-muted);">📂 Перетащите фото сюда или нажмите кнопку ниже</p>
                 </div>
-                <input type="file" id="batchFileInput" multiple accept="image/*" style="display: none" onchange="handleBatchFiles(this)">
+                <input type="file" id="batchFileInput" multiple accept="image/jpeg,image/tiff" style="display: none" onchange="handleBatchFiles(this)">
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     <button class="btn btn-small" onclick="document.getElementById('batchFileInput').click()">📂 Выбрать файлы</button>
                     <button class="btn btn-small" id="batchShowBtn" onclick="showBatchPointsOnMap()" style="display:none; background:var(--accent); color:white;">🗺️ Показать все</button>
@@ -787,7 +944,7 @@
             <!-- ВКЛАДКА: СОХРАНЁННОЕ -->
             <div class="tab-panel" id="tabSaved" role="tabpanel" aria-labelledby="tabSavedBtn">
                 <div class="frame-card" style="flex:1; display:flex; flex-direction:column;">
-                    <h4>⭐ Избранное</h4>
+                    <h2>⭐ Избранное</h2>
                     <div class="bookmark-add">
                         <input type="text" id="bookmarkName" placeholder="Имя закладки">
                         <button onclick="addBookmark()" id="addBookmarkBtn" disabled>➕</button>
@@ -797,7 +954,7 @@
                     </div>
                 </div>
                 <div class="frame-card" style="flex:1; display:flex; flex-direction:column;">
-                    <h4>🕒 История <button class="history-clear" onclick="clearHistory()">очистить</button></h4>
+                    <h2>🕒 История <button class="history-clear" onclick="clearHistory()">очистить</button></h2>
                     <div class="history-list" id="historyList" style="flex:1;">
                         <div class="history-empty">История пуста</div>
                     </div>
@@ -807,7 +964,7 @@
             <!-- Панели удалены из левого фрейма: их размещение задано вкладками. -->
             <div hidden>
                 <div class="geo-panel" id="geoStatusPanel">
-                    <h4>🗃️ Источник дорожных данных</h4>
+                    <h2>🗃️ Источник дорожных данных</h2>
                     <label class="hint" for="dataSourceSelect">Дороги/поиск</label>
                     <select id="dataSourceSelect" aria-label="Источник дорожных данных">
                         <option value="external">Внешний поиск СКДФ (онлайн)</option>
@@ -821,7 +978,7 @@
                     <div class="hint" id="geoStatus">Проверка доступных данных...</div>
                 </div>
                 <div class="geo-panel" id="mskSearchPanel">
-                    <h4>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h4>
+                    <h2>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h2>
                     <label class="hint" for="mskDirection">Направление преобразования</label>
                     <select id="mskDirection" aria-label="Направление преобразования координат">
                         <option value="to-geographic">МСК-61 → WGS84</option>
@@ -874,6 +1031,29 @@
 
     <!-- КАРТА -->
     <div id="map">
+        <div id="searchDockTopHost" class="search-dock-host top-host">
+            <div id="searchDock" class="search-dock" data-position="top" data-search-active="false">
+                <label class="search-arm search-arm-bare" for="searchArmCheckbox" title="Активировать поиск">
+                    <input type="checkbox" id="searchArmCheckbox" aria-label="Активировать поиск">
+                </label>
+                <div class="search-mode-row" role="group" aria-label="Режим поиска">
+                    <button class="mode-btn" type="button" id="modeAddressBtn" data-mode="address" aria-pressed="false" title="Адрес" aria-label="Адрес">🏠</button>
+                    <button class="mode-btn" type="button" id="modeCoordsBtn" data-mode="coords" aria-pressed="false" title="Координаты" aria-label="Координаты">📏</button>
+                    <button class="mode-btn" type="button" id="modeRoadBtn" data-mode="road" aria-pressed="false" title="Дороги" aria-label="Дороги">🚗</button>
+                </div>
+                <div class="search-fields" id="modeFields">
+                    <label class="field-label sr-only" id="modeLabel1" for="modeInput1">Поиск</label>
+                    <input id="modeInput1" class="search-main-input" placeholder="Поиск" autocomplete="off" maxlength="320" aria-label="Строка поиска">
+                    <label class="field-label sr-only" id="modeLabel2" for="modeInput2">Дополнительно</label>
+                    <input id="modeInput2" class="search-secondary-input" placeholder="Км" autocomplete="off" maxlength="40" aria-label="Километраж" hidden>
+                    <button class="crs-btn" type="button" id="modeActionBtn"
+                            title="Переключить зону МСК-61: 1 / 2 / 3 / GPS" hidden>МСК-61-2</button>
+                    <div id="modeSuggestions" class="geo-suggestions" role="listbox"></div>
+                    <button class="search-submit-btn" type="button" id="placePointBtn" title="Найти и поставить точку" aria-label="Найти" disabled>🔍</button>
+                    <div id="modeStatus" class="mode-hint" role="status" aria-live="polite"></div>
+                </div>
+            </div>
+        </div>
         <div id="map-source-notice" role="status" aria-live="polite"></div>
         <div id="screenshot-overlay"></div>
         <div id="selection-rect">
@@ -887,20 +1067,20 @@
             <div class="resize-handle w" data-handle="w"></div>
         </div>
         <div id="screenshot-menu">
-            <div class="screenshot-menu-item" id="menuSaveBtn" onclick="saveScreenshot()">💾 Сохранить <span style="margin-left:auto;font-size:11px;color:var(--text-subtle);">Enter</span></div>
+            <button type="button" class="screenshot-menu-item" id="menuSaveBtn" onclick="saveScreenshot()">💾 Сохранить <span style="margin-left:auto;font-size:11px;color:var(--text-subtle);">Enter</span></button>
             <div class="screenshot-menu-divider"></div>
             <div class="countdown-label" id="countdownLabel">Автосохранение через <span id="countdownValue">3</span> сек...</div>
         </div>
     </div>
 
     <!-- СПРАВКА -->
-    <div id="help-frame">
+    <div id="help-frame" role="complementary" aria-label="Справка">
         <div id="help-frame-header">
             <span>📖 Справка по интерфейсу</span>
             <button id="help-frame-close" onclick="toggleHelpFrame()" title="Закрыть">&times;</button>
         </div>
-        <div id="help-frame-content">
-            <h4>🖱️ Работа с картой</h4>
+        <div id="help-frame-content" tabindex="0" aria-label="Содержание справки">
+            <h2>🖱️ Работа с картой</h2>
             <ul>
                 <li><b>Одинарный клик ЛКМ</b> — скрыть панель результатов</li>
                 <li><b>Двойной клик ЛКМ</b> — поставить точку и найти дорогу</li>
@@ -908,7 +1088,7 @@
                 <li><b>Колёсико мыши</b> — масштабирование</li>
                 <li><b>Правый клик + перетаскивание</b> — выделить область для скриншота</li>
             </ul>
-            <h4>⌨️ Горячие клавиши</h4>
+            <h2>⌨️ Горячие клавиши</h2>
             <ul>
                 <li><kbd>Ctrl+1</kbd> — свернуть/развернуть левый фрейм</li>
                 <li><kbd>Ctrl+2</kbd> — свернуть/развернуть правый фрейм</li>
@@ -917,7 +1097,7 @@
                 <li><kbd>Enter</kbd> — сохранить скриншот (когда выделена область)</li>
                 <li><kbd>Esc</kbd> — отменить выделение / закрыть меню скриншота</li>
             </ul>
-            <h4>🖼️ Панели интерфейса</h4>
+            <h2>🖼️ Панели интерфейса</h2>
             <ul>
                 <li><b>Левый фрейм</b> — вкладки «Точка», «Пакетный поиск» и «Сохранённое»</li>
                 <li><b>Точка</b> — загрузка фото, режимы «Адрес / Координаты / Дороги» и кнопка «Поставить точку»</li>
@@ -927,20 +1107,20 @@
                 <li>Панели можно сворачивать стрелками или горячими клавишами Ctrl+1 / Ctrl+2</li>
                 <li>Настройки закрываются кнопкой ×, кликом по фону или клавишей Esc</li>
             </ul>
-            <h4>📸 Загрузка фото</h4>
+            <h2>📸 Загрузка фото</h2>
             <ul>
                 <li>Перетащите фото в зону загрузки или кликните для выбора</li>
                 <li>Координаты извлекаются из EXIF автоматически</li>
                 <li><b>При загрузке нового фото все предыдущие точки и результаты очищаются</b></li>
             </ul>
-            <h4>📸 Создание скриншотов</h4>
+            <h2>📸 Создание скриншотов</h2>
             <ul>
                 <li><b>Правый клик + перетаскивание</b> — выделить область</li>
                 <li><b>Кнопка «📸 Скриншот»</b> в карточке — запустить скриншот вокруг точки</li>
                 <li>После выделения появится меню сохранения</li>
                 <li>Можно перетаскивать выделение за середину или изменять размер за маркеры</li>
             </ul>
-            <h4>💾 Сохранение файлов</h4>
+            <h2>💾 Сохранение файлов</h2>
             <ul>
                 <li>В Chrome/Edge — откроется нативное окно «Сохранить как...»</li>
                 <li>В Firefox — файл попадёт в папку «Загрузки»</li>
@@ -948,14 +1128,14 @@
                 <li>Добавляется временная метка для уникальности</li>
                 <li>Скриншоты старше 7 дней удаляются автоматически</li>
             </ul>
-            <h4>🕒 История точек</h4>
+            <h2>🕒 История точек</h2>
             <ul>
                 <li>Хранит последние 10 точек, по которым был поиск</li>
                 <li>Сохраняется в браузере (localStorage)</li>
                 <li>Клик по элементу — мгновенный переход к точке</li>
                 <li>Кнопка «очистить» — удалить всю историю</li>
             </ul>
-            <h4>⭐ Закладки</h4>
+            <h2>⭐ Закладки</h2>
             <ul>
                 <li>Персональные сохранённые места с именами (хранятся на сервере)</li>
                 <li>Доступны только вашему аккаунту на любом устройстве</li>
@@ -963,18 +1143,18 @@
                 <li>Клик по закладке — переход к точке; ✎ — переименовать</li>
                 <li>Крестик × — удалить закладку</li>
             </ul>
-            <h4>📡 Моё местоположение</h4>
+            <h2>📡 Моё местоположение</h2>
             <ul>
                 <li>Кнопка запрашивает координаты через браузерный Geolocation API</li>
                 <li>Мгновенно переносит карту к вам и ставит точку для поиска</li>
             </ul>
-            <h4>🗺️ Контур области</h4>
+            <h2>🗺️ Контур области</h2>
             <ul>
                 <li><b>Локальный контур</b> — из файла <code>rostov_boundary.geojson</code>, работает мгновенно</li>
                 <li><b>Overpass API</b> — из интернета, актуальный, но медленный</li>
                 <li>Переключается чекбоксом в настройках (⚙️ в нижней панели)</li>
             </ul>
-            <h4>🌙 Тёмная тема</h4>
+            <h2>🌙 Тёмная тема</h2>
             <ul>
                 <li>Применяется только к UI (фреймы, панели, карточки)</li>
                 <li>Карта остаётся светлой для лучшей читаемости</li>
@@ -999,39 +1179,9 @@
                 <div id="results"><div class="result-empty">Точка не выбрана. Выберите её на карте или в левом фрейме.</div></div>
             </div>
 
-            <!-- Текущая точка -->
-            <div class="frame-card" id="currentPointCard">
-                <h4>Текущая точка</h4>
-                <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
-                <div id="currentPointDetails" hidden>
-                    <div class="point-row">
-                        <span class="point-label">WGS84</span>
-                        <span class="point-value" id="cpWgs">—</span>
-                        <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84">⧉</button>
-                    </div>
-                    <div class="point-row">
-                        <span class="point-label">МСК-61</span>
-                        <span class="point-value" id="cpMsk">—</span>
-                        <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61">⧉</button>
-                    </div>
-                    <div class="point-row">
-                        <span class="point-label">Адрес</span>
-                        <span class="point-value" id="cpAddress">не определено</span>
-                        <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес">⧉</button>
-                    </div>
-                    <div class="point-row">
-                        <span class="point-label">Район</span>
-                        <span class="point-value" id="cpDistrict">не определено</span>
-                        <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район">⧉</button>
-                    </div>
-                    <div class="point-source hint" id="cpSource"></div>
-                </div>
-                <button class="btn btn-small" id="saveFavoriteBtn" onclick="addBookmark()" disabled style="margin-top:8px;">⭐ Сохранить в избранное</button>
-            </div>
-
             <!-- Километраж -->
             <div class="frame-card road-km-panel" id="roadKmPanel">
-                <h4 id="roadKmTitle">Официальный километраж</h4>
+                <h2 id="roadKmTitle">Официальный километраж</h2>
                 <label class="hint" for="roadKmNumber">Км трассы</label>
                 <div class="road-km-row">
                     <input id="roadKmNumber" placeholder="Например, 829+500 или 829.5" inputmode="decimal" aria-label="Официальный километр трассы" disabled>
@@ -1046,10 +1196,10 @@
     </div><!-- /#app-main -->
 
     <!-- СТАТУС-БАР -->
-    <div id="status-bar" role="toolbar" aria-label="Статус и быстрые действия">
+    <footer id="status-bar" aria-label="Статус и быстрые действия">
         <button class="sb-seg sb-copy" type="button" id="statusCopyBtn" title="Скопировать текущий объект" aria-label="Скопировать текущий объект">📋</button>
-        <div class="sb-seg sb-grow" id="statusPointSeg">
-            <span class="sb-point-text" id="statusPointText">Точка не выбрана</span>
+        <div class="sb-search-host" id="searchDockBottomHost">
+            <span class="sb-point-text" id="statusPointText" hidden>Точка не выбрана</span>
         </div>
         <div class="sb-spacer"></div>
         <button class="sb-seg" type="button" id="goToRostovButton" onclick="goToRostov()" title="Центрировать на Ростовской области" aria-label="Центрировать на Ростовской области">🎯</button>
@@ -1057,12 +1207,22 @@
         <button class="sb-seg" type="button" id="helpButton" onclick="toggleHelpFrame()" title="Справка" aria-label="Справка">❓</button>
         <button class="sb-seg" type="button" id="settingsOpenButton" title="Настройки" aria-label="Настройки" aria-haspopup="dialog">⚙️</button>
         <button class="sb-seg" type="button" id="resetWorkspaceBtn" title="Очистить рабочую сессию" aria-label="Очистить рабочую сессию">↺</button>
-    </div>
+    </footer>
 
     <!-- НАСТРОЙКИ: источники настроек для модального окна (переносятся при открытии) -->
     <div id="settings-source" hidden>
+        <div class="settings-block" id="settingsInterfaceBlock">
+            <h2>🔎 Блок поиска</h2>
+            <div class="settings-row">
+                <label for="searchPositionSelect">Положение:</label>
+                <select id="searchPositionSelect">
+                    <option value="bottom" selected>В статус-баре</option>
+                    <option value="top">Сверху карты</option>
+                </select>
+            </div>
+        </div>
         <div class="settings-block" id="settingsSearchBlock">
-            <h4>🔎 Параметры поиска дороги</h4>
+            <h2>🔎 Параметры поиска дороги</h2>
             <div class="settings-row">
                 <label>Радиус (м):</label>
                 <input type="number" id="radius" value="2000" min="10" max="5000">
@@ -1073,15 +1233,16 @@
             </div>
         </div>
         <div class="settings-block">
-            <h4>⏱ Автоскриншот</h4>
+            <h2>⏱ Автоскриншот</h2>
             <div class="settings-row">
                 <label>Задержка (сек):</label>
                 <input type="number" id="settingDelay" min="1" max="30" value="3">
             </div>
             <div class="settings-row">
-                <label>Каталог на сервере:</label>
-                <input type="text" id="serverPath" placeholder="screenshots" value="screenshots" readonly aria-label="Папка сохранения на сервере">
+                <label>Папка (справочно):</label>
+                <input type="text" id="serverPath" placeholder="screenshots" value="screenshots" readonly aria-label="Папка сохранения (справочно)">
             </div>
+            <div class="hint">Скриншот сохраняется браузером; путь ниже используется только как справочная настройка.</div>
             <div class="settings-row">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                     <input type="checkbox" id="autoScreenshotCheckbox" style="cursor: pointer;">
@@ -1090,7 +1251,7 @@
             </div>
         </div>
         <div class="settings-block">
-            <h4>🗺️ Контур области</h4>
+            <h2>🗺️ Контур области</h2>
             <div class="settings-row">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                     <input type="checkbox" id="localBoundaryCheckbox" style="cursor: pointer;">
@@ -1100,14 +1261,14 @@
             <div class="hint">Быстрее, работает офлайн</div>
         </div>
         <div class="settings-block">
-            <h4>🎨 Интерфейс</h4>
+            <h2>🎨 Интерфейс</h2>
             <div class="settings-row theme-toggle">
                 <span>🌙 Тёмная тема</span>
-                <div class="theme-switch" id="themeSwitch" onclick="toggleTheme()"></div>
+                <div class="theme-switch" id="themeSwitch" role="switch" tabindex="0" aria-checked="false" aria-label="Тёмная тема" onclick="toggleTheme()"></div>
             </div>
         </div>
         <div class="settings-block">
-            <h4>👤 Мой аккаунт</h4>
+            <h2>👤 Мой аккаунт</h2>
             <div class="settings-row">
                 <label>Текущий логин:</label>
                 <b id="currentUserLogin">—</b>
@@ -1125,7 +1286,7 @@
             <button class="btn btn-small btn-secondary" onclick="logoutUser()" style="margin-top: 6px;">🚪 Выйти</button>
         </div>
         <div class="settings-block" id="usersSettingsBlock" style="display: none;">
-            <h4>👥 Пользователи</h4>
+            <h2>👥 Пользователи</h2>
             <div class="users-list" id="usersList"></div>
             <div class="settings-row">
                 <input type="text" id="newUserName" placeholder="Имя">
@@ -1147,13 +1308,17 @@
         <div class="folder-status" id="folderStatus">Загрузка...</div>
     </div>
 
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="hotkey-hint" id="hotkeyHint"></div>
 
     <script>
         // === ИНИЦИАЛИЗАЦИЯ КАРТЫ ===
         const DEFAULT_CENTER = [47.23, 39.72];
-        const map = L.map('map', { attributionControl: true, doubleClickZoom: false }).setView(DEFAULT_CENTER, 7);
+        const map = L.map('map', { attributionControl: true, doubleClickZoom: false, zoomControl: false }).setView(DEFAULT_CENTER, 7);
+        // Убираем брендинг Leaflet из attribution, оставляя обязательную
+        // атрибуцию OpenStreetMap.
+        map.attributionControl.setPrefix(false);
+        const mapZoomControl = L.control.zoom({ position: 'bottomleft' }).addTo(map);
         let baseTileLayer = null;
         function setBaseTiles(offline) {
             if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
@@ -1184,6 +1349,7 @@
         
         let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
         let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: true };
+        let searchPosition = localStorage.getItem('albion_search_position') === 'top' ? 'top' : 'bottom';
         let pointHistory = [];
         let bookmarks = [];
 
@@ -1218,12 +1384,20 @@
         // === ТЕМА ===
         function applyTheme(dark) {
             document.body.classList.toggle('dark', dark);
-            document.getElementById('themeSwitch').classList.toggle('active', dark);
+            const themeSwitch = document.getElementById('themeSwitch');
+            themeSwitch.classList.toggle('active', dark);
+            themeSwitch.setAttribute('aria-checked', String(Boolean(dark)));
             localStorage.setItem('albion_theme', dark ? 'dark' : 'light');
         }
         function toggleTheme() {
             applyTheme(!document.body.classList.contains('dark'));
         }
+        document.getElementById('themeSwitch').addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleTheme();
+            }
+        });
         const savedTheme = localStorage.getItem('albion_theme');
         if (savedTheme === 'dark') applyTheme(true);
 
@@ -1276,8 +1450,15 @@
             const items = pointHistory.map((entry, index) => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
-                item.addEventListener('click', () => {
-                    commitPoint(Number(entry.lat), Number(entry.lon), 'history');
+                item.setAttribute('role', 'button');
+                item.tabIndex = 0;
+                const openHistoryEntry = () => commitPoint(Number(entry.lat), Number(entry.lon), 'history');
+                item.addEventListener('click', openHistoryEntry);
+                item.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openHistoryEntry();
+                    }
                 });
                 const coords = document.createElement('span');
                 coords.className = 'coords';
@@ -1328,7 +1509,16 @@
                 item.className = 'bookmark-item';
                 const info = document.createElement('div');
                 info.className = 'bookmark-info';
-                info.addEventListener('click', () => goToBookmark(b.id));
+                info.setAttribute('role', 'button');
+                info.tabIndex = 0;
+                const openBookmark = () => goToBookmark(b.id);
+                info.addEventListener('click', openBookmark);
+                info.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openBookmark();
+                    }
+                });
                 const name = document.createElement('div');
                 name.className = 'bookmark-name';
                 // textContent: имя вводит пользователь, HTML не интерпретируем.
@@ -1436,9 +1626,6 @@ async function loadLocalRostovBoundary() {
 
         const data = await response.json();
         drawBoundaryFromGeoJSON(data);
-        const checkbox = document.getElementById('localBoundaryCheckbox');
-        if (checkbox) checkbox.checked = true;
-        screenshotSettings.localBoundary = true;
         console.log("✅ Локальный контур РО отрисован");
         updateFolderStatus("🗺️ Локальный контур");
         return true;
@@ -1450,11 +1637,15 @@ async function loadLocalRostovBoundary() {
 }
 
 async function loadRostovBoundary() {
-    // Приоритет — скачанный локальный GeoJSON; Overpass только как резерв.
-    const localOk = await loadLocalRostovBoundary();
-    if (!localOk) {
-        await loadRostovBoundaryOverpass();
+    // Настройка выбирает источник контура. При ошибке выбранного источника
+    // остаётся резервный, чтобы карта не потеряла границу области.
+    if (screenshotSettings.localBoundary === false) {
+        const overpassOk = await loadRostovBoundaryOverpass();
+        if (!overpassOk) await loadLocalRostovBoundary();
+        return;
     }
+    const localOk = await loadLocalRostovBoundary();
+    if (!localOk) await loadRostovBoundaryOverpass();
 }
 
 async function loadRostovBoundaryOverpass() {
@@ -1582,15 +1773,16 @@ function drawBoundaryFromGeoJSON(data) {
                 showToast('Режим поиска: используйте кнопку «Поставить точку» или снимите флажок', 'info', 2500);
                 return;
             }
-            if (batchEdit && batchEdit.activeId) {
+            // activeId выставляется и при обычном выборе строки; блокируем
+            // карту только когда действительно идёт drag/edit (original задан).
+            if (batchEdit && batchEdit.original) {
                 showToast('Идёт редактирование пакетной точки', 'info', 2500);
                 return;
             }
             L.DomEvent.stopPropagation(e);
-            // Режим клика по карте: выводим разный результат
-            const source = searchDraft.mode === 'address' ? 'address'
-                : searchDraft.mode === 'road' ? 'road-km' : 'click';
-            commitPoint(e.latlng.lat, e.latlng.lng, source);
+            // Обычный клик по карте — всегда источник click. Режим поиска
+            // влияет на черновик, но не делает карту источником road-km.
+            commitPoint(e.latlng.lat, e.latlng.lng, 'click');
         });
 
         map.on('click', function() {
@@ -1602,8 +1794,10 @@ function drawBoundaryFromGeoJSON(data) {
                 const response = await apiFetch('/api/screenshot-settings');
                 if (response.ok) {
                     const data = await response.json();
-                    // delay=0 допустим на сервере, поэтому не подменяем его на 3.
-                    screenshotSettings.delay = Number.isFinite(data.delay) ? data.delay : 3;
+                    // Минимальная задержка — 1 секунда (согласовано с backend).
+                    const parsedDelay = Number(data.delay);
+                    screenshotSettings.delay = Number.isFinite(parsedDelay) && parsedDelay >= 1
+                        ? Math.min(60, parsedDelay) : 3;
                     screenshotSettings.savePath = 'screenshots';
                     screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
                     screenshotSettings.localBoundary = data.local_boundary !== false;
@@ -1612,9 +1806,8 @@ function drawBoundaryFromGeoJSON(data) {
                     document.getElementById('autoScreenshotCheckbox').checked = screenshotSettings.autoScreenshotEnabled;
                     document.getElementById('localBoundaryCheckbox').checked = screenshotSettings.localBoundary;
                     updateFolderStatus();
-                    if (data.last_point && data.last_point.lat && data.last_point.lon) {
-                        map.setView([data.last_point.lat, data.last_point.lon], 14);
-                    }
+                    // Общая last_point больше не используется: позиция карты
+                    // восстанавливается из персонального workspace пользователя.
                     await loadRostovBoundary();
                 }
             } catch (e) { console.error('Ошибка загрузки настроек:', e); }
@@ -1772,11 +1965,10 @@ function drawBoundaryFromGeoJSON(data) {
         function updateLocalRoadControls() {
             const button = document.getElementById('modeActionBtn');
             if (!button) return;
-            // Онлайн-участки тоже позволяют применить километр, поэтому кнопка
-            // активна, если загружен chainage или доступна локальная база.
-            const available = useLocalRoadData || Boolean(roadKmState);
-            button.disabled = !available;
-            button.title = available ? '' : 'Поиск дороги и километража доступен только в локальной базе';
+            // Кнопка в блоке поиска относится к режиму координат (переключение
+            // зоны МСК) и не зависит от доступности локальной дорожной базы.
+            button.disabled = false;
+            button.title = 'Переключить зону МСК-61: 1 / 2 / 3 / GPS';
         }
 
         function updateDataSourceStatus(tileStatus = '') {
@@ -1834,7 +2026,7 @@ function drawBoundaryFromGeoJSON(data) {
                     updateDataSourceStatus(tileStatus);
                 };
                 updateLocalRoadControls();
-                void initializeYandexAddressSuggest();
+                if (searchDraft.mode === 'address') void initializeYandexAddressSuggest();
             } catch (error) {
                 // Keep the map usable if the status endpoint is unavailable; make this source fallback visible.
                 useLocalTiles = false;
@@ -1866,7 +2058,6 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         // === ССЫЛКИ НА ЭЛЕМЕНТЫ НОВОГО ИНТЕРФЕЙСА ===
-        const roadSuggestions = document.getElementById('roadSuggestions');
         const roadKmPanel = document.getElementById('roadKmPanel');
         const roadKmTitle = document.getElementById('roadKmTitle');
         const roadKmNumber = document.getElementById('roadKmNumber');
@@ -1929,6 +2120,8 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         async function initializeYandexAddressSuggest() {
+            // Подсказки адреса создаются только для адресного режима.
+            if (searchDraft.mode !== 'address') return null;
             if (yandexSuggestInitPromise) return yandexSuggestInitPromise;
             yandexSuggestInitPromise = (async () => {
                 modeStatus.textContent = 'Загружаю адресные подсказки Яндекса…';
@@ -1958,13 +2151,13 @@ function drawBoundaryFromGeoJSON(data) {
                             if (!selectedText) return;
                             if (searchDraft.mode !== 'address') return;
                             modeInput1.value = selectedText;
-                            modeInput2.disabled = false;
-                            modeInput2.focus();
                             searchDraft.addressCity = selectedText;
                             searchDraft.addressLat = null;
                             searchDraft.addressLon = null;
                             searchDraft.addressLabel = '';
-                            modeStatus.textContent = 'Выберите улицу и дом из подсказок.';
+                            // Одна строка поиска: выбранный полный адрес сразу
+                            // превращаем в кандидата, но точку не фиксируем.
+                            void resolveAddressCandidate(selectedText);
                             updatePlacePointButton();
                         });
                     }
@@ -1993,19 +2186,21 @@ function drawBoundaryFromGeoJSON(data) {
                     body: JSON.stringify({query})
                 });
                 const data = await response.json();
-                if (sequence !== addressSuggestionSequence) return;
+                if (sequence !== addressSuggestionSequence) return null;
                 if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось определить координаты адреса');
                 searchDraft.addressLat = data.lat;
                 searchDraft.addressLon = data.lon;
                 searchDraft.addressLabel = data.address || query;
                 modeStatus.textContent = `Источник: Яндекс · ${data.address || query}`;
                 updatePlacePointButton();
+                return { lat: data.lat, lon: data.lon, label: data.address || query };
             } catch (error) {
-                if (sequence !== addressSuggestionSequence) return;
+                if (sequence !== addressSuggestionSequence) return null;
                 searchDraft.addressLat = null;
                 searchDraft.addressLon = null;
                 modeStatus.textContent = error.message;
                 updatePlacePointButton();
+                return null;
             }
         }
 
@@ -2014,25 +2209,21 @@ function drawBoundaryFromGeoJSON(data) {
             searchDraft.addressCity = modeInput1.value.trim();
             searchDraft.addressLat = null;
             searchDraft.addressLon = null;
-            modeInput2.value = '';
-            modeInput2.disabled = true;
-            const city = normalizeQueryInput(modeInput1);
-            if (city.length >= 3) modeStatus.textContent = 'Выберите населённый пункт из подсказок.';
-            updatePlacePointButton();
-        });
-        modeInput2.addEventListener('input', () => {
-            addressSuggestionSequence += 1;
-            searchDraft.addressLat = null;
-            searchDraft.addressLon = null;
+            const text = normalizeQueryInput(modeInput1);
+            if (searchDraft.mode === 'address' && text.length >= 3) {
+                modeStatus.textContent = 'Выберите адрес из подсказок или нажмите поиск.';
+            }
             updatePlacePointButton();
         });
 
         modeInput1.addEventListener('input', () => {
+            if (searchDraft.mode !== 'road') return;
             roadSuggestionSequence += 1;
             roadSectionsSequence += 1;
             roadKmState = null;
-            roadKmState = null;
             roadKmNumber.value = '';
+            modeInput2.hidden = true;
+            modeInput2.value = '';
             roadKmRange.textContent = 'Выберите трассу, чтобы загрузить диапазон километража.';
             roadKmStatus.textContent = 'Ползунок станет активен после выбора трассы.';
             setRoadKmControlsEnabled(false);
@@ -2041,7 +2232,7 @@ function drawBoundaryFromGeoJSON(data) {
             const text = normalizeQueryInput(modeInput1);
             modeStatus.textContent = text.length < 2
                 ? (text ? 'Введите не менее 2 символов.' : '')
-                : (yandexRoadSuggestView ? 'Выберите трассу или дорогу из подсказок.' : 'Подсказки дорог пока не готовы.');
+                : 'Нажмите 🔍 или Enter для поиска дороги.';
         });
 
         async function resolveOnlineRoad(item) {
@@ -2050,7 +2241,7 @@ function drawBoundaryFromGeoJSON(data) {
             roadKmState = null;
             roadKmPanel.hidden = false;
             modeStatus.textContent = 'Ищу выбранную дорогу в Ростовской области…';
-            roadSuggestions.classList.remove('open');
+            modeSuggestions.classList.remove('open');
             try {
                 const response = await apiFetch('/api/roads/online/search', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2073,8 +2264,8 @@ function drawBoundaryFromGeoJSON(data) {
                 modeStatus.textContent = rows.length
                     ? 'Выберите найденный вариант, чтобы подготовить километраж.'
                     : 'Дорога не найдена в Ростовской области.';
-                renderSuggestionList(roadSuggestions, rows, road => {
-                    roadSuggestions.classList.remove('open');
+                renderSuggestionList(modeSuggestions, rows, road => {
+                    modeSuggestions.classList.remove('open');
                     modeInput1.value = road.title;
                     searchDraft.road = road;
                     modeStatus.textContent = `Выбрано: ${road.title}. Загружаю километраж.`;
@@ -2150,9 +2341,34 @@ function drawBoundaryFromGeoJSON(data) {
             const firstKm = Number(data.first_km);
             const lastKm = Number(data.last_km);
             const chainageSpanKm = lastKm - firstKm;
+            // Сводка непрерывных интервалов: нужна, чтобы UI явно показывал
+            // разрывы и перекрывающиеся старые/новые начертания СКДФ.
+            const sorted = sections
+                .map(section => [section.start_km, section.finish_km])
+                .sort((a, b) => a[0] - b[0]);
+            const intervals = [];
+            let overlaps = 0;
+            for (const [start, finish] of sorted) {
+                const last = intervals[intervals.length - 1];
+                if (last && start <= last[1] + 1e-6) {
+                    if (start < last[1] - 1e-6) overlaps += 1;
+                    last[1] = Math.max(last[1], finish);
+                } else {
+                    intervals.push([start, finish]);
+                }
+            }
+            const gaps = intervals.slice(1).map((interval, index) => ({
+                from: intervals[index][1],
+                to: interval[0],
+            }));
             return {
                 ...data,
                 sections,
+                intervals,
+                gaps,
+                overlaps,
+                hasGaps: gaps.length > 0,
+                hasOverlaps: overlaps > 0,
                 totalLengthKm: Number.isFinite(chainageSpanKm) && chainageSpanKm > 0
                     ? chainageSpanKm
                     : offsetKm,
@@ -2162,9 +2378,18 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function distanceToSectionKm(section, lon, lat) {
+            // Сравниваем не только вершины: при редких вершинах это даёт
+            // заметную ошибку при выборе перекрывающегося начертания.
             let bestKm = Infinity;
-            for (const [pointLon, pointLat] of section.coordinates) {
-                bestKm = Math.min(bestKm, distanceKmBetween(lon, lat, pointLon, pointLat));
+            for (let index = 0; index < section.coordinates.length - 1; index += 1) {
+                const start = section.coordinates[index];
+                const finish = section.coordinates[index + 1];
+                const projection = window.AlbionGeo.projectOnSegment(
+                    lon, lat, start[0], start[1], finish[0], finish[1]
+                );
+                if (projection && Number.isFinite(projection.distanceKm)) {
+                    bestKm = Math.min(bestKm, projection.distanceKm);
+                }
             }
             return bestKm;
         }
@@ -2234,6 +2459,21 @@ function drawBoundaryFromGeoJSON(data) {
             return best ? { distanceKm: best.distanceKm, officialKm: best.officialKm } : null;
         }
 
+        // Синхронизирует ползунок с текущей точкой по геометрии участков СКДФ.
+        function syncRoadKmSliderToPoint(lon, lat) {
+            if (!roadKmState || !roadKmState.sections.length) return null;
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+            const nearest = nearestOfficialKm(roadKmState, lon, lat);
+            if (!nearest) return null;
+            const point = previewRoadKm(nearest.officialKm);
+            if (point) {
+                roadKmStatus.textContent =
+                    `Ползунок синхронизирован с точкой по СКДФ: ${formatKm(nearest.officialKm)} `
+                    + `(${Math.round(nearest.distanceKm * 1000)} м до оси дороги).`;
+            }
+            return point;
+        }
+
         function setRoadKmControlsEnabled(enabled) {
             roadKmNumber.disabled = !enabled;
             roadKmApplyButton.disabled = !enabled;
@@ -2244,6 +2484,11 @@ function drawBoundaryFromGeoJSON(data) {
             const relativeKm = relativeKmForOfficialKm(state, officialKm);
             if (relativeKm !== null) roadKmSlider.value = String(relativeKm);
             roadKmNumber.value = formatRoadKmNumber(officialKm);
+            if (searchDraft.mode === 'road') {
+                modeInput2.hidden = false;
+                modeInput2.value = formatRoadKmNumber(officialKm);
+                placePointBtn.title = 'Применить километр и поставить точку';
+            }
             setRoadKmControlsEnabled(true);
         }
 
@@ -2278,19 +2523,29 @@ function drawBoundaryFromGeoJSON(data) {
                 }
                 const state = buildRoadKmState(data);
                 if (!state.sections.length) throw new Error('В ответе СКДФ нет пригодных участков трассы');
-                state.anchor = {lon: Number(road.lon), lat: Number(road.lat)};
+                const anchor = activePoint && Number.isFinite(activePoint.lon) && Number.isFinite(activePoint.lat)
+                    ? {lon: activePoint.lon, lat: activePoint.lat}
+                    : {lon: Number(road.lon), lat: Number(road.lat)};
+                state.anchor = anchor;
                 roadKmState = state;
                 updateLocalRoadControls();
                 roadKmSlider.min = '0';
                 roadKmSlider.max = String(state.totalLengthKm);
                 roadKmSlider.step = state.totalLengthKm > 100 ? '0.01' : '0.001';
-                roadKmRange.textContent = `Участок в Ростовской области: ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · ${state.totalLengthKm.toFixed(1)} км по официальному километражу СКДФ.`;
-                const nearest = nearestOfficialKm(state, road.lon, road.lat);
+                const notes = [];
+                if (state.hasGaps) {
+                    notes.push(`разрывы: ${state.gaps.map(gap => `${formatKm(gap.from)} — ${formatKm(gap.to)}`).join(', ')}`);
+                }
+                if (state.hasOverlaps) {
+                    notes.push('есть перекрывающиеся участки — выбран ближайший к выбранной точке');
+                }
+                roadKmRange.textContent = `Участок в Ростовской области: ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · ${state.totalLengthKm.toFixed(1)} км по официальному километражу СКДФ.${notes.length ? ` (${notes.join('; ')})` : ''}`;
+                const nearest = nearestOfficialKm(state, anchor.lon, anchor.lat);
                 const initialKm = nearest ? nearest.officialKm : state.firstKm;
                 // Выбор дороги готовит черновик километра, но не ставит точку.
                 previewRoadKm(initialKm);
                 roadKmStatus.textContent = nearest
-                    ? `Ближайший километр к точке Яндекса: ${formatKm(initialKm)}. Нажмите «Поставить точку» или отпустите ползунок.`
+                    ? `Ближайший километр к точке Яндекса: ${formatKm(initialKm)}. Нажмите 🔍 или отпустите ползунок.`
                     : `Выберите километр в диапазоне ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)}.`;
             } catch (error) {
                 if (sequence !== roadSectionsSequence) return;
@@ -2309,7 +2564,19 @@ function drawBoundaryFromGeoJSON(data) {
             if (!roadKmState) return null;
             const point = pointAtOfficialKm(roadKmState, officialKm);
             if (!point) {
-                roadKmStatus.textContent = `Километр ${formatKm(officialKm)} не покрыт доступными участками СКДФ в Ростовской области.`;
+                // Разрыв в официальном километраже: старый черновик больше не
+                // соответствует ползунку и не должен быть подтверждён.
+                searchDraft.roadKm = null;
+                searchDraft.roadLat = null;
+                searchDraft.roadLon = null;
+                if (searchDraft.mode === 'road') modeInput2.value = '';
+                updatePlacePointButton();
+                const next = (roadKmState.intervals || []).find(interval => interval[0] > officialKm);
+                const previous = (roadKmState.intervals || []).filter(interval => interval[1] < officialKm).pop();
+                const hint = next ? `Ближайший участок начинается с ${formatKm(next[0])}.`
+                    : previous ? `Последний участок заканчивается на ${formatKm(previous[1])}.`
+                        : 'В этом диапазоне нет официальных участков.';
+                roadKmStatus.textContent = `Километр ${formatKm(officialKm)} попадает в разрыв СКДФ. ${hint}`;
                 return null;
             }
             showRoadKmControls(roadKmState, officialKm);
@@ -2371,10 +2638,11 @@ function drawBoundaryFromGeoJSON(data) {
             const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
             if (!Number.isFinite(officialKm)) return;
             roadKmNumber.value = formatRoadKmNumber(officialKm);
+            if (searchDraft.mode === 'road') modeInput2.value = formatRoadKmNumber(officialKm);
             const point = previewRoadKm(officialKm);
             if (point) {
                 const hint = searchArmCheckbox.checked
-                    ? 'Нажмите «Поставить точку», чтобы зафиксировать.'
+                    ? 'Нажмите 🔍, чтобы зафиксировать.'
                     : 'Отпустите ползунок, чтобы поставить точку.';
                 roadKmStatus.textContent = `Официальный км ${formatKm(officialKm)}. ${hint}`;
             }
@@ -2416,17 +2684,17 @@ function drawBoundaryFromGeoJSON(data) {
             roadSectionsSequence += 1;
             roadKmState = null;
             roadKmPanel.hidden = false;
-            const km = modeInput2.value.trim();
-            if (!km) { showToast('Для локального поиска укажите километраж', 'error'); return; }
-            const params = new URLSearchParams({q: modeInput1.value, limit: '10', km});
+            const kmParam = modeInput2.value.trim();
+            const params = new URLSearchParams({q: modeInput1.value, limit: '10'});
+            if (kmParam) params.set('km', kmParam);
             try {
                 const response = await apiFetch(`/api/roads/search?${params}`);
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || 'Локальная база дорог недоступна');
                 const rows = (data.roads || []).map(item => ({...item,
                     display_name: `${item.name || item.ref || 'Дорога'} · ${formatKm(item.selected_km)} · ${item.km_provenance === 'official start/finish' ? 'официальные начало/конец; промежуточный км интерполирован' : 'оценка по геометрии'} (${item.source})`}));
-                renderSuggestionList(roadSuggestions, rows, item => {
-                    roadSuggestions.classList.remove('open');
+                renderSuggestionList(modeSuggestions, rows, item => {
+                    modeSuggestions.classList.remove('open');
                     if (Number.isFinite(item.selected_lat) && Number.isFinite(item.selected_lon)) {
                         const lat = item.selected_lat;
                         const lon = item.selected_lon;
@@ -2434,10 +2702,13 @@ function drawBoundaryFromGeoJSON(data) {
                         searchDraft.roadLat = lat;
                         searchDraft.roadLon = lon;
                         searchDraft.roadLabel = item.name || item.ref || 'Дорога';
+                        modeInput1.value = searchDraft.roadLabel;
+                        modeInput2.hidden = false;
+                        modeInput2.value = formatRoadKmNumber(item.selected_km);
                         const meta = { roadLabel: searchDraft.roadLabel, roadKm: item.selected_km };
                         if (searchArmCheckbox.checked) {
                             updatePlacePointButton();
-                            modeStatus.textContent = `Выбран км ${formatKm(item.selected_km)}. Нажмите «Поставить точку».`;
+                            modeStatus.textContent = `Выбран км ${formatKm(item.selected_km)}. Нажмите 🔍, чтобы поставить точку.`;
                         } else {
                             commitPoint(lat, lon, 'road-km', meta);
                         }
@@ -2552,7 +2823,7 @@ function drawBoundaryFromGeoJSON(data) {
         // searchDraft накапливает выбор пользователя до явного подтверждения.
         // Только commitPoint двигает активную точку, историю и правый фрейм.
         const searchDraft = {
-            mode: 'coords',
+            mode: 'road',
             addressCity: '',
             addressLabel: '',
             addressLat: null,
@@ -2580,7 +2851,7 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function setSearchMode(mode) {
-            if (!['address', 'coords', 'road'].includes(mode)) mode = 'coords';
+            if (!['address', 'coords', 'road'].includes(mode)) mode = 'road';
             searchDraft.mode = mode;
             for (const button of document.querySelectorAll('.mode-btn')) {
                 button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
@@ -2589,9 +2860,10 @@ function drawBoundaryFromGeoJSON(data) {
             modeInput2.value = '';
             modeInput2.disabled = false;
             modeInput2.removeAttribute('disabled');
+            modeInput2.hidden = true;
             modeInput1.readOnly = false;
-            modeActionBtn.hidden = false;
-            modeActionBtn.style.display = '';
+            modeActionBtn.hidden = true;
+            modeActionBtn.style.display = 'none';
             modeStatus.textContent = '';
             // Сброс черновика при смене режима
             searchDraft.addressLat = null;
@@ -2603,36 +2875,46 @@ function drawBoundaryFromGeoJSON(data) {
             searchDraft.roadLat = null;
             searchDraft.roadLon = null;
             searchDraft.previewVersion += 1;
+            // SuggestView адреса не должен перехватывать ввод в режимах
+            // координат и дорог. При возврате в адрес подсказки создаются заново.
+            if (mode !== 'address' && yandexAddressSuggestView) {
+                try { yandexAddressSuggestView.destroy(); } catch (e) { /* ignore */ }
+                yandexAddressSuggestView = null;
+                yandexSuggestInitPromise = null;
+            }
             if (mode === 'address') {
-                modeLabel1.textContent = 'Населённый пункт';
-                modeLabel2.textContent = 'Улица и дом';
-                modeInput1.placeholder = 'Город или село';
-                modeInput2.placeholder = 'Улица, дом';
-                modeInput2.value = '';
-                modeInput2.disabled = false;
-                modeActionBtn.hidden = true;
-                modeActionBtn.style.display = 'none';
+                modeLabel1.textContent = 'Адрес';
+                modeLabel2.textContent = '';
+                modeInput1.placeholder = 'Город, улица, дом';
+                modeInput1.setAttribute('aria-label', 'Адрес');
+                modeActionBtn.dataset.mode = 'address';
                 document.getElementById('modeSuggestions').classList.remove('open');
+                void initializeYandexAddressSuggest();
             } else if (mode === 'coords') {
-                modeLabel1.textContent = 'WGS84 (градусы или DMS)';
+                modeLabel1.textContent = 'WGS84';
                 modeLabel2.textContent = 'МСК-61';
                 modeInput1.placeholder = "47.23, 39.72 или 47°14'42.2\"N 39°40'03.2\"E";
-                modeInput2.placeholder = 'X (север), Y (восток)';
+                modeInput1.setAttribute('aria-label', 'Координаты WGS84');
+                modeInput2.hidden = true;
+                modeActionBtn.hidden = false;
+                modeActionBtn.style.display = '';
+                modeActionBtn.disabled = false;
                 modeActionBtn.dataset.mode = 'coords';
                 modeActionBtn.textContent = ({msk1:'МСК-61-1',msk2:'МСК-61-2',msk3:'МСК-61-3',gps:'GPS (WGS84)'})[crsState]||'МСК-61-2';
-                void initializeYandexAddressSuggest();
                 updateCrsLabel();
             } else if (mode === 'road') {
                 modeLabel1.textContent = 'Дорога или трасса';
                 modeLabel2.textContent = 'Километр трассы';
                 modeInput1.placeholder = 'М-4 Дон, Р-280, 60К-80…';
-                modeInput2.placeholder = '915+000 или 915.5';
-                modeInput2.value = '';
+                modeInput1.setAttribute('aria-label', 'Дорога или трасса');
+                modeInput2.placeholder = 'Км: 915+000 или 915.5';
+                modeInput2.hidden = true;
                 modeActionBtn.dataset.mode = 'road';
-                modeActionBtn.textContent = 'Найти';
-                modeActionBtn.disabled = false;
                 document.getElementById('modeSuggestions').classList.remove('open');
             }
+            placePointBtn.title = mode === 'road' && roadKmState
+                ? 'Применить километр и поставить точку'
+                : 'Найти и поставить точку';
             try { localStorage.setItem('albion_search_mode', mode); } catch (e) { /* ignore */ }
             updatePlacePointButton();
             scheduleStateSave();
@@ -2673,9 +2955,21 @@ function drawBoundaryFromGeoJSON(data) {
             return { lat: parsed.lat, lon: parsed.lon, label: 'Координаты' };
         }
 
+        // Кнопка поиска активна, когда режим включён и есть что искать/фиксировать.
+        function canRunSearch() {
+            if (!searchArmCheckbox.checked) return false;
+            if (searchDraft.mode === 'address') {
+                return Boolean(readDraftCoordinates()) || modeInput1.value.trim().length >= 3;
+            }
+            if (searchDraft.mode === 'road') {
+                if (roadKmState && modeInput2.value.trim()) return true;
+                return modeInput1.value.trim().length >= 2;
+            }
+            return Boolean(readDraftCoordinates());
+        }
+
         function updatePlacePointButton() {
-            const coords = readDraftCoordinates();
-            placePointBtn.disabled = !coords;
+            placePointBtn.disabled = !canRunSearch();
         }
 
         function commitPoint(lat, lon, source, meta = {}) {
@@ -2688,6 +2982,9 @@ function drawBoundaryFromGeoJSON(data) {
             // selectPoint оставлен низкоуровневым: расставляет маркеры и запускает поиск.
             selectPoint(lat, lon, source);
             renderActivePoint();
+            // Если официальные участки уже загружены, ползунок должен
+            // соответствовать фактической точке по геометрии СКДФ.
+            if (source !== 'road-km') syncRoadKmSliderToPoint(lon, lat);
             updateStatusBar();
             if (!searchArmCheckbox.checked) {
                 // В обычном режиме поиск завершён — снимаем черновик.
@@ -2802,8 +3099,23 @@ function drawBoundaryFromGeoJSON(data) {
                 });
                 const data = await response.json();
                 if (sequence !== coordSyncSequence) return;
-                if (response.ok) modeInput2.value = `${data.x.toFixed(3)}, ${data.y.toFixed(3)}`;
-            } catch (e) { /* оставляем поле как есть */ }
+                if (response.ok) {
+                    modeInput2.value = `${data.x.toFixed(3)}, ${data.y.toFixed(3)}`;
+                    modeStatus.textContent = `МСК-61, зона ${data.zone}: X ${data.x.toFixed(3)}, Y ${data.y.toFixed(3)} (предварительно)`;
+                } else {
+                    modeInput2.value = '';
+                    modeStatus.textContent = typeof data.detail === 'string'
+                        ? data.detail
+                        : 'Не удалось пересчитать координаты в МСК-61.';
+                }
+                updatePlacePointButton();
+            } catch (e) {
+                if (sequence === coordSyncSequence) {
+                    modeInput2.value = '';
+                    modeStatus.textContent = 'Не удалось пересчитать координаты в МСК-61.';
+                    updatePlacePointButton();
+                }
+            }
         }
 
         async function syncWgsFromMsk() {
@@ -2840,58 +3152,106 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         modeInput1.addEventListener('change', syncCoordsFromWgs);
+        modeInput1.addEventListener('input', () => {
+            if (searchDraft.mode === 'coords') updatePlacePointButton();
+        });
         modeInput2.addEventListener('change', syncWgsFromMsk);
         modeActionBtn.addEventListener('click', () => {
-            if (modeActionBtn.dataset.mode === 'road') {
-                void applyRoadSearch?.();
-            } else {
-                cycleCrs();
-            }
+            // В режиме координат кнопка только переключает зону/систему МСК.
+            if (searchDraft.mode === 'coords') cycleCrs();
         });
 
         // === ЗАХВАТ РЕЖИМА ПОИСКА ===
         function applySearchArmState() {
             const armed = searchArmCheckbox.checked;
             document.getElementById('sidebar-left').classList.toggle('search-armed', armed);
+            const dock = document.getElementById('searchDock');
+            if (dock) dock.dataset.searchActive = String(armed);
             // Поля поиска блокируются, когда чекбокс ВЫКЛЮЧЕН.
-            // Ползунок километража — всегда активен (он в правом фрейме).
-            const fields = [modeInput1, modeInput2, modeActionBtn];
+            const fields = [modeInput1, modeInput2];
             fields.forEach(f => {
                 f.disabled = !armed;
                 if (!armed) f.classList.add('mode-disabled');
                 else f.classList.remove('mode-disabled');
             });
+            if (searchDraft.mode === 'coords') modeActionBtn.disabled = !armed;
             updatePlacePointButton();
-            // Кнопка «Поставить точку» доступна только когда поиск активен.
+            // Кнопка поиска доступна только когда поиск активен.
             // При выключенном поиске точка ставится сразу dblclick/ползунком.
-            placePointBtn.disabled = !armed || !readDraftCoordinates();
             if (armed) showHotkeyHint('Режим поиска: клики по карте и километраж заблокированы');
             scheduleStateSave();
         }
 
-        searchArmCheckbox.addEventListener('change', applySearchArmState);
-        placePointBtn.addEventListener('click', () => {
-            const coords = readDraftCoordinates();
-            if (!coords) { showToast('Выберите объект или введите координаты', 'error'); return; }
-            let meta = {};
+        // Контекстное действие кнопки-лупы и Enter.
+        async function runSearchAction() {
+            if (!searchArmCheckbox.checked) return;
             if (searchDraft.mode === 'address') {
-                meta = { address: coords.label };
+                let coords = readDraftCoordinates();
+                if (!coords) {
+                    const query = modeInput1.value.trim();
+                    if (query.length < 3) { showToast('Введите адрес (минимум 3 символа)', 'error'); return; }
+                    coords = await resolveAddressCandidate(query);
+                    if (!coords) return;
+                }
+                commitPoint(coords.lat, coords.lon, 'address', { address: coords.label });
             } else if (searchDraft.mode === 'road') {
-                meta = {
-                    roadLabel: searchDraft.roadLabel || (searchDraft.road && searchDraft.road.title) || 'Дорога',
-                    roadKm: searchDraft.roadKm,
-                };
+                if (roadKmState) {
+                    const raw = modeInput2.value.trim() || roadKmNumber.value.trim()
+                        || String(roadKmSlider.value || '');
+                    const officialKm = parseRoadKmNumber(raw);
+                    if (!Number.isFinite(officialKm)) {
+                        modeStatus.textContent = 'Введите километр в формате 915+000 или 915.5.';
+                        return;
+                    }
+                    const point = previewRoadKm(officialKm);
+                    if (!point) { modeStatus.textContent = 'Не удалось определить координаты километра.'; return; }
+                    commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
+                } else {
+                    const coords = readDraftCoordinates();
+                    if (coords) {
+                        commitPoint(coords.lat, coords.lon, 'road-km', {
+                            roadLabel: searchDraft.roadLabel || (searchDraft.road && searchDraft.road.title) || 'Дорога',
+                            roadKm: searchDraft.roadKm,
+                        });
+                    } else {
+                        const query = modeInput1.value.trim();
+                        if (query.length < 2) { showToast('Введите название или код дороги', 'error'); return; }
+                        if (useLocalRoadData) await searchLocalRoad();
+                        else await resolveOnlineRoad({ query });
+                        return;
+                    }
+                }
+            } else {
+                const coords = readDraftCoordinates();
+                if (!coords) {
+                    modeStatus.textContent = 'Введите координаты в формате 47.23, 39.72 или DMS.';
+                    showToast('Введите корректные координаты', 'error');
+                    return;
+                }
+                commitPoint(coords.lat, coords.lon, 'coords');
             }
-            commitPoint(coords.lat, coords.lon,
-                searchDraft.mode === 'address' ? 'address'
-                    : searchDraft.mode === 'road' ? 'road-km' : 'coords', meta);
-            if (searchArmCheckbox.checked) {
-                searchArmCheckbox.checked = false;
-                applySearchArmState();
-            }
+            searchArmCheckbox.checked = false;
+            applySearchArmState();
             showToast('📍 Точка поставлена', 'success');
-        });
+        }
 
+        let searchArmEverActivated = false;
+        searchArmCheckbox.addEventListener('change', () => {
+            // При первом включении поиска в этой сессии всегда стартуем с
+            // поиска дороги, даже если прошлая сессия восстановила другой режим.
+            if (searchArmCheckbox.checked && !searchArmEverActivated) {
+                searchArmEverActivated = true;
+                setSearchMode('road');
+            }
+            applySearchArmState();
+        });
+        placePointBtn.addEventListener('click', () => { void runSearchAction(); });
+        modeInput1.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); void runSearchAction(); }
+        });
+        modeInput2.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); void runSearchAction(); }
+        });
         const SOURCE_LABELS = {
             click: '✅ Точка выбрана (двойной клик по карте)',
             coords: '✅ Точка по координатам',
@@ -2929,6 +3289,7 @@ function drawBoundaryFromGeoJSON(data) {
                 autoScreenshot: document.getElementById('autoScreenshotCheckbox').checked,
                 localBoundary: document.getElementById('localBoundaryCheckbox').checked,
                 searchMode: searchDraft.mode,
+                searchPosition: searchPosition,
                 crs: crsState,
             };
         }
@@ -2976,6 +3337,9 @@ function drawBoundaryFromGeoJSON(data) {
                 document.getElementById('localBoundaryCheckbox').checked = preferences.localBoundary;
             }
             if (preferences.searchMode) setSearchMode(preferences.searchMode);
+            if (preferences.searchPosition === 'top' || preferences.searchPosition === 'bottom') {
+                applySearchDockPosition(preferences.searchPosition, false);
+            }
             if (preferences.crs && CRS_ORDER.includes(preferences.crs)) {
                 crsState = preferences.crs;
                 updateCrsLabel();
@@ -3004,7 +3368,9 @@ function drawBoundaryFromGeoJSON(data) {
             if (workspace.leftCollapsed) document.getElementById('sidebar-left').classList.add('collapsed');
             if (workspace.rightCollapsed) document.getElementById('sidebar-right').classList.add('collapsed');
             if (workspace.searchMode) setSearchMode(workspace.searchMode);
-            searchArmCheckbox.checked = Boolean(workspace.searchArmed);
+            // Чекбокс поиска при загрузке страницы всегда снят; сохранённое
+            // armed-состояние не должно включать его автоматически.
+            searchArmCheckbox.checked = false;
             applySearchArmState();
             if (Array.isArray(workspace.batch)) {
                 batchPoints = workspace.batch
@@ -3118,32 +3484,56 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
+        // Перемещает единый блок поиска между верхом карты и статус-баром.
+        function applySearchDockPosition(position, persist) {
+            const next = position === 'bottom' ? 'bottom' : 'top';
+            const dock = document.getElementById('searchDock');
+            const topHost = document.getElementById('searchDockTopHost');
+            const bottomHost = document.getElementById('searchDockBottomHost');
+            const statusBar = document.getElementById('status-bar');
+            if (!dock || !topHost || !bottomHost || !statusBar) return;
+            if (next === 'bottom') bottomHost.appendChild(dock);
+            else topHost.appendChild(dock);
+            dock.dataset.position = next;
+            statusBar.classList.toggle('search-bottom', next === 'bottom');
+            // В верхнем варианте поиск не занимает статус-бар, поэтому
+            // возвращаем туда строку текущего положения.
+            const statusPointText = document.getElementById('statusPointText');
+            if (statusPointText) statusPointText.hidden = next === 'bottom';
+            // При поиске сверху освобождаем верхний левый угол карты и
+            // переносим масштаб вниз; в статус-баре возвращаем наверх.
+            if (typeof mapZoomControl !== 'undefined' && mapZoomControl) {
+                mapZoomControl.setPosition(next === 'top' ? 'bottomleft' : 'topleft');
+            }
+            document.getElementById('searchPositionSelect').value = next;
+            searchPosition = next;
+            if (persist) {
+                try { localStorage.setItem('albion_search_position', next); } catch (e) { /* ignore */ }
+            }
+            // После переноса DOM подсказки и статус остаются у блока.
+            document.getElementById('modeSuggestions').classList.remove('open');
+        }
+
         // === НАСТРОЙКА ПАНЕЛИ ПОИСКА ===
         function setupSearchPanel() {
+            // Блок поиска лежит поверх #map; события ввода не должны доходить
+            // до Leaflet и превращаться в dblclick/contextmenu по карте.
+            const dockElement = document.getElementById('searchDock');
+            for (const type of ['click', 'dblclick', 'mousedown', 'mouseup', 'contextmenu', 'wheel', 'keydown']) {
+                dockElement.addEventListener(type, event => event.stopPropagation());
+            }
             for (const button of document.querySelectorAll('.mode-btn')) {
                 button.addEventListener('click', () => setSearchMode(button.dataset.mode));
             }
-            // «Найти» в режиме дорог: если участки уже загружены — применяем
-            // введённый километр, иначе ищем дорогу в локальной базе.
-            const applyRoadSearch = () => {
-                if (roadKmState) {
-                    const officialKm = parseRoadKmNumber(modeInput2.value);
-                    if (Number.isFinite(officialKm)) {
-                        const point = previewRoadKm(officialKm);
-                        if (point && !searchArmCheckbox.checked) {
-                            commitPoint(point.lat, point.lon, 'road-km', roadMeta(officialKm));
-                        }
-                        return;
-                    }
-                    modeStatus.textContent = 'Введите километр в формате 915+000 или 915.5.';
-                    return;
-                }
-                void searchLocalRoad();
-            };
-            modeActionBtn.addEventListener('click', applyRoadSearch);
-            modeInput2.addEventListener('keydown', event => {
-                if (event.key === 'Enter') { event.preventDefault(); applyRoadSearch(); }
-            });
+            // Переключатель положения блока поиска: сверху карты / в статус-баре.
+            const positionSelect = document.getElementById('searchPositionSelect');
+            if (positionSelect) {
+                positionSelect.addEventListener('change', () => {
+                    applySearchDockPosition(positionSelect.value, true);
+                    scheduleStateSave();
+                });
+            }
+            applySearchDockPosition(searchPosition, false);
             // Автосохранение настроек: чувствительные операции (аккаунт,
             // пользователи) по-прежнему отправляются кнопками.
             for (const id of ['radius', 'excludeMinor', 'settingDelay',
@@ -3153,13 +3543,18 @@ function drawBoundaryFromGeoJSON(data) {
                     if (id === 'settingDelay' || id === 'autoScreenshotCheckbox' || id === 'localBoundaryCheckbox') {
                         saveScreenshotSettings({ silent: true });
                     }
+                    if (id === 'localBoundaryCheckbox') {
+                        screenshotSettings.localBoundary = document.getElementById('localBoundaryCheckbox').checked;
+                        void loadRostovBoundary();
+                    }
                 });
             }
             map.on('moveend zoomend', scheduleStateSave);
             updateCrsLabel();
             let savedMode = null;
             try { savedMode = localStorage.getItem('albion_search_mode'); } catch (e) { /* ignore */ }
-            setSearchMode(savedMode === 'address' || savedMode === 'road' ? savedMode : 'coords');
+            // По умолчанию открыт поиск трассы.
+            setSearchMode(savedMode === 'address' || savedMode === 'coords' ? savedMode : 'road');
             applySearchArmState();
             renderActivePoint();
             updateStatusBar();
@@ -3207,13 +3602,11 @@ function drawBoundaryFromGeoJSON(data) {
         // Сброс рабочей сессии: состояние карты/панелей/черновика, но не избранное.
         async function resetWorkspace() {
             if (!confirm('Очистить рабочую сессию? Избранное и настройки сохранятся.')) return;
-            clearBatchPoints?.();
-            clearSelectedPoint();
-            searchDraft.mode = 'coords';
-            searchDraft.addressLat = null;
-            searchDraft.addressLon = null;
-            searchDraft.road = null;
-            searchDraft.roadKm = null;
+            // Одно подтверждение покрывает и batch-список, поэтому внутренний
+            // confirm очистки batch пропускаем.
+            clearBatchPoints(true);
+            clearSelectedPoint(false);
+            setSearchMode('road');
             searchArmCheckbox.checked = false;
             applySearchArmState();
             map.setView(DEFAULT_CENTER, 7);
@@ -3296,17 +3689,34 @@ function drawBoundaryFromGeoJSON(data) {
             // источником и позволяет обойтись без пересоздания полей.
             const source = document.getElementById('settings-source');
             const sourcePanel = document.getElementById('geoStatusPanel');
+            const mskPanel = document.getElementById('mskSearchPanel');
             if (source) {
                 for (const node of Array.from(source.children)) content.appendChild(node);
             }
             if (sourcePanel) content.appendChild(sourcePanel);
+            // Полный калькулятор МСК-61 раньше оставался в hidden-обёртке и был
+            // недоступен; переносим его в настройки.
+            if (mskPanel) content.appendChild(mskPanel);
             dialog.append(header, content); modal.appendChild(dialog); document.body.appendChild(modal);
             modal.addEventListener('mousedown', event => { if (event.target === modal) closeSettingsModal(); });
             document.getElementById('settingsOpenButton')?.addEventListener('click', openSettingsModal);
             const gear = document.getElementById('settingsOpenButton');
             if (gear) gear.setAttribute('aria-haspopup', 'dialog');
             document.addEventListener('keydown', event => {
-                if (event.key === 'Escape' && modal.classList.contains('open')) closeSettingsModal();
+                if (!modal.classList.contains('open')) return;
+                if (event.key === 'Escape') { closeSettingsModal(); return; }
+                if (event.key !== 'Tab') return;
+                const focusable = Array.from(dialog.querySelectorAll(
+                    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+                )).filter(element => element.offsetParent !== null);
+                if (!focusable.length) { event.preventDefault(); return; }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault(); last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault(); first.focus();
+                }
             });
         }
 
@@ -3633,15 +4043,33 @@ function drawBoundaryFromGeoJSON(data) {
             }).then(function (dataUrl) {
                 const img = new Image();
                 img.onload = function() {
+                    const mapElement = document.getElementById('map');
+                    const mapRect = mapElement.getBoundingClientRect();
+                    // rectBounds — координаты viewport, а dom-to-image снял саму
+                    // карту. Переводим crop в систему координат изображения и
+                    // учитываем возможный DPR/масштаб растеризации.
+                    const scaleX = img.naturalWidth / Math.max(1, mapRect.width);
+                    const scaleY = img.naturalHeight / Math.max(1, mapRect.height);
+                    const left = Math.max(0, rectBounds.left - mapRect.left);
+                    const top = Math.max(0, rectBounds.top - mapRect.top);
+                    const width = Math.min(mapRect.width - left, rectBounds.width);
+                    const height = Math.min(mapRect.height - top, rectBounds.height);
+                    const sx = Math.max(0, left * scaleX);
+                    const sy = Math.max(0, top * scaleY);
+                    const sw = Math.max(1, width * scaleX);
+                    const sh = Math.max(1, height * scaleY);
                     const canvas = document.createElement('canvas');
-                    canvas.width = rectBounds.width; canvas.height = rectBounds.height;
+                    canvas.width = Math.max(1, Math.round(sw));
+                    canvas.height = Math.max(1, Math.round(sh));
                     const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, rectBounds.left, rectBounds.top, rectBounds.width, rectBounds.height, 0, 0, rectBounds.width, rectBounds.height);
+                    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
                     capturedImageData = canvas.toDataURL('image/png');
                     canvas.toBlob(blob => { capturedBlob = blob; }, 'image/png');
                     rect.style.display = 'block';
-                    menu.style.left = rectBounds.left + 'px'; 
-                    menu.style.top = (rectBounds.bottom + 5) + 'px';
+                    // Меню — потомок #map, поэтому left/top задаются относительно
+                    // карты, а не viewport.
+                    menu.style.left = left + 'px';
+                    menu.style.top = (top + height + 5) + 'px';
                     menu.style.display = 'block';
                     if (screenshotSettings.autoScreenshotEnabled) startAutoSaveCountdown();
                 };
@@ -3863,7 +4291,7 @@ function drawBoundaryFromGeoJSON(data) {
             showToast('🗑 Поиск очищен', 'success');
         }
 
-        function clearSelectedPoint() {
+        function clearSelectedPoint(persist = true) {
             pointRevision += 1;
             activePoint = null;
             if (clickMarker) { map.removeLayer(clickMarker); clickMarker = null; }
@@ -3880,11 +4308,18 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('addBookmarkBtn').disabled = true;
             renderActivePoint();
             updateStatusBar();
+            if (persist) scheduleStateSave();
         }
 
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         dropZone.onclick = () => fileInput.click();
+        dropZone.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInput.click();
+            }
+        });
         dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('hover'); };
         dropZone.ondragleave = () => dropZone.classList.remove('hover');
         dropZone.ondrop = (e) => { 
@@ -3900,10 +4335,17 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('loader').style.display = 'block';
             document.getElementById('errorContainer').innerHTML = '';
             try {
+                if (!/^image\/(jpeg|tiff)$/i.test(file.type || '') && !/\.(jpe?g|tiff?)$/i.test(file.name || '')) {
+                    throw new Error('Поддерживаются только JPEG и TIFF с EXIF GPS');
+                }
                 const form = new FormData();
                 form.append('photo', file);
                 const exifRes = await apiFetch('/api/exif', { method: 'POST', body: form });
-                if (!exifRes.ok) throw new Error(`Ошибка сервера ${exifRes.status}`);
+                if (!exifRes.ok) {
+                    let detail = '';
+                    try { detail = (await exifRes.json()).detail || ''; } catch (e) { /* ignore */ }
+                    throw new Error(typeof detail === 'string' && detail ? detail : `Ошибка сервера ${exifRes.status}`);
+                }
                 const exif = await exifRes.json();
                 if (!exif || typeof exif.lat !== 'number' || typeof exif.lon !== 'number') {
                     throw new Error('Не удалось извлечь координаты из EXIF');
@@ -3930,8 +4372,11 @@ function drawBoundaryFromGeoJSON(data) {
                 radius: 8, fillColor: "#e74c3c", color: "#ffffff", weight: 2, fillOpacity: 1
             }).addTo(map);
 
-            // Поле WGS синхронизируется с поставленной точкой.
-            modeInput1.value = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            // Поле WGS синхронизируется с точкой только в координатном режиме;
+            // в режимах адреса/дорог нельзя затирать поисковый запрос.
+            if (searchDraft.mode === 'coords') {
+                modeInput1.value = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+            }
 
             document.getElementById('clearPointBtn').style.display = 'block';
             document.getElementById('resultsFrame').style.display = 'block';
@@ -3972,7 +4417,7 @@ function drawBoundaryFromGeoJSON(data) {
 
                 const historyLabel = (activePoint?.roadLabel && Number.isFinite(activePoint?.roadKm)
                     ? `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`
-                    : activePoint?.address) || '';
+                    : activePoint?.address) || `${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)}`;
                 const historySource = activePoint?.source || 'manual';
                 addToHistory(lat, lon, historySource, historyLabel);
                 // Обновляем результат «на месте», не перерисовывая весь блок,
@@ -4133,8 +4578,8 @@ let batchPoints = [];
 let batchEdit = { activeId: null, original: null, showAll: false };
 let batchMarkerIndex = new Map();
 
-function clearBatchPoints() {
-    if (batchPoints.length && !confirm('Очистить список точек и убрать их с карты?')) return;
+function clearBatchPoints(skipConfirm = false) {
+    if (!skipConfirm && batchPoints.length && !confirm('Очистить список точек и убрать их с карты?')) return;
     batchEdit.activeId = null;
     batchEdit.original = null;
     batchPoints = [];
@@ -4257,9 +4702,12 @@ async function handleBatchFiles(input) {
         const data = await res.json();
 
         let successCount = 0;
-        let errorCount = 0;
+        const errors = [];
         data.forEach(item => {
-            if (item.error) { errorCount++; return; }
+            if (item.error) {
+                errors.push(`${item.filename || 'файл'}: ${item.error}`);
+                return;
+            }
             successCount++;
             // clientId — стабильный ключ строки и маркера, не зависит от координат.
             batchPoints.push({
@@ -4272,8 +4720,14 @@ async function handleBatchFiles(input) {
         });
         renderBatchList();
         updateBatchShowButton();
-        status.textContent = `✅ Успешно: ${successCount} | ❌ Ошибок: ${errorCount}`;
-        if (batchEdit.showAll) showBatchPointsOnMap();
+        status.textContent = `✅ Успешно: ${successCount} | ❌ Ошибок: ${errors.length}`;
+        status.title = errors.join('\n');
+        if (errors.length) {
+            status.textContent += ` · ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? ' …' : ''}`;
+        }
+        // Перерисовываем маркеры, не меняя флаг видимости: добавление файлов
+        // при включённом «Показать все» не должно скрывать слой.
+        if (batchEdit.showAll) renderBatchMarkers(false);
         showToast(successCount ? `📦 Загружено точек: ${successCount}` : '⚠️ GPS-координаты не найдены', successCount ? 'info' : 'error');
     } catch (e) {
         console.error(e);
@@ -4387,6 +4841,22 @@ function resetBatchMarkerStyles() {
     });
 }
 
+// Идемпотентная перерисовка слоя: не меняет showAll и не зависит от него.
+function renderBatchMarkers(fitBounds = true) {
+    batchLayerGroup.clearLayers();
+    batchMarkerIndex.clear();
+    for (const point of batchPoints) createBatchMarker(point);
+    if (batchEdit.activeId) {
+        const active = batchMarkerIndex.get(batchEdit.activeId);
+        if (active) active.setIcon(batchIcon('#2f9e44'));
+    }
+    if (fitBounds) {
+        const bounds = batchLayerGroup.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+    }
+    updateBatchShowButton();
+}
+
 function showBatchPointsOnMap() {
     if (!batchPoints.length) { showToast('Нет точек для отображения', 'error'); return; }
     batchEdit.showAll = !batchEdit.showAll;
@@ -4396,16 +4866,7 @@ function showBatchPointsOnMap() {
         updateBatchShowButton();
         return;
     }
-    batchLayerGroup.clearLayers();
-    batchMarkerIndex.clear();
-    for (const point of batchPoints) createBatchMarker(point);
-    if (batchEdit.activeId) {
-        const active = batchMarkerIndex.get(batchEdit.activeId);
-        if (active) active.setIcon(batchIcon('#2f9e44'));
-    }
-    const bounds = batchLayerGroup.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
-    updateBatchShowButton();
+    renderBatchMarkers(true);
     showToast(`🗺️ Отображено точек: ${batchPoints.length}`, 'success');
 }
     </script>
