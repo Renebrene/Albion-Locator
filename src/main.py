@@ -1241,6 +1241,12 @@ async def api_locate(req: LocateRequest):
         rn = props.get("road_name", "")
         federal = find_federal_road(rn)
         names = federal if federal else await format_road_names(props)
+        road_code = None
+        for value in (props.get("value_of_the_road"), rn, names.get("skdf_name")):
+            candidate = canonical_road_code(str(value or ""))
+            if candidate:
+                road_code = candidate
+                break
         try:
             category_id = int(props.get("category_gid")) if props.get("category_gid") is not None else None
             coating_id = int(props.get("coating_gid")) if props.get("coating_gid") is not None else None
@@ -1256,6 +1262,7 @@ async def api_locate(req: LocateRequest):
     return LocateResponse(
         point={"lat": lat, "lon": lon, "bearing": None},
         road={"skdf_name": names["skdf_name"], "full_name": names["full_name"],
+              "road_code": road_code,
               "source": "СКДФ WFS",
               "distance_m": (road_info or {}).get("_distance_m"),
               "category": cat, "coating": coat,
@@ -1294,6 +1301,7 @@ def _offline_nearest_response(lat: float, lon: float, radius: int, exclude_categ
     road = {
         "skdf_name": nearest.get("name") or nearest.get("ref") or "Локальная дорога",
         "full_name": nearest.get("name") or nearest.get("ref") or "Локальная дорога",
+        "road_code": canonical_road_code(str(nearest.get("ref") or nearest.get("name") or "")),
         "source": nearest.get("source", "локальная база"),
         "distance_m": side["distance_m"],
         "category": "",

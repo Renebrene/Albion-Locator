@@ -890,6 +890,7 @@ def test_location_picks_closest_line_geometry_and_returns_it(monkeypatch, tmp_pa
     monkeypatch.setattr(main, "_wfs_getfeature", AsyncMock(return_value=[feature_far, feature_near]))
     result = client.post("/api/locate", json={"lat": 47.201, "lon": 39.72, "radius": 2000}).json()
     assert result["road"]["full_name"].startswith("М-4")
+    assert result["road"]["road_code"] == "М-4"
     assert result["road"]["geometry"]["type"] == "LineString"
     assert result["road"]["category"] == "Автомагистраль"
     assert result["side"]["km_estimate"] == pytest.approx(2.0, abs=0.1)
