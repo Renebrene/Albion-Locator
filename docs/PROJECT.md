@@ -1,0 +1,233 @@
+# Albion Locator Autonom — документация проекта
+
+**Актуально на:** 20.10.2026  
+**Ветка:** `feature/ui-variant-a`  
+**Активная сборка:** `src/main.py` + корневой `static/index.html`.  
+Файлы `src/static/`, `release/`, `src/main (Copy*)`, `static/main.py` — архивные и не являются entry point.
+
+## 1. Назначение
+
+Локальное веб-приложение для работы с точками и дорогами Ростовской области:
+
+- выбор точки на карте, по координатам, адресу или EXIF фотографии;
+- поиск ближайшей дороги через СКДФ WFS или локальный SQLite-индекс;
+- официальный километраж трассы по участкам `start_km`/`finish_km` СКДФ;
+- предварительный калькулятор WGS84 ↔ МСК-61;
+- персональные история, закладки, настройки и рабочая сессия;
+- пакетная обработка фотографий;
+- скриншоты карты.
+
+Приложение ориентировано на локальный Linux-деплой и loopback/LAN. Полностью автономным оно не является: OSM-тайлы, СКДФ WFS и Yandex API требуют сети.
+
+## 2. Технологический стек
+
+| Слой | Технологии |
+|---|---|
+| Backend | Python 3.11+, FastAPI, Uvicorn, Pydantic, HTTPX |
+| Auth/state | SQLite (`src/users.db`), PBKDF2-HMAC-SHA256, cookie-сессии |
+| EXIF | Pillow, piexif |
+| Frontend | HTML/CSS/Vanilla JS, Leaflet 1.9.4, dom-to-image-more |
+| Android/desktop | не используется |
+| Offline geo | SQLite, FTS5, RTree (`packages/offline_geo`) |
+| Тесты | pytest, pytest subtests, Bun test, Playwright |
+| Деплой | systemd user unit, порт 8021 |
+
+## 3. Архитектура
+
+```text
+Браузер
+  ├─ static/index.html: UI, Leaflet, inline JS
+  ├─ /static/vendor/: Leaflet CSS/JS/images, dom-to-image-more
+  └─ same-origin HTTP + cookie albion_session
+          │
+          ▼
+FastAPI / Uvicorn (src/main.py)
+  ├─ auth.py          — пользователи, сессии, preferences/workspace, bookmarks, history
+  ├─ batch.py         — пакетное чтение EXIF
+  ├─ СКДФ WFS         — дорожная геометрия и официальные участки
+  ├─ Yandex Geocoder  — адреса, дороги, reverse geocode
+  ├─ offline_geo      — опциональный локальный индекс
+  └─ MBTiles          — опциональные локальные тайлы
+```
+
+### Основные backend-модули
+
+- `src/main.py` — FastAPI app, API-маршруты, WFS/Yandex proxy, геометрия, EXIF, статика, security middleware.
+- `src/auth.py` — SQLite-схема, пользователи, сессии, PBKDF2, персональные настройки/workspace, закладки, история.
+- `src/batch.py` — ограничения и пакетное извлечение GPS EXIF.
+- `packages/offline_geo` — самостоятельный SQLite-индекс: адреса, улицы, дома, дороги, nearest road.
+
+### Frontend
+
+Один файл `static/index.html` без сборщика. Основные блоки:
+
+- левый фрейм: вкладки **Точка / Пакетный поиск / Сохранённое**, карточка текущей точки;
+- карта Leaflet;
+- правый фрейм: стабильный блок «Источник СКДФ», официальный километраж;
+- статус-бар: копирование, поиск/положение, точка призрака, автоскриншот, справка, настройки, сброс;
+- единый блок поиска: сверху карты или в статус-баре (переключается в настройках);
+- модальные настройки, справка, тосты.
+
+## 4. Поиск и синхронизация
+
+### Режимы поиска
+
+- **Адрес** — Yandex SuggestView + серверный geocode; поле показывает определённый адрес.
+- **Координаты** — WGS84/DMS или МСК-61 (зоны 1–3), кнопка переключения системы.
+- **Дороги** — подсказки по мере ввода, выбор трассы, автозагрузка участков СКДФ.
+
+Чекбокс активации включает строку поиска. Он **не блокирует карту**. В активном режиме поиска блокируются пакетная загрузка и загрузка фото. После успешной загрузки фото поиск блокируется до «Очистить точку».
+
+### Официальный километраж
+
+- По умолчанию выключен; включается чекбоксом рядом с полем.
+- При включении поле/ползунок заполняются км из СКДФ.
+- Ползунок и поле двигают точку вдоль геометрии участка; `change`/Enter/«Перейти» фиксируют результат.
+- Новая точка пересчитывает официальный км проекцией на участки.
+- Разрывы и перекрытия участков обрабатываются явно; расхождения <50 м считаются стыком.
+- Участки загружаются автоматически при наличии `road_code` у найденной дороги.
+
+### Точка призрака
+
+Кнопка 👻 в статус-баре. При активном километраже ползунок двигает зелёный клон, исходная красная точка остаётся. «Перейти» удаляет исходную точку и делает призрак красным.
+
+## 5. Данные и хранение
+
+| Данные | Расположение |
+|---|---|
+| Пользователи, сессии, preferences, workspace, закладки, история | `src/users.db` (`ALBION_USERS_DB`) |
+| Настройки скриншота (без координат) | `src/user_settings.json` |
+| Локальный геоиндекс | `ALBION_GEO_DATA_DIR/offline_geo.sqlite3` |
+| Локальные тайлы | `ALBION_BASEMAP_MBTILES` |
+| Граница области | `static/rostov_boundary.geojson` |
+| Скриншоты серверного API | `src/screenshots/` |
+| Скриншоты браузера | file picker / Downloads |
+| Тема и часть UI-настроек | localStorage |
+
+Общий `last_point` больше не используется. Позиция карты восстанавливается из персонального workspace.
+
+## 6. Внешние интеграции
+
+- **СКДФ WFS** `skdf_open:lyr_road_by_value_line` — ближайшая дорога и официальные участки.
+- **Yandex Geocoder** — адрес → координаты, reverse geocode, поиск дорог.
+- **Yandex SuggestView** — подсказки адресов (JS API/Geosuggest keys).
+- **OSM tiles** — подложка карты.
+- **Overpass** — резервный контур области, если локальный GeoJSON недоступен.
+
+Ключи Yandex хранятся в `.env`; client-visible ключи выдаются только после входа через `/api/maps-config`. Server-side `YANDEX_API_KEY` в браузер не передаётся.
+
+## 7. API (кратко)
+
+| Endpoint | Назначение |
+|---|---|
+| `GET /`, `/static/...` | UI и allowlist статики |
+| `GET /api/health` | health-check |
+| `POST /api/auth/login`, `/logout`; `GET /api/auth/me` | аутентификация |
+| `/api/users...` | управление пользователями (admin) |
+| `POST /api/locate` | ближайшая дорога (external/local) |
+| `POST /api/roads/online/search` | поиск трасс/дорог |
+| `POST /api/roads/online/sections` | официальные участки СКДФ |
+| `POST /api/exif`, `/api/batch/upload` | GPS из фото |
+| `POST /api/address/online/geocode`, `/api/geocode/reverse` | адрес ↔ координаты |
+| `POST /api/msk61/from-geographic`, `/to-geographic` | МСК-61 |
+| `/api/user/preferences`, `/api/user/workspace` | персональное состояние |
+| `/api/bookmarks`, `/api/history` | закладки и история |
+| `/api/screenshot-settings`, `/api/save-screenshot` | скриншоты |
+
+Полная схема — `/docs` и `/openapi.json` запущенного приложения.
+
+## 8. Конфигурация
+
+Основные переменные:
+
+| Переменная | Назначение |
+|---|---|
+| `ALBION_USERS_DB` | путь SQLite users/state |
+| `ALBION_OFFLINE` | локальный источник дорог по умолчанию |
+| `ALBION_GEO_DATA_DIR` | каталог offline index / MBTiles |
+| `ALBION_BASEMAP_MBTILES` | явный путь MBTiles |
+| `ALBION_ALLOWED_ORIGINS` | дополнительные Origin |
+| `YANDEX_JS_API_KEY` | Yandex JS API |
+| `YANDEX_SUGGEST_API_KEY` | Yandex SuggestView |
+| `YANDEX_API_KEY` | server-side Geocoder/reverse |
+| `YANDEX_STATIC_API_KEY` | резерв/не используется |
+| `OLLAMA_HOST`, `OLLAMA_MODEL` | dormant helper, не в активном flow |
+
+`.env` не коммитится; пример — `.env.example`.
+
+## 9. Запуск и деплой
+
+```bash
+uv venv .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+.venv/bin/python -m uvicorn main:app --app-dir src --host 127.0.0.1 --port 8021
+```
+
+Установленная конфигурация:
+
+```bash
+systemctl --user status albion-locator-autonom.service
+systemctl --user restart albion-locator-autonom.service
+journalctl --user -u albion-locator-autonom.service -f
+```
+
+Unit: `~/.config/systemd/user/albion-locator-autonom.service`, порт `8021`, lingering включён. Health: `curl http://127.0.0.1:8021/api/health`.
+
+## 10. Тестирование и QA
+
+```bash
+# Backend/API
+.venv/bin/pytest -q tests --ignore=tests/e2e
+
+# Offline package
+PYTHONPATH=packages/offline_geo/src .venv/bin/pytest -q packages/offline_geo/tests
+
+# Frontend unit
+bun test tests/js
+
+# Browser E2E
+uv pip install --python .venv/bin/python -r requirements-e2e.txt
+.venv/bin/playwright install chromium
+.venv/bin/pytest -q tests/e2e
+```
+
+Текущие результаты: Python **138 passed** (+52 offline tests), Bun **24 passed**, Playwright **13 passed**, axe-core **0 violations**.
+
+QA-документы:
+
+- `docs/qa-agent-improvement-plan.md` — план и статус;
+- `docs/performance-nearest-road.md` — RTree/benchmark;
+- `docs/performance-runtime.md` — память/CPU;
+- `docs/accessibility-audit.md` — axe;
+- `docs/provider-live-check.md` — live Yandex/WFS;
+- `docs/CHANGES-2026-10-20.md` — последние изменения.
+
+## 11. Безопасность
+
+- Все `/api/*`, кроме health/login, требуют cookie-сессию.
+- Cookie HttpOnly, SameSite=Lax, TTL 30 дней; `Secure` не выставляется для loopback.
+- Mutating API проверяет Origin.
+- Пароли — PBKDF2-HMAC-SHA256 с солью; сессионные токены хранятся в БД хэшами.
+- Загрузки ограничены по размеру/формату; PNG валидируется; путь сохранения фиксирован.
+- Статика отдаётся по allowlist, а не всем каталогом.
+- Перед публикацией в интернет: сменить стартовый пароль, включить HTTPS/Secure cookie, настроить proxy/origin, проверить rate limiting и отозвать старые ключи.
+
+## 12. Известные ограничения
+
+- OSM-тайлы, СКДФ WFS и Yandex API требуют сети и квот.
+- Локальный региональный SQLite index/MBTiles в репозиторий не входят.
+- МСК-61 — предварительный расчёт; требуется официальная сверка.
+- Официальный километраж зависит от полноты и качества слоя СКДФ.
+- Workflow `.github/workflows/qa.yml` подготовлен, но для публикации нужен PAT со scope `workflow`.
+- Полная ручная screen-reader/контрастная проверка остаётся отдельным шагом.
+
+## 13. Диагностика
+
+| Симптом | Что проверить |
+|---|---|
+| Страница не грузится | `systemctl --user status`, `/api/health`, DevTools Console |
+| Карта серая | OSM-тайлы / сеть; локальные тайлы — `ALBION_BASEMAP_MBTILES` |
+| Нет подсказок адреса | `YANDEX_JS_API_KEY`, `YANDEX_SUGGEST_API_KEY`, `/api/maps-config` |
+| Нет километража | код дороги, `/api/roads/online/sections`, чекбокс активации |
+| Пустой локальный поиск | `ALBION_GEO_DATA_DIR/offline_geo.sqlite3` |
+| Старое поведение UI | жёсткая перезагрузка `Ctrl+Shift+R`; статика отдаётся с `no-store` |
