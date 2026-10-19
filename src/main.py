@@ -640,6 +640,240 @@ def _route_sections_from_features(features: list[dict], code: str) -> tuple[list
     return sections, name
 
 
+# ========== ПРИБЛИЗИТЕЛЬНАЯ ГЕОМЕТРИЯ ДОРОГИ (OSM) ==========
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_TIMEOUT = 45.0
+_OVERPASS_GEOMETRY_CACHE: dict[str, tuple[float, list[dict]]] = {}
+OVERPASS_GEOMETRY_CACHE_TTL = 600.0
+_HIGHWAY_RANK = {
+    "motorway": 6, "trunk": 5, "primary": 4,
+    "secondary": 3, "tertiary": 2, "unclassified": 1,
+}
+
+
+def _overpass_way_points(way: dict) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for item in way.get("geometry") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            lon, lat = float(item.get("lon")), float(item.get("lat"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(lon) and math.isfinite(lat):
+            points.append((lon, lat))
+    return points
+
+
+def _line_length_km(points: list[tuple[float, float]]) -> float:
+    return sum(
+        _haversine(points[index - 1][0], points[index - 1][1], points[index][0], points[index][1])
+        for index in range(1, len(points))
+    ) / 1000.0
+
+
+def _way_endpoint(point: tuple[float, float]) -> tuple[float, float]:
+    return (round(point[0], 6), round(point[1], 6))
+
+
+def _point_distance_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return _haversine(a[0], a[1], b[0], b[1]) / 1000.0
+
+
+def _group_overpass_ways(ways: list[dict]) -> list[list[dict]]:
+    """Group OSM ways into connected components by shared endpoints."""
+    parent = list(range(len(ways)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    endpoints: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    by_point: dict[tuple[float, float], int] = {}
+    for index, way in enumerate(ways):
+        points = _overpass_way_points(way)
+        first, last = _way_endpoint(points[0]), _way_endpoint(points[-1])
+        endpoints.append((first, last))
+        for point in (first, last):
+            if point in by_point:
+                union(index, by_point[point])
+            else:
+                by_point[point] = index
+
+    components: dict[int, list[dict]] = {}
+    for index, way in enumerate(ways):
+        components.setdefault(find(index), []).append(way)
+    return [component for component in components.values() if len(component) >= 1]
+
+
+def _order_component_ways(ways: list[dict], hint: tuple[float, float] | None) -> list[dict]:
+    """Greedily chain ways by nearest endpoints. Approximate but stable."""
+    prepared = []
+    for way in ways:
+        points = _overpass_way_points(way)
+        if len(points) >= 2:
+            prepared.append((way, points))
+    if not prepared:
+        return []
+
+    endpoint_counts: dict[tuple[float, float], int] = {}
+    for _, points in prepared:
+        for point in (_way_endpoint(points[0]), _way_endpoint(points[-1])):
+            endpoint_counts[point] = endpoint_counts.get(point, 0) + 1
+    dead_ends = [point for point, count in endpoint_counts.items() if count == 1]
+    candidate_starts = dead_ends or list(endpoint_counts)
+    if hint:
+        start = min(candidate_starts, key=lambda point: _point_distance_km(point, hint))
+    else:
+        start = min(candidate_starts, key=lambda point: (point[1], point[0]))
+
+    remaining = list(prepared)
+    ordered: list[dict] = []
+    current = start
+    while remaining:
+        best = None
+        best_distance = math.inf
+        best_reverse = False
+        for way, points in remaining:
+            first, last = _way_endpoint(points[0]), _way_endpoint(points[-1])
+            forward = _point_distance_km(current, first)
+            backward = _point_distance_km(current, last)
+            if forward < best_distance:
+                best, best_distance, best_reverse = (way, points), forward, False
+            if backward < best_distance:
+                best, best_distance, best_reverse = (way, points), backward, True
+        if best is None:
+            break
+        way, points = best
+        if best_reverse:
+            points = list(reversed(points))
+            ordered_way = dict(way)
+            ordered_way["_ordered_points"] = points
+        else:
+            ordered_way = dict(way)
+            ordered_way["_ordered_points"] = points
+        ordered.append(ordered_way)
+        current = _way_endpoint(points[-1])
+        remaining = [item for item in remaining if item[0] is not way]
+    return ordered
+
+
+def _build_overpass_candidates(
+    ways: list[dict],
+    code: str,
+    name_hint: str | None,
+    hint: tuple[float, float] | None,
+) -> list[dict]:
+    candidates = []
+    normalized_hint_name = normalize_text(name_hint or "")
+    for component in _group_overpass_ways(ways):
+        ordered = _order_component_ways(component, hint)
+        if not ordered:
+            continue
+        names = [
+            str((way.get("tags") or {}).get("name") or "").strip()
+            for way in ordered
+            if (way.get("tags") or {}).get("name")
+        ]
+        component_name = max(set(names), key=lambda value: (names.count(value), len(value))) if names else code
+        highways = [
+            str((way.get("tags") or {}).get("highway") or "")
+            for way in ordered
+        ]
+        highway = max(highways, key=lambda value: _HIGHWAY_RANK.get(value, 0)) if highways else ""
+        sections = []
+        offset_km = 0.0
+        start = end = None
+        all_points: list[tuple[float, float]] = []
+        for way in ordered:
+            points = way.get("_ordered_points") or _overpass_way_points(way)
+            if len(points) < 2:
+                continue
+            length_km = _line_length_km(points)
+            if length_km <= 0:
+                continue
+            if start is None:
+                start = points[0]
+            end = points[-1]
+            all_points.extend(points)
+            sections.append({
+                "start_km": round(offset_km, 3),
+                "finish_km": round(offset_km + length_km, 3),
+                "coordinates": [[round(lon, 6), round(lat, 6)] for lon, lat in points],
+                "length_km": round(length_km, 3),
+                "name": (way.get("tags") or {}).get("name") or component_name,
+                "highway": (way.get("tags") or {}).get("highway") or highway,
+            })
+            offset_km += length_km
+        if not sections:
+            continue
+        distance_km = 0.0
+        if hint and all_points:
+            distance_km = min(_point_distance_km(hint, point) for point in all_points)
+        name_score = 0.0
+        if normalized_hint_name:
+            name_score = difflib.SequenceMatcher(
+                None, normalized_hint_name, normalize_text(component_name)
+            ).ratio()
+        score = (
+            name_score * 100.0
+            + _HIGHWAY_RANK.get(highway, 0) * 8.0
+            + min(offset_km, 80.0) * 0.2
+            - min(distance_km, 100.0) * 1.5
+        )
+        candidates.append({
+            "name": component_name,
+            "highway": highway,
+            "score": round(score, 3),
+            "distance_km": round(distance_km, 3),
+            "way_count": len(ordered),
+            "total_length_km": round(offset_km, 3),
+            "first_km": 0.0,
+            "last_km": round(offset_km, 3),
+            "start": [round(start[0], 6), round(start[1], 6)] if start else None,
+            "end": [round(end[0], 6), round(end[1], 6)] if end else None,
+            "sections": sections,
+        })
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    return candidates[:5]
+
+
+async def _fetch_overpass_ways(code: str) -> list[dict]:
+    cached = _OVERPASS_GEOMETRY_CACHE.get(code)
+    if cached and time.monotonic() - cached[0] < OVERPASS_GEOMETRY_CACHE_TTL:
+        return cached[1]
+    escaped = code.replace("\\", "\\\\").replace('"', '\\"')
+    query = (
+        f'[out:json][timeout:{int(OVERPASS_TIMEOUT)}];'
+        f'way["ref"="{escaped}"]'
+        f'({ROSTOV_SOUTH},{ROSTOV_WEST},{ROSTOV_NORTH},{ROSTOV_EAST});'
+        "out tags geom;"
+    )
+    async with httpx.AsyncClient(headers={"User-Agent": "albion-locator/4.2.1"}) as client:
+        response = await client.post(
+            OVERPASS_URL, data={"data": query}, timeout=OVERPASS_TIMEOUT + 5.0
+        )
+        response.raise_for_status()
+        payload = response.json()
+    ways = []
+    for element in (payload.get("elements") or []) if isinstance(payload, dict) else []:
+        if not isinstance(element, dict) or element.get("type") != "way":
+            continue
+        points = _overpass_way_points(element)
+        if len(points) >= 2:
+            ways.append(element)
+    if ways:
+        _OVERPASS_GEOMETRY_CACHE[code] = (time.monotonic(), ways)
+    return ways
+
+
 def get_first_point(geometry: dict) -> tuple[float | None, float | None]:
     coords = (geometry or {}).get("coordinates")
     try:
@@ -914,6 +1148,21 @@ class OnlineRoadSearchPayload(BaseModel):
 
 class OnlineRoadSectionsPayload(BaseModel):
     code: str = Field(min_length=2, max_length=40)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        code = canonical_road_code(value.strip())
+        if not code:
+            raise ValueError("Укажите код дороги, например М-4 или Р-280")
+        return code
+
+
+class RoadGeometryPayload(BaseModel):
+    code: str = Field(min_length=2, max_length=40)
+    name: str | None = Field(default=None, max_length=240)
+    lat: FiniteFloat | None = Field(default=None, ge=-90, le=90)
+    lon: FiniteFloat | None = Field(default=None, ge=-180, le=180)
 
     @field_validator("code")
     @classmethod
@@ -1770,6 +2019,37 @@ async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Requ
             "Официальные start_km/finish_km СКДФ; участки вне контура Ростовской "
             "области исключены. Точка внутри участка интерполируется по его геометрии."
         ),
+    }
+
+
+@app.post("/api/roads/overpass/geometry")
+async def overpass_road_geometry(payload: RoadGeometryPayload, request: Request):
+    """Approximate road axis from OSM when SKDF has no official chainage."""
+    user = _request_user(request)
+    if not await _allow_address_suggest(user.get("id", "unknown"), "road-geometry"):
+        raise HTTPException(429, "Слишком частые запросы геометрии дорог; подождите немного")
+    try:
+        ways = await _fetch_overpass_ways(payload.code)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        raise HTTPException(502, "Overpass API недоступен или вернул некорректные данные") from exc
+    if not ways:
+        raise HTTPException(404, f"В OpenStreetMap не найдена геометрия для {payload.code}")
+    hint = None
+    if payload.lat is not None and payload.lon is not None:
+        hint = (payload.lon, payload.lat)
+    candidates = _build_overpass_candidates(ways, payload.code, payload.name, hint)
+    if not candidates:
+        raise HTTPException(404, f"Не удалось собрать ось дороги {payload.code} из OSM")
+    return {
+        "code": payload.code,
+        "source": "OpenStreetMap Overpass",
+        "approximate": True,
+        "provenance": (
+            "Приблизительная ось по OSM: официальный километраж СКДФ отсутствует, "
+            "километры относительные (0 — начало выбранного направления). "
+            "Геометрия OSM может быть неполной и не совпадать с официальной осью."
+        ),
+        "candidates": candidates,
     }
 
 

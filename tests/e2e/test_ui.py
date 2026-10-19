@@ -75,6 +75,34 @@ def test_suggestions_open_upward_in_statusbar(page, app_server):
     assert not page._e2e_errors, page._e2e_errors
 
 
+def test_center_button_uses_point_or_all_batch_points(page, app_server):
+    login(page, app_server["base_url"])
+    page.wait_for_timeout(200)
+    point_center = page.evaluate("""() => {
+        activateFrameTab('point');
+        activePoint = {lat: 47.5, lon: 40.0, source: 'test'};
+        centerMapOnData();
+        const center = map.getCenter();
+        return {center: [center.lat, center.lng], zoom: map.getZoom()};
+    }""")
+    assert point_center["center"] == pytest.approx([47.5, 40.0], abs=0.01)
+    assert point_center["zoom"] >= 16
+    batch = page.evaluate("""() => {
+        activateFrameTab('batch');
+        batchPoints = [
+            {id: 'a', lat: 46.8, lon: 39.0},
+            {id: 'b', lat: 48.2, lon: 41.0}
+        ];
+        centerMapOnData();
+        const bounds = map.getBounds();
+        return {
+            containsA: bounds.contains([46.8, 39.0]),
+            containsB: bounds.contains([48.2, 41.0])
+        };
+    }""")
+    assert batch == {"containsA": True, "containsB": True}
+
+
 def test_ghost_point_moves_only_clone_and_apply_promotes_it(page, app_server):
     login(page, app_server["base_url"])
     result = page.evaluate("""async () => {
@@ -124,6 +152,734 @@ def test_ghost_point_moves_only_clone_and_apply_promotes_it(page, app_server):
     assert result["after"]["ghost"] is None
     assert result["after"]["point"] != pytest.approx(result["original"])
     assert result["after"]["source"] == "road-km"
+
+
+def test_coords_field_wgs_available_msk_and_ghost_parentheses(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const originalFetch = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+            return originalFetch(url, options);
+        };
+        crsState = 'gps';
+        updateCrsLabel();
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 150));
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        setSearchMode('coords');
+        for (let i = 0; i < 40 && !activeMsk; i += 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        const wgs = modeInput1.value;
+        modeActionBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 80));
+        const msk = modeInput1.value;
+        const zone = Number(crsState.slice(3));
+        const select = document.getElementById('mskZone');
+        const wrongZone = zone === 1 ? 2 : 1;
+        select.value = String(wrongZone);
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        const wrong = modeInput1.value;
+        select.value = String(zone);
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        const correct = modeInput1.value;
+        crsState = 'gps';
+        updateCrsLabel();
+        renderCoordsInput();
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        if (!ghostPointEnabled) ghostPointToggle.click();
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = String(Number(slider.max) * 0.5);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await new Promise(resolve => setTimeout(resolve, 80));
+        return {wgs, msk, wrong, correct, zone, ghost: modeInput1.value};
+    }""")
+    assert result["wgs"].startswith("47.200000, 39.800000")
+    assert result["msk"]
+    assert "(" not in result["msk"]
+    assert result["wrong"] == ""
+    assert result["correct"] == result["msk"]
+    assert result["ghost"].startswith("47.200000, 39.800000 (")
+    assert result["ghost"].endswith(")")
+
+
+def test_km_step_ticks_keyboard_and_wheel_settings(page, app_server):
+    login(page, app_server["base_url"])
+    page.evaluate("applyRoadKmStep(50, false)")
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 80));
+    }""")
+    assert page.locator("#roadKmStepButton").inner_text() == "50"
+    assert page.locator("#roadKmSlider").get_attribute("step") == "0.05"
+    assert page.locator("#roadKmScale").evaluate("el => el.classList.contains('visible')") is True
+    page.click("#roadKmStepButton")
+    assert page.locator("#roadKmStepButton").inner_text() == "100"
+    assert page.locator("#roadKmSlider").get_attribute("step") == "0.1"
+    # Настройки используют тот же шаг.
+    page.evaluate("""() => {
+        const select = document.getElementById('roadKmStepSelect');
+        select.value = '500';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+    }""")
+    assert page.locator("#roadKmStepButton").inner_text() == "500"
+    assert page.locator("#roadKmSlider").get_attribute("step") == "0.5"
+    # Фокус на ползунке и Tab-доступ включают клавиатуру.
+    page.focus("#roadKmSlider")
+    before = page.evaluate("Number(roadKmSlider.value)")
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("Number(roadKmSlider.value)") > before
+    page.evaluate("""() => {
+        const toggle = document.getElementById('roadKmKeyboardToggle');
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event('change', {bubbles: true}));
+        roadKmSlider.focus();
+    }""")
+    before = page.evaluate("Number(roadKmSlider.value)")
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("Number(roadKmSlider.value)") == pytest.approx(before)
+    # Колесо мыши работает при фокусе в поле км/на ползунке.
+    page.evaluate("""() => {
+        const key = document.getElementById('roadKmKeyboardToggle');
+        key.checked = true; key.dispatchEvent(new Event('change', {bubbles: true}));
+        roadKmNumber.focus();
+    }""")
+    before = page.evaluate("Number(roadKmSlider.value)")
+    page.evaluate("document.getElementById('roadKmNumber').dispatchEvent(new WheelEvent('wheel', {deltaY: -100, bubbles: true, cancelable: true}))")
+    assert page.evaluate("Number(roadKmSlider.value)") > before
+    page.evaluate("""() => {
+        const wheel = document.getElementById('roadKmWheelToggle');
+        wheel.checked = false; wheel.dispatchEvent(new Event('change', {bubbles: true}));
+        roadKmNumber.focus();
+    }""")
+    before = page.evaluate("Number(roadKmSlider.value)")
+    page.evaluate("document.getElementById('roadKmNumber').dispatchEvent(new WheelEvent('wheel', {deltaY: -100, bubbles: true, cancelable: true}))")
+    assert page.evaluate("Number(roadKmSlider.value)") == pytest.approx(before)
+
+
+def test_skdf_name_moves_to_status_bar_left(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({
+                point: {lat: 47.2, lon: 39.7},
+                road: {
+                    skdf_name: 'М-4', full_name: 'М-4 «Дон»', source: 'СКДФ WFS',
+                    road_code: 'М-4', start_km: 0, finish_km: 20,
+                },
+                side: {
+                    side: 1, km_estimate: 10, perpendicular_m: 12,
+                    projected_lat: 47.2, projected_lon: 39.7,
+                    km_provenance: 'официальный километраж',
+                },
+            });
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            if (url === '/api/geocode/reverse') return ok({});
+            return ok({});
+        };
+        commitPoint(47.2, 39.7, 'click');
+        await sleep(120);
+        const span = document.getElementById('statusSkdfName');
+        const beforeClear = {
+            oldElement: Boolean(document.getElementById('resultSkdfName')),
+            directoryName: document.getElementById('resultRoadName').textContent,
+            statusName: span.textContent,
+            statusHidden: span.hidden,
+        };
+        clearSelectedPoint(false);
+        return {
+            beforeClear,
+            afterClear: {text: span.textContent, hidden: span.hidden},
+        };
+    }""")
+    assert result["beforeClear"]["oldElement"] is False
+    assert result["beforeClear"]["directoryName"] == "М-4 «Дон»"
+    assert result["beforeClear"]["statusName"] == "М-4"
+    assert result["beforeClear"]["statusHidden"] is False
+    assert result["afterClear"] == {"text": "", "hidden": True}
+
+
+def test_current_point_card_shows_active_ghost(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const originalFetch = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({point: {lat: 47.2, lon: 39.7}, road: null, side: null});
+            if (url === '/api/msk61/from-geographic') return ok({x: 100, y: 200, zone: 2});
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            if (url === '/api/geocode/reverse') return ok({});
+            return originalFetch(url, options);
+        };
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.70, 'click');
+        await sleep(80);
+        if (!ghostPointEnabled) ghostPointToggle.click();
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = String(Number(slider.max) * 0.5);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await sleep(250);
+        const ghostCard = {
+            wgs: document.getElementById('cpWgs').textContent,
+            source: document.getElementById('cpSource').textContent,
+            address: document.getElementById('cpAddress').textContent,
+            favoriteDisabled: document.getElementById('saveFavoriteBtn').disabled,
+            active: [activePoint.lat, activePoint.lon],
+            ghost: [ghostLat, ghostLon],
+        };
+        ghostPointToggle.click();
+        await sleep(80);
+        return {
+            ghostCard,
+            baseCard: {
+                wgs: document.getElementById('cpWgs').textContent,
+                source: document.getElementById('cpSource').textContent,
+                favoriteDisabled: document.getElementById('saveFavoriteBtn').disabled,
+            },
+        };
+    }""")
+    assert result["ghostCard"]["wgs"] == "47.200000, 39.800000"
+    assert "призрак" in result["ghostCard"]["source"].lower()
+    assert result["ghostCard"]["address"] == "не определено"
+    assert result["ghostCard"]["favoriteDisabled"] is True
+    assert result["ghostCard"]["active"] == pytest.approx([47.2, 39.7])
+    assert result["ghostCard"]["ghost"] == pytest.approx([47.2, 39.8])
+    assert result["baseCard"]["wgs"] == "47.200000, 39.700000"
+    assert "Точка выбрана" in result["baseCard"]["source"]
+    assert result["baseCard"]["favoriteDisabled"] is False
+
+
+def test_ghost_resets_to_point_after_toggle(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        if (!ghostPointEnabled) ghostPointToggle.click();
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = String(Number(slider.max) * 0.3);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        const moved = [ghostLat, ghostLon];
+        ghostPointToggle.click();           // выключить
+        const hidden = ghostMarker;
+        ghostPointToggle.click();           // включить снова
+        return {
+            moved,
+            hidden,
+            reset: [ghostLat, ghostLon],
+            point: [activePoint.lat, activePoint.lon]
+        };
+    }""")
+    assert result["hidden"] is None
+    assert abs(result["moved"][0] - result["reset"][0]) + abs(result["moved"][1] - result["reset"][1]) > 1e-6
+    assert result["reset"] == pytest.approx(result["point"], abs=1e-9)
+
+
+def test_online_road_selection_prepares_point_without_km(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const originalFetch = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/roads/online/search') {
+                return ok({roads: [{title: 'М-4 Дон', road_code: 'М-4', lat: 47.21, lon: 39.71, precision: 'exact'}]});
+            }
+            if (url === '/api/roads/online/sections') {
+                return ok({first_km: 0, last_km: 20, sections: [{start_km: 0, finish_km: 20,
+                    coordinates: [[39.70, 47.20], [39.90, 47.20]]}]});
+            }
+            if (url === '/api/locate') {
+                return ok({point: {lat: 47.2, lon: 39.72}, road: null, side: null});
+            }
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            return originalFetch(url, options);
+        };
+        setSearchMode('road');
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        await resolveOnlineRoad({query: 'М-4'});
+        document.querySelector('#modeSuggestions .geo-suggestion').click();
+        await sleep(100);
+        const prepared = {
+            kmEnabled: roadKmEnabled,
+            draftLat: searchDraft.roadLat,
+            draftKm: searchDraft.roadKm,
+        };
+        await runSearchAction();
+        await sleep(100);
+        return {
+            prepared,
+            active: activePoint ? {lat: activePoint.lat, lon: activePoint.lon, source: activePoint.source} : null,
+            searchArmed: searchArmCheckbox.checked,
+        };
+    }""")
+    assert result["prepared"]["kmEnabled"] is False
+    assert result["prepared"]["draftLat"] == pytest.approx(47.2, abs=1e-6)
+    assert result["prepared"]["draftKm"] is not None
+    assert result["active"] is not None
+    assert result["active"]["lat"] == pytest.approx(47.2, abs=1e-6)
+    assert result["active"]["source"] == "road-km"
+    assert result["searchArmed"] is False
+
+
+def test_road_without_skdf_sections_uses_approximate_osm_axis(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const missing = data => new Response(JSON.stringify(data), {
+            status: 404, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const originalFetch = apiFetch;
+        const sections = [
+            {start_km: 0, finish_km: 10, coordinates: [[39.70, 47.20], [39.80, 47.20]]},
+            {start_km: 10, finish_km: 20, coordinates: [[39.80, 47.20], [39.90, 47.20]]},
+        ];
+        apiFetch = async (url, options) => {
+            if (url === '/api/roads/online/search') {
+                return ok({roads: [{title: '60К-31 Шахты — Владимировская', road_code: '60К-31',
+                                    lat: 47.2, lon: 39.75, precision: 'exact'}]});
+            }
+            if (url === '/api/roads/online/sections') {
+                return missing({detail: 'Для дороги 60К-31 в СКДФ нет участков с официальным километражом'});
+            }
+            if (url === '/api/roads/overpass/geometry') {
+                return ok({
+                    code: '60К-31', source: 'OpenStreetMap Overpass', approximate: true,
+                    provenance: 'Приблизительная ось по OSM',
+                    candidates: [{
+                        name: 'Шахты — Владимировская', highway: 'primary',
+                        total_length_km: 20, first_km: 0, last_km: 20, way_count: 2,
+                        start: [39.7, 47.2], end: [39.9, 47.2], sections,
+                    }],
+                });
+            }
+            if (url === '/api/locate') {
+                return ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+            }
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            if (url === '/api/geocode/reverse') return ok({});
+            return originalFetch(url, options);
+        };
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        setSearchMode('road');
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        await resolveOnlineRoad({query: '60К-31'});
+        document.querySelector('#modeSuggestions .geo-suggestion').click();
+        for (let i = 0; i < 40 && !roadKmState; i += 1) {
+            await sleep(50);
+        }
+        const prepared = {
+            approximate: Boolean(roadKmState && roadKmState.approximate),
+            sliderMax: Number(roadKmSlider.max),
+            range: roadKmRange.textContent,
+            status: roadKmStatus.textContent,
+            lineCount: approximateRoadLayer ? approximateRoadLayer.getLayers().length : 0,
+        };
+        const line = approximateRoadLayer && approximateRoadLayer.getLayers()[0];
+        if (line) line.fire('click', {latlng: L.latLng(47.2, 39.8)});
+        await sleep(120);
+        return {
+            prepared,
+            point: activePoint ? [activePoint.lat, activePoint.lon] : null,
+            km: roadKmNumber.value,
+            source: activePoint ? activePoint.source : null,
+        };
+    }""")
+    assert result["prepared"]["approximate"] is True
+    assert result["prepared"]["sliderMax"] == pytest.approx(20)
+    assert "Приблизительная" in result["prepared"]["range"]
+    assert "Официальных участков СКДФ нет" in result["prepared"]["status"]
+    assert result["prepared"]["lineCount"] >= 3  # две линии + маркеры начала/конца
+    assert result["point"] == pytest.approx([47.2, 39.8])
+    assert result["km"]
+    assert result["source"] == "road-km"
+
+
+def test_clear_point_clears_search_draft_and_ghost_state(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async () => ok({point: {lat: 47.3, lon: 39.9}, road: null, side: null});
+        setSearchMode('address');
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        searchDraft.addressLat = 47.3;
+        searchDraft.addressLon = 39.9;
+        searchDraft.addressLabel = 'Старый адрес';
+        modeInput1.value = 'Старый адрес';
+        commitPoint(47.3, 39.9, 'address', {address: 'Старый адрес'});
+        await sleep(80);
+        if (!ghostPointEnabled) ghostPointToggle.click();
+        clearSelectedPoint(false);
+        return {
+            field: modeInput1.value,
+            draftLat: searchDraft.addressLat,
+            draftLon: searchDraft.addressLon,
+            active: Boolean(activePoint),
+            ghostPressed: ghostPointToggle.getAttribute('aria-pressed'),
+            ghostFlag: ghostPointEnabled,
+        };
+    }""")
+    assert result["field"] == ""
+    assert result["draftLat"] is None
+    assert result["draftLon"] is None
+    assert result["active"] is False
+    assert result["ghostPressed"] == "false"
+    assert result["ghostFlag"] is False
+
+
+def test_batch_slider_updates_batch_point_and_marker(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async () => ok({point: {lat: 47.21, lon: 39.71}, road: null, side: null});
+        batchPoints = [{id: 'bp-sync', name: 'Тест', filename: '', lat: 47.21, lon: 39.71}];
+        renderBatchList();
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        selectBatchPoint('bp-sync');
+        await sleep(60);
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = String(Number(slider.max) * 0.5);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await sleep(60);
+        const point = batchPoints[0];
+        const marker = batchMarker(point);
+        const row = document.querySelector('.batch-item[data-id="bp-sync"] .batch-status-ok');
+        return {
+            batch: [point.lat, point.lon],
+            active: [activePoint.lat, activePoint.lon],
+            marker: marker ? [marker.getLatLng().lat, marker.getLatLng().lng] : null,
+            rowText: row ? row.textContent : '',
+        };
+    }""")
+    assert result["batch"] == pytest.approx(result["active"], abs=1e-9)
+    assert result["marker"] == pytest.approx(result["active"], abs=1e-9)
+    assert result["rowText"].startswith(f"{result['batch'][0]:.5f}, {result['batch'][1]:.5f}")
+
+
+def test_batch_photo_lock_is_released_by_clearing_batch_list(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        batchPoints = [{id: 'bp-lock', name: 'Тест', filename: '', lat: 47.2, lon: 39.8}];
+        markPhotosLoaded('batch');
+        const disabledAfterLoad = searchArmCheckbox.disabled;
+        clearBatchPoints(true);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        return {
+            disabledAfterLoad,
+            disabledAfterClear: searchArmCheckbox.disabled,
+            photosLoaded,
+            clearButtonHidden: document.getElementById('clearPointBtn').style.display === 'none',
+        };
+    }""")
+    assert result["disabledAfterLoad"] is True
+    assert result["disabledAfterClear"] is False
+    assert result["photosLoaded"] is False
+    assert result["clearButtonHidden"] is True
+
+
+def test_msk_place_button_uses_commit_point(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async () => ok({point: {lat: 47.25, lon: 39.75}, road: null, side: null});
+        activePoint = null;
+        selectedMskPoint = {lat: 47.25, lon: 39.75, can_place_on_map: true, warning: 'x'};
+        window.confirm = () => true;
+        placeMSKPoint();
+        await sleep(80);
+        return {
+            active: activePoint ? {lat: activePoint.lat, lon: activePoint.lon, source: activePoint.source} : null,
+            cardEmpty: !document.getElementById('currentPointEmpty').hidden,
+        };
+    }""")
+    assert result["active"] is not None
+    assert result["active"]["lat"] == pytest.approx(47.25)
+    assert result["active"]["source"] == "msk61"
+    assert result["cardEmpty"] is False
+
+
+def test_track_point_toggle_follows_slider_and_ghost(page, app_server):
+    login(page, app_server["base_url"])
+    page.wait_for_timeout(250)
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.7}, road: null, side: null});
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.70, 'click');
+        await sleep(100);
+        map.setView([47.2, 39.70], 16, {animate: false});
+        await sleep(200);
+
+        // Включение кнопкой в статус-баре синхронизирует чекбокс в настройках.
+        trackPointToggle.click();
+        const controlsOn = {
+            setting: trackPointSetting.checked,
+            aria: trackPointToggle.getAttribute('aria-pressed'),
+        };
+
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = slider.max;
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await sleep(250);
+        const centerAfterTrack = map.getCenter();
+        const activeTracked = map.getBounds().contains([activePoint.lat, activePoint.lon]);
+        const keyboardDuring = map.keyboard.enabled();
+
+        // Призрак двигается вместе с ползунком, красная точка стоит.
+        if (!ghostPointEnabled) ghostPointToggle.click();
+        map.setView([47.2, 39.70], 16, {animate: false});
+        await sleep(200);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await sleep(250);
+        const ghostTracked = map.getBounds().contains([ghostLat, ghostLon]);
+        const redPoint = [activePoint.lat, activePoint.lon];
+
+        // Выключение через настройки: карта больше не следует за ползунком,
+        // клавиатурное управление картой возвращается.
+        trackPointSetting.checked = false;
+        trackPointSetting.dispatchEvent(new Event('change', {bubbles: true}));
+        const ariaOff = trackPointToggle.getAttribute('aria-pressed');
+        const keyboardAfter = map.keyboard.enabled();
+        map.setView([47.2, 39.85], 16, {animate: false});
+        await sleep(200);
+        const centerBefore = map.getCenter();
+        slider.value = '0';
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        await sleep(250);
+        const centerAfter = map.getCenter();
+        applyTrackPointState(false, false);
+        try { localStorage.removeItem('albion_track_point'); } catch (e) { /* ignore */ }
+        return {
+            controlsOn, activeTracked, ghostTracked, redPoint,
+            ariaOff, keyboardDuring, keyboardAfter,
+            centerAfterTrack: [centerAfterTrack.lat, centerAfterTrack.lng],
+            centerBefore: [centerBefore.lat, centerBefore.lng],
+            centerAfter: [centerAfter.lat, centerAfter.lng],
+        };
+    }""")
+    assert result["controlsOn"] == {"setting": True, "aria": "true"}
+    assert result["activeTracked"] is True
+    assert result["centerAfterTrack"][1] == pytest.approx(39.9, abs=1e-4)
+    assert result["ghostTracked"] is True
+    assert result["redPoint"][1] > 39.85
+    assert result["ariaOff"] == "false"
+    assert result["keyboardDuring"] is False
+    assert result["keyboardAfter"] is True
+    assert result["centerAfter"][1] == pytest.approx(result["centerBefore"][1], abs=0.002)
+
+
+def test_go_button_centers_map_on_selected_km(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        let historyPosts = 0;
+        apiFetch = async (url, options) => {
+            if (url === '/api/history' && options && options.method === 'POST') {
+                historyPosts += 1;
+                return ok({});
+            }
+            return ok({point: {lat: 47.2, lon: 39.7}, road: null, side: null});
+        };
+        applyTrackPointState(false, false);
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.70, 'click');
+        await sleep(100);
+        const historyBefore = historyPosts;
+        map.setView([47.2, 39.95], 10, {animate: false});
+        roadKmNumber.value = '10+000';
+        roadKmApplyButton.click();
+        await sleep(100);
+        const center = map.getCenter();
+        applyTrackPointState(false, false);
+        return {
+            center: [center.lat, center.lng],
+            zoom: map.getZoom(),
+            point: [activePoint.lat, activePoint.lon],
+            historyAdded: historyPosts - historyBefore,
+        };
+    }""")
+    assert result["center"][1] == pytest.approx(39.8, abs=1e-4)
+    assert result["zoom"] >= 16
+    assert result["point"][1] == pytest.approx(39.8, abs=1e-4)
+    assert result["historyAdded"] == 1
+
+
+def test_arrow_keys_require_text_focus_or_marker_click(page, app_server):
+    login(page, app_server["base_url"])
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        document.activeElement && document.activeElement.blur();
+    }""")
+    before = page.evaluate("[Number(roadKmSlider.value), activePoint.lat, activePoint.lon]")
+    page.keyboard.press("ArrowRight")
+    unarmed = page.evaluate("Number(roadKmSlider.value)")
+    assert unarmed == pytest.approx(before[0])
+    page.focus("#roadKmNumber")
+    page.keyboard.press("ArrowRight")
+    focused = page.evaluate("[Number(roadKmSlider.value), activePoint.lat, activePoint.lon]")
+    assert focused[0] > before[0]
+    # Ghost mode: click on the green clone arms arrows and moves only the clone.
+    page.evaluate("""() => {
+        if (!ghostPointEnabled) toggleGhostPoint();
+        const slider = document.getElementById('roadKmSlider');
+        slider.value = String(Number(slider.max) * 0.2);
+        slider.dispatchEvent(new Event('input', {bubbles: true}));
+        document.activeElement && document.activeElement.blur();
+        ghostMarker.fire('click');
+    }""")
+    original = page.evaluate("[activePoint.lat, activePoint.lon, ghostLat, ghostLon]")
+    page.keyboard.press("ArrowRight")
+    ghost_moved = page.evaluate("[activePoint.lat, activePoint.lon, ghostLat, ghostLon]")
+    assert ghost_moved[:2] == pytest.approx(original[:2])
+    assert abs(ghost_moved[2] - original[2]) + abs(ghost_moved[3] - original[3]) > 1e-7
+    # Without ghost, clicking the red marker also arms the arrows.
+    page.evaluate("""() => {
+        if (ghostPointEnabled) toggleGhostPoint();
+        document.activeElement && document.activeElement.blur();
+        redPointMarker.fire('click');
+    }""")
+    red_before = page.evaluate("[activePoint.lat, activePoint.lon]")
+    page.keyboard.press("ArrowLeft")
+    red_after = page.evaluate("[activePoint.lat, activePoint.lon]")
+    assert abs(red_after[0] - red_before[0]) + abs(red_after[1] - red_before[1]) > 1e-7
+
+
+def test_batch_mode_uses_selected_point_and_blocks_new_search_points(page, app_server):
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.5, lon: 40.0}, road: null, side: null});
+        activateFrameTab('batch');
+        batchPoints = [{id: 'b1', name: 'Точка 1', lat: 47.5, lon: 40.0}];
+        renderBatchList();
+    }""")
+    assert page.locator("#searchArmCheckbox").is_disabled()
+    assert page.locator("#tabBatchBtn").get_attribute("aria-selected") == "true"
+    page.click(".batch-item")
+    page.wait_for_function("activePoint && activePoint.source === 'batch'")
+    before = page.evaluate("[activePoint.lat, activePoint.lon]")
+    page.evaluate("map.fire('dblclick', {latlng: L.latLng(48.5, 41.5)})")
+    after = page.evaluate("[activePoint.lat, activePoint.lon]")
+    assert after == pytest.approx(before)
+    assert page.locator("#statusPointText").inner_text() != ""
+    page.click("#tabPointBtn")
+    assert page.locator("#searchArmCheckbox").is_enabled()
 
 
 def test_search_mode_locks_photo_and_batch_and_clear_unlocks(page, app_server):

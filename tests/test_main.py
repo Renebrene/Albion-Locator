@@ -699,6 +699,59 @@ def test_online_road_sections_404_when_no_rostov_chainage(monkeypatch):
     assert "А-280" in response.json()["detail"]
 
 
+def test_overpass_geometry_builds_connected_approximate_axis(monkeypatch):
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    ways = [
+        {
+            "type": "way",
+            "tags": {"ref": "60К-31", "name": "Шахты — Владимировская", "highway": "primary"},
+            "geometry": [{"lon": 39.70, "lat": 47.20}, {"lon": 39.80, "lat": 47.20}],
+        },
+        {
+            "type": "way",
+            "tags": {"ref": "60К-31", "name": "Шахты — Владимировская", "highway": "primary"},
+            "geometry": [{"lon": 39.80, "lat": 47.20}, {"lon": 39.90, "lat": 47.20}],
+        },
+        {
+            "type": "way",
+            "tags": {"ref": "60К-31", "name": "Другая дорога", "highway": "tertiary"},
+            "geometry": [{"lon": 38.50, "lat": 47.60}, {"lon": 38.60, "lat": 47.60}],
+        },
+    ]
+    monkeypatch.setattr(main, "_fetch_overpass_ways", AsyncMock(return_value=ways))
+
+    response = client.post("/api/roads/overpass/geometry", json={
+        "code": "60к-31",
+        "name": "Шахты — Владимировская — М-4 «Дон»",
+        "lat": 47.2,
+        "lon": 39.75,
+    })
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["code"] == "60К-31"
+    assert payload["approximate"] is True
+    assert payload["source"] == "OpenStreetMap Overpass"
+    assert len(payload["candidates"]) == 2
+    best = payload["candidates"][0]
+    assert best["name"] == "Шахты — Владимировская"
+    assert best["way_count"] == 2
+    assert [section["start_km"] for section in best["sections"]] == [0.0, pytest.approx(7.52, abs=0.05)]
+    assert best["total_length_km"] == pytest.approx(15.04, abs=0.1)
+    assert best["sections"][0]["coordinates"][0] == [39.7, 47.2]
+    assert best["sections"][-1]["coordinates"][-1] == [39.9, 47.2]
+
+
+def test_overpass_geometry_returns_404_without_ways(monkeypatch):
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    monkeypatch.setattr(main, "_fetch_overpass_ways", AsyncMock(return_value=[]))
+
+    response = client.post("/api/roads/overpass/geometry", json={"code": "60К-31"})
+    assert response.status_code == 404
+    assert "60К-31" in response.json()["detail"]
+
+
 def test_online_address_geocode_returns_only_rostov_region_points(monkeypatch):
     monkeypatch.setattr(main, "YANDEX_API_KEY", "test-geocoder-key")
     monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
@@ -832,6 +885,7 @@ def test_protected_offline_data_endpoints_require_auth():
     assert unauthenticated.post("/api/address/online/geocode", json={"query": "Ростов-на-Дону"}).status_code == 401
     assert unauthenticated.post("/api/roads/online/search", json={"query": "М-4"}).status_code == 401
     assert unauthenticated.post("/api/roads/online/sections", json={"code": "М-4"}).status_code == 401
+    assert unauthenticated.post("/api/roads/overpass/geometry", json={"code": "60К-31"}).status_code == 401
     assert unauthenticated.get("/api/roads/search", params={"q": "М-4"}).status_code == 401
 
 
