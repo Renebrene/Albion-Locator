@@ -129,6 +129,11 @@ def _mbtiles_path() -> Path:
     return Path(configured).expanduser() if configured else _geo_data_dir() / "basemap.mbtiles"
 
 
+def _vector_mbtiles_path() -> Path:
+    configured = os.getenv("ALBION_VECTOR_MBTILES")
+    return Path(configured).expanduser() if configured else _geo_data_dir() / "vector.mbtiles"
+
+
 def _load_offline_geo_package():
     if not GEO_PACKAGE_SRC.is_dir():
         raise HTTPException(503, "Локальные геоданные недоступны: пакет offline_geo не установлен")
@@ -1080,6 +1085,7 @@ class ScreenshotSettings(BaseModel):
     save_path: str = "screenshots"
     auto_enabled: bool = False
     local_boundary: bool = True
+    detailed_boundary: bool = False
 
 class SaveScreenshotRequest(BaseModel):
     image: str = Field(max_length=8_000_000)
@@ -1238,7 +1244,7 @@ SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
 
 def load_settings() -> dict:
     defaults = {"delay": 3, "save_path": "screenshots", "auto_enabled": False,
-                "local_boundary": True}
+                "local_boundary": True, "detailed_boundary": False}
     if SETTINGS_FILE.exists():
         try:
             loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -1390,7 +1396,8 @@ async def set_screenshot_settings(payload: ScreenshotSettings):
     async with _SETTINGS_LOCK:
         current = load_settings()
         current.update({"delay": payload.delay, "save_path": "screenshots",
-                        "auto_enabled": payload.auto_enabled, "local_boundary": payload.local_boundary})
+                        "auto_enabled": payload.auto_enabled, "local_boundary": payload.local_boundary,
+                        "detailed_boundary": payload.detailed_boundary})
         save_settings(current)
     return {"status": "ok", "settings": current}
 
@@ -1594,10 +1601,12 @@ async def _api_locate_offline(req: LocateRequest):
 async def data_sources():
     db = _geo_database_path()
     tiles = _mbtiles_path()
+    vector_tiles = _vector_mbtiles_path()
     return {
         "default_source": "local" if offline_mode_enabled() else "external",
         "local_available": db.is_file(),
         "local_tiles_available": tiles.is_file(),
+        "vector_tiles_available": vector_tiles.is_file(),
         "external_available": True,
         "address_suggest_available": bool(YANDEX_SUGGEST_API_KEY),
         "suggest_view_available": bool(YANDEX_JS_API_KEY and YANDEX_SUGGEST_API_KEY),
@@ -2141,6 +2150,35 @@ async def offline_raster_tile(z: int, x: int, y: int):
     return Response(content=row[0], media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
+@app.get("/api/vector-tiles/{z}/{x}/{y}.pbf", include_in_schema=False)
+async def offline_vector_tile(z: int, x: int, y: int):
+    if not (0 <= z <= 20 and 0 <= x < (1 << z) and 0 <= y < (1 << z)):
+        raise HTTPException(404, "tile not found")
+    path = _vector_mbtiles_path()
+    if not path.is_file():
+        raise HTTPException(503, "Vector tile archive is not installed")
+    try:
+        with sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True) as connection:
+            row = connection.execute(
+                "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?",
+                (z, x, (1 << z) - 1 - y),
+            ).fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Vector tile archive is unreadable") from exc
+    if row is None:
+        raise HTTPException(404, "tile not found")
+    data = row[0]
+    headers = {"Cache-Control": "public, max-age=86400"}
+    # tilemaker stores gzipped PBF tiles; let the browser decode them.
+    if data[:2] == b"\x1f\x8b":
+        headers["Content-Encoding"] = "gzip"
+    return Response(
+        content=data,
+        media_type="application/vnd.mapbox-vector-tile",
+        headers=headers,
+    )
+
+
 MAX_STATE_PAYLOAD_BYTES = 256 * 1024
 
 
@@ -2270,6 +2308,12 @@ async def boundary_geojson():
     return FileResponse(_STATIC_DIR / "rostov_boundary.geojson", media_type="application/geo+json")
 
 
+@app.get("/static/rostov_boundary_detailed.geojson")
+async def detailed_boundary_geojson():
+    return FileResponse(_STATIC_DIR / "rostov_boundary_detailed.geojson",
+                        media_type="application/geo+json")
+
+
 # Клиентские модули отдаются по явному allowlist: каталог static не публикуется
 # целиком, чтобы рядом лежащие файлы не становились доступны по прямой ссылке.
 _STATIC_JS_FILES = {"geo-core.js"}
@@ -2293,6 +2337,9 @@ _STATIC_VENDOR_FILES = {
     "leaflet.js",
     "leaflet.css",
     "dom-to-image-more.min.js",
+    "maplibre-gl.js",
+    "maplibre-gl.css",
+    "leaflet-maplibre-gl.js",
     "images/marker-icon.png",
     "images/marker-icon-2x.png",
     "images/marker-shadow.png",
@@ -2320,6 +2367,31 @@ async def static_vendor(filename: str):
     )
     response.headers["Cache-Control"] = "no-cache"
     return response
+
+@app.get("/static/vector-style.json", include_in_schema=False)
+async def vector_style():
+    path = _STATIC_DIR / "vector-style.json"
+    if not path.is_file():
+        raise HTTPException(404, "not found")
+    response = FileResponse(path, media_type="application/json")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.get("/static/fonts/{fontstack}/{range_name}.pbf", include_in_schema=False)
+async def static_font(fontstack: str, range_name: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", fontstack):
+        raise HTTPException(404, "not found")
+    if not re.fullmatch(r"[0-9]{1,5}-[0-9]{1,5}", range_name):
+        raise HTTPException(404, "not found")
+    root = (_STATIC_DIR / "fonts").resolve()
+    path = (root / fontstack / f"{range_name}.pbf").resolve()
+    if root not in path.parents or not path.is_file():
+        raise HTTPException(404, "not found")
+    response = FileResponse(path, media_type="application/x-protobuf")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
 
 @app.get("/", include_in_schema=False)
 async def root():

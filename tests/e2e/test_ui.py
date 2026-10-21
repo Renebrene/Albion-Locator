@@ -858,6 +858,39 @@ def test_arrow_keys_require_text_focus_or_marker_click(page, app_server):
     assert abs(red_after[0] - red_before[0]) + abs(red_after[1] - red_before[1]) > 1e-7
 
 
+def test_map_double_click_sets_point_without_changing_view(page, app_server):
+    login(page, app_server["base_url"])
+    page.wait_for_timeout(300)
+    page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async (url) => {
+            if (url === '/api/locate') {
+                return ok({point: {lat: 48.5, lon: 41.5}, road: null, side: null});
+            }
+            if (url === '/api/msk61/from-geographic') {
+                return ok({x: 422630.864, y: 2204440.047, zone: 2,
+                           profile: 'gost_51794_2008', warning: ''});
+            }
+            return ok({});
+        };
+        map.setView([47.0, 40.0], 8, {animate: false});
+    }""")
+    before = page.evaluate(
+        "({lat: map.getCenter().lat, lon: map.getCenter().lng, zoom: map.getZoom()})"
+    )
+    page.evaluate("map.fire('dblclick', {latlng: L.latLng(48.5, 41.5)})")
+    page.wait_for_function("activePoint && Math.abs(activePoint.lat - 48.5) < 1e-6")
+    after = page.evaluate(
+        "({lat: map.getCenter().lat, lon: map.getCenter().lng, zoom: map.getZoom()})"
+    )
+    assert after["zoom"] == before["zoom"]
+    assert after["lat"] == pytest.approx(before["lat"], abs=1e-6)
+    assert after["lon"] == pytest.approx(before["lon"], abs=1e-6)
+    assert not page._e2e_errors, page._e2e_errors
+
+
 def test_batch_mode_uses_selected_point_and_blocks_new_search_points(page, app_server):
     login(page, app_server["base_url"])
     page.evaluate("""() => {

@@ -121,6 +121,14 @@ def test_screenshot_settings_are_global_but_have_no_last_point():
         "/api/screenshot-settings",
         json={"delay": 0, "save_path": "screenshots", "auto_enabled": False, "local_boundary": True},
     ).status_code == 422
+    saved = client.post(
+        "/api/screenshot-settings",
+        json={"delay": 3, "save_path": "screenshots", "auto_enabled": False,
+              "local_boundary": True, "detailed_boundary": True},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["settings"]["detailed_boundary"] is True
+    assert client.get("/api/screenshot-settings").json()["detailed_boundary"] is True
 
 
 def test_state_payload_size_is_limited():

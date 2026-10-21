@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АЛЬБИОН: Локатор (Autonom) v5.0</title>
     <link rel="stylesheet" href="/static/vendor/leaflet.css" />
+    <link rel="stylesheet" href="/static/vendor/maplibre-gl.css" />
     <script src="/static/vendor/leaflet.js"></script>
+    <script src="/static/vendor/maplibre-gl.js"></script>
+    <script src="/static/vendor/leaflet-maplibre-gl.js"></script>
     <script src="/static/vendor/dom-to-image-more.min.js"></script>
     <script src="/static/js/geo-core.js"></script>
     <style>
@@ -1017,7 +1020,8 @@
                     <label class="hint" for="mapSourceSelect">Подложка карты</label>
                     <select id="mapSourceSelect" aria-label="Источник карты">
                         <option value="external">OSM онлайн</option>
-                        <option value="local">Локальные тайлы MBTiles</option>
+                        <option value="local">Локальные растровые тайлы MBTiles</option>
+                        <option value="vector">Векторные тайлы (MapLibre)</option>
                     </select>
                     <div class="hint" id="geoStatus">Проверка доступных данных...</div>
                 </div>
@@ -1194,9 +1198,10 @@
             </ul>
             <h2>🗺️ Контур области</h2>
             <ul>
-                <li><b>Локальный контур</b> — из файла <code>rostov_boundary.geojson</code>, работает мгновенно</li>
+                <li><b>Локальный контур</b> — из файла <code>rostov_boundary.geojson</code> (696 точек), работает мгновенно</li>
+                <li><b>Детальный локальный контур</b> — из файла <code>rostov_boundary_detailed.geojson</code> (1237 точек), точнее повторяет границу; доступен вместе с локальным контуром</li>
                 <li><b>Overpass API</b> — из интернета, актуальный, но медленный</li>
-                <li>Переключается чекбоксом в настройках (⚙️ в нижней панели)</li>
+                <li>Переключается чекбоксами в настройках (⚙️ в нижней панели)</li>
             </ul>
             <h2>🌙 Тёмная тема</h2>
             <ul>
@@ -1371,7 +1376,13 @@
                     <span>Локальный контур РО</span>
                 </label>
             </div>
-            <div class="hint">Быстрее, работает офлайн</div>
+            <div class="settings-row">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="detailedBoundaryCheckbox" style="cursor: pointer;">
+                    <span>Детальный контур (1237 точек)</span>
+                </label>
+            </div>
+            <div class="hint">Быстрее, работает офлайн. Детальный контур точнее повторяет границу и используется только вместе с локальным.</div>
         </div>
         <div class="settings-block">
             <h2>🎨 Интерфейс</h2>
@@ -1433,7 +1444,32 @@
         map.attributionControl.setPrefix(false);
         const mapZoomControl = L.control.zoom({ position: 'bottomleft' }).addTo(map);
         let baseTileLayer = null;
+        let vectorBaseLayer = null;
+
+        function removeVectorBase() {
+            if (!vectorBaseLayer) return;
+            map.removeLayer(vectorBaseLayer);
+            vectorBaseLayer = null;
+        }
+
+        // Векторная подложка — отдельный слой MapLibre внутри Leaflet.
+        // Все маркеры/линии/оверлеи остаются обычными Leaflet-объектами.
+        function setVectorBase() {
+            removeVectorBase();
+            if (!window.maplibregl || !L.maplibreGL) return false;
+            vectorBaseLayer = L.maplibreGL({
+                style: '/static/vector-style.json',
+                interactive: false,
+                pane: 'tilePane',
+                // Нужно для dom-to-image: иначе WebGL-canvas попадёт в
+                // скриншот пустым.
+                preserveDrawingBuffer: true,
+            }).addTo(map);
+            return true;
+        }
+
         function setBaseTiles(offline) {
+            removeVectorBase();
             if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
             const url = offline ? '/tiles/{z}/{x}/{y}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
             baseTileLayer = L.tileLayer(url, {
@@ -1461,7 +1497,7 @@
         setTimeout(() => map.invalidateSize(), 100);
         
         let photoMarker = null, roadLine = null, clickMarker = null, redPointMarker = null;
-        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: true };
+        let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: true, detailedBoundary: false };
         let searchPosition = localStorage.getItem('albion_search_position') === 'top' ? 'top' : 'bottom';
         let pointHistory = [];
         let bookmarks = [];
@@ -1740,13 +1776,18 @@
 // === ГРАНИЦЫ РО (с переключателем) ===
 async function loadLocalRostovBoundary() {
     try {
-        const response = await fetch('/static/rostov_boundary.geojson');
+        const detailed = screenshotSettings.detailedBoundary === true;
+        const url = detailed
+            ? '/static/rostov_boundary_detailed.geojson'
+            : '/static/rostov_boundary.geojson';
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
         drawBoundaryFromGeoJSON(data);
-        console.log("✅ Локальный контур РО отрисован");
-        updateFolderStatus("🗺️ Локальный контур");
+        const pointCount = geojsonOuterRings(data).reduce((sum, ring) => sum + ring.length, 0);
+        console.log(`✅ Локальный контур РО отрисован (${pointCount} точек)`);
+        updateFolderStatus(`🗺️ Локальный контур (${pointCount} точек)`);
         return true;
     } catch (error) {
         console.error("❌ Ошибка локального контура:", error);
@@ -1903,7 +1944,8 @@ function drawBoundaryFromGeoJSON(data) {
             L.DomEvent.stopPropagation(e);
             // Обычный клик по карте — всегда источник click. Режим поиска
             // влияет на черновик, но не делает карту источником road-km.
-            commitPoint(e.latlng.lat, e.latlng.lng, 'click');
+            // Двойной клик только ставит точку: не меняем текущий вид карты.
+            commitPoint(e.latlng.lat, e.latlng.lng, 'click', { preserveView: true });
         });
 
         map.on('click', function() {
@@ -1922,10 +1964,13 @@ function drawBoundaryFromGeoJSON(data) {
                     screenshotSettings.savePath = 'screenshots';
                     screenshotSettings.autoScreenshotEnabled = data.auto_enabled || false;
                     screenshotSettings.localBoundary = data.local_boundary !== false;
+                    screenshotSettings.detailedBoundary = data.detailed_boundary === true;
                     document.getElementById('settingDelay').value = screenshotSettings.delay;
                     document.getElementById('serverPath').value = screenshotSettings.savePath;
                     document.getElementById('autoScreenshotCheckbox').checked = screenshotSettings.autoScreenshotEnabled;
                     document.getElementById('localBoundaryCheckbox').checked = screenshotSettings.localBoundary;
+                    document.getElementById('detailedBoundaryCheckbox').checked = screenshotSettings.detailedBoundary;
+                    document.getElementById('detailedBoundaryCheckbox').disabled = !screenshotSettings.localBoundary;
                     updateFolderStatus();
                     // Общая last_point больше не используется: позиция карты
                     // восстанавливается из персонального workspace пользователя.
@@ -1940,15 +1985,18 @@ function drawBoundaryFromGeoJSON(data) {
             const savePath = 'screenshots';
             const autoEnabled = document.getElementById('autoScreenshotCheckbox').checked;
             const localBoundary = document.getElementById('localBoundaryCheckbox').checked;
+            const detailedBoundary = document.getElementById('detailedBoundaryCheckbox').checked;
             screenshotSettings.delay = delay;
             screenshotSettings.savePath = savePath;
             screenshotSettings.autoScreenshotEnabled = autoEnabled;
             screenshotSettings.localBoundary = localBoundary;
+            screenshotSettings.detailedBoundary = detailedBoundary;
+            document.getElementById('detailedBoundaryCheckbox').disabled = !localBoundary;
             updateAutoScreenshotIndicator();
             try {
                 const response = await apiFetch('/api/screenshot-settings', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ delay, save_path: savePath, auto_enabled: autoEnabled, local_boundary: localBoundary })
+                    body: JSON.stringify({ delay, save_path: savePath, auto_enabled: autoEnabled, local_boundary: localBoundary, detailed_boundary: detailedBoundary })
                 });
                 if (!response.ok) throw new Error('Ошибка сервера');
                 if (!options.silent) showToast('✅ Настройки сохранены', 'success');
@@ -1963,7 +2011,9 @@ function drawBoundaryFromGeoJSON(data) {
             const status = document.getElementById('folderStatus');
             if (customText) status.textContent = customText;
             else {
-                const mode = screenshotSettings.localBoundary ? '🗺️ Локальный' : '🌐 Overpass';
+                const mode = screenshotSettings.localBoundary
+                    ? `🗺️ Локальный${screenshotSettings.detailedBoundary ? ' (детальный)' : ''}`
+                    : '🌐 Overpass';
                 status.textContent = `${mode} • Сервер: ${screenshotSettings.savePath || 'screenshots'}`;
             }
             status.className = 'folder-status';
@@ -2085,9 +2135,12 @@ function drawBoundaryFromGeoJSON(data) {
 
         let useLocalRoadData = localStorage.getItem('albion_data_source') === 'local';
         let dataSourceWasChosen = localStorage.getItem('albion_data_source') !== null;
-        let useLocalTiles = localStorage.getItem('albion_map_source') === 'local';
+        const storedMapSource = localStorage.getItem('albion_map_source');
+        let useLocalTiles = storedMapSource === 'local';
+        let useVectorTiles = storedMapSource === 'vector';
         let localGeoAvailable = false;
         let localTilesAvailable = false;
+        let vectorTilesAvailable = false;
         let selectedMskPoint = null;
         let addressSuggestionSequence = 0;
         let yandexSuggestApiPromise = null;
@@ -2154,10 +2207,47 @@ function drawBoundaryFromGeoJSON(data) {
             const roadStatus = useLocalRoadData
                 ? (localGeoAvailable ? 'Локальная база' : 'Локальная база не установлена')
                 : 'СКДФ онлайн';
-            const mapStatus = useLocalTiles
-                ? (localTilesAvailable ? 'Локальные тайлы' : 'Локальные тайлы не установлены')
-                : 'OSM онлайн';
-            document.getElementById('geoStatus').textContent = `${roadStatus}; ${mapStatus}. Полностью офлайн пока не готов: браузерные библиотеки подключены через CDN.${tileStatus && !useLocalTiles ? ` ${tileStatus}.` : ''}`;
+            const mapStatus = useVectorTiles
+                ? (vectorTilesAvailable ? 'Векторные тайлы MapLibre' : 'Векторные тайлы не установлены')
+                : useLocalTiles
+                    ? (localTilesAvailable ? 'Локальные растровые тайлы' : 'Локальные тайлы не установлены')
+                    : 'OSM онлайн';
+            document.getElementById('geoStatus').textContent = `${roadStatus}; ${mapStatus}. Браузерные библиотеки подключены локально.${tileStatus && !useLocalTiles && !useVectorTiles ? ` ${tileStatus}.` : ''}`;
+        }
+
+        function applyMapSourceSelection() {
+            const notice = document.getElementById('map-source-notice');
+            const removeAll = () => {
+                removeVectorBase();
+                if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
+            };
+            if (useVectorTiles) {
+                if (!vectorTilesAvailable) {
+                    removeAll();
+                    showMapSourceNotice('Векторный архив карты не установлен. Можно вручную переключиться на OSM онлайн; без переключения карта останется без подложки.');
+                    return false;
+                }
+                if (!setVectorBase()) {
+                    removeAll();
+                    showMapSourceNotice('MapLibre не загрузился. Можно вручную переключиться на OSM онлайн.');
+                    return false;
+                }
+                notice.classList.remove('visible');
+                return true;
+            }
+            if (useLocalTiles) {
+                if (!localTilesAvailable) {
+                    removeAll();
+                    showMapSourceNotice('Локальный архив карты не установлен. Можно вручную переключиться на OSM онлайн; без переключения карта останется без подложки.');
+                    return false;
+                }
+                setBaseTiles(true);
+                notice.classList.remove('visible');
+                return true;
+            }
+            setBaseTiles(false);
+            notice.classList.remove('visible');
+            return true;
         }
 
         async function initializeLocalGeo() {
@@ -2167,50 +2257,40 @@ function drawBoundaryFromGeoJSON(data) {
                 if (!response.ok) throw new Error(data.detail || 'Статус источников данных недоступен');
                 localGeoAvailable = data.local_available === true;
                 localTilesAvailable = data.local_tiles_available === true;
+                vectorTilesAvailable = data.vector_tiles_available === true;
                 if (!dataSourceWasChosen) useLocalRoadData = data.default_source === 'local';
                 const select = document.getElementById('dataSourceSelect');
                 const mapSelect = document.getElementById('mapSourceSelect');
                 select.value = useLocalRoadData ? 'local' : 'external';
-                mapSelect.value = useLocalTiles ? 'local' : 'external';
+                mapSelect.value = useVectorTiles ? 'vector' : (useLocalTiles ? 'local' : 'external');
                 const localStatus = data.local_available ? 'локальная БД готова' : 'локальная БД не установлена';
                 const tileStatus = data.local_tiles_available ? 'локальные тайлы готовы' : 'локальные тайлы не установлены';
-                updateDataSourceStatus(tileStatus);
-                if (useLocalTiles && localTilesAvailable) {
-                    setBaseTiles(true);
-                    document.getElementById('map-source-notice').classList.remove('visible');
-                } else if (useLocalTiles) {
-                    if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
-                    showMapSourceNotice('Локальный архив карты не установлен. Можно вручную переключиться на OSM онлайн; без переключения карта останется без подложки.');
-                } else {
-                    setBaseTiles(false);
-                    document.getElementById('map-source-notice').classList.remove('visible');
-                }
+                const vectorStatus = data.vector_tiles_available ? 'векторные тайлы готовы' : 'векторные тайлы не установлены';
+                updateDataSourceStatus(`${tileStatus}; ${vectorStatus}`);
+                applyMapSourceSelection();
                 select.onchange = () => {
                     useLocalRoadData = select.value === 'local';
                     localStorage.setItem('albion_data_source', useLocalRoadData ? 'local' : 'external');
                     updateLocalRoadControls();
                     if (useLocalRoadData && !localGeoAvailable) showToast('Локальная база не установлена: запрос завершится без внешнего fallback', 'error', 5000);
-                    updateDataSourceStatus(tileStatus);
+                    updateDataSourceStatus(`${tileStatus}; ${vectorStatus}`);
                     scheduleStateSave();
                 };
                 mapSelect.onchange = () => {
-                    useLocalTiles = mapSelect.value === 'local';
-                    localStorage.setItem('albion_map_source', useLocalTiles ? 'local' : 'external');
+                    const value = mapSelect.value;
+                    useVectorTiles = value === 'vector';
+                    useLocalTiles = value === 'local';
+                    localStorage.setItem('albion_map_source', value);
+                    applyMapSourceSelection();
+                    updateDataSourceStatus(`${tileStatus}; ${vectorStatus}`);
                     scheduleStateSave();
-                    if (useLocalTiles && !localTilesAvailable) {
-                        if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
-                        showMapSourceNotice('Локальный архив карты не установлен. Можно вручную переключиться на OSM онлайн; без переключения карта останется без подложки.');
-                    } else {
-                        setBaseTiles(useLocalTiles);
-                        document.getElementById('map-source-notice').classList.remove('visible');
-                    }
-                    updateDataSourceStatus(tileStatus);
                 };
                 updateLocalRoadControls();
                 if (searchDraft.mode === 'address') void initializeYandexAddressSuggest();
             } catch (error) {
                 // Keep the map usable if the status endpoint is unavailable; make this source fallback visible.
                 useLocalTiles = false;
+                useVectorTiles = false;
                 const mapSelect = document.getElementById('mapSourceSelect');
                 if (mapSelect) mapSelect.value = 'external';
                 setBaseTiles(false);
@@ -4712,6 +4792,7 @@ function drawBoundaryFromGeoJSON(data) {
                 delay: parseInt(document.getElementById('settingDelay').value, 10) || 3,
                 autoScreenshot: document.getElementById('autoScreenshotCheckbox').checked,
                 localBoundary: document.getElementById('localBoundaryCheckbox').checked,
+                detailedBoundary: document.getElementById('detailedBoundaryCheckbox').checked,
                 searchMode: searchDraft.mode,
                 searchPosition: searchPosition,
                 crs: crsState,
@@ -4747,6 +4828,7 @@ function drawBoundaryFromGeoJSON(data) {
 
         function applyPreferences(preferences) {
             if (!preferences || typeof preferences !== 'object') return;
+            let boundaryReloadNeeded = false;
             if (preferences.theme === 'dark' || preferences.theme === 'light') {
                 applyTheme(preferences.theme === 'dark');
             }
@@ -4764,8 +4846,17 @@ function drawBoundaryFromGeoJSON(data) {
                 screenshotSettings.autoScreenshotEnabled = preferences.autoScreenshot;
             }
             if (typeof preferences.localBoundary === 'boolean') {
+                if (screenshotSettings.localBoundary !== preferences.localBoundary) boundaryReloadNeeded = true;
                 document.getElementById('localBoundaryCheckbox').checked = preferences.localBoundary;
+                screenshotSettings.localBoundary = preferences.localBoundary;
             }
+            if (typeof preferences.detailedBoundary === 'boolean') {
+                if (screenshotSettings.detailedBoundary !== preferences.detailedBoundary) boundaryReloadNeeded = true;
+                document.getElementById('detailedBoundaryCheckbox').checked = preferences.detailedBoundary;
+                screenshotSettings.detailedBoundary = preferences.detailedBoundary;
+            }
+            document.getElementById('detailedBoundaryCheckbox').disabled = !screenshotSettings.localBoundary;
+            if (boundaryReloadNeeded) void loadRostovBoundary();
             if (preferences.searchMode) setSearchMode(preferences.searchMode);
             if (preferences.searchPosition === 'top' || preferences.searchPosition === 'bottom') {
                 applySearchDockPosition(preferences.searchPosition, false);
@@ -5209,10 +5300,10 @@ function drawBoundaryFromGeoJSON(data) {
             // Автосохранение настроек: чувствительные операции (аккаунт,
             // пользователи) по-прежнему отправляются кнопками.
             for (const id of ['radius', 'excludeMinor', 'settingDelay',
-                'autoScreenshotCheckbox', 'localBoundaryCheckbox']) {
+                'autoScreenshotCheckbox', 'localBoundaryCheckbox', 'detailedBoundaryCheckbox']) {
                 document.getElementById(id).addEventListener('change', () => {
                     scheduleStateSave();
-                    if (id === 'settingDelay' || id === 'autoScreenshotCheckbox' || id === 'localBoundaryCheckbox') {
+                    if (id === 'settingDelay' || id === 'autoScreenshotCheckbox' || id === 'localBoundaryCheckbox' || id === 'detailedBoundaryCheckbox') {
                         // saveScreenshotSettings сам перезагружает контур —
                         // второй параллельный вызов loadRostovBoundary не нужен.
                         saveScreenshotSettings({ silent: true });

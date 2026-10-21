@@ -158,6 +158,9 @@ def test_mutating_api_allows_same_origin_requests():
 
 def test_static_assets_allowlist_only():
     assert client.get("/static/rostov_boundary.geojson").status_code == 200
+    detailed = client.get("/static/rostov_boundary_detailed.geojson")
+    assert detailed.status_code == 200
+    assert len(detailed.json()["geometry"]["coordinates"][0]) == 1237
     assert client.get("/static/main.py").status_code == 404
     assert client.get("/static/index.html.save").status_code == 404
 
@@ -998,3 +1001,41 @@ def test_msk61_validation_error_is_localized():
     })
     assert response.status_code == 422
     assert "Широта вне" in response.json()["detail"]
+
+
+def test_vector_tile_endpoint_serves_gzipped_pbf(tmp_path, monkeypatch):
+    import gzip
+    database = tmp_path / "vector.mbtiles"
+    payload = gzip.compress(b"\x1a\x02test")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, "
+            "tile_row INTEGER, tile_data BLOB)"
+        )
+        # XYZ y=3 для z=5 соответствует TMS-строке 31-3.
+        connection.execute("INSERT INTO tiles VALUES (5, 10, 28, ?)", (payload,))
+    monkeypatch.setattr(main, "_vector_mbtiles_path", lambda: database)
+
+    sources = client.get("/api/data-sources")
+    assert sources.status_code == 200
+    assert sources.json()["vector_tiles_available"] is True
+
+    response = client.get("/api/vector-tiles/5/10/3.pbf")
+    assert response.status_code == 200
+    # HTTP-клиент прозрачно распаковывает Content-Encoding: gzip.
+    assert response.content == gzip.decompress(payload)
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["content-type"].startswith("application/vnd.mapbox-vector-tile")
+    assert client.get("/api/vector-tiles/5/10/4.pbf").status_code == 404
+
+
+def test_maplibre_assets_and_vector_style_are_served():
+    assert client.get("/static/vendor/maplibre-gl.js").status_code == 200
+    assert client.get("/static/vendor/maplibre-gl.css").status_code == 200
+    assert client.get("/static/vendor/leaflet-maplibre-gl.js").status_code == 200
+    style = client.get("/static/vector-style.json")
+    assert style.status_code == 200
+    assert style.json()["sources"]["albion"]["type"] == "vector"
+    font = client.get("/static/fonts/DejaVuSans/1024-1279.pbf")
+    assert font.status_code == 200
+    assert client.get("/static/fonts/../../main.py").status_code in {404, 400}
