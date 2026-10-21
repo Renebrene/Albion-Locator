@@ -639,6 +639,14 @@
             font-size: 12px;
         }
         .point-label { flex: 0 0 62px; color: var(--text-subtle); font-size: 11px; line-height: 1.45; }
+        .point-value-primary { display: block; }
+        .point-ghost-line {
+            display: block;
+            margin-top: 2px;
+            color: var(--success);
+            font-size: 11px;
+            font-weight: 600;
+        }
         .point-value {
             flex: 1;
             min-width: 0;
@@ -1260,6 +1268,9 @@
                         <p style="color: #856404; font-weight: 600; margin: 0 0 5px 0;">Дорога не найдена</p>
                         <p style="font-size: 13px; color: #856404; margin: 0;">В заданном радиусе нет данных о дорогах в ФГИС СКДФ.</p>
                     </div>
+                    <!-- Призрак показывается в правом фрейме независимо от
+                         результата поиска дороги. -->
+                    <p id="resultGhostHint" class="hint" hidden></p>
                 </div>
             </div>
 
@@ -1717,7 +1728,7 @@
         function renderBookmarks() {
             const list = document.getElementById('bookmarkList');
             const addBtn = document.getElementById('addBookmarkBtn');
-            addBtn.disabled = !activePoint || ghostPointEnabled;
+            addBtn.disabled = !activePoint;
             if (bookmarks.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'bookmark-empty';
@@ -1773,12 +1784,8 @@
         async function addBookmark() {
             if (bookmarkInFlight) return;
             if (!activePoint) { showToast('⚠️ Сначала выберите точку', 'error'); return; }
-            // Карточка показывает призрака, а не activePoint: сохранять
-            // исходную точку под видом текущей нельзя.
-            if (ghostPointEnabled) {
-                showToast('Сначала зафиксируйте точку призрака кнопкой «Перейти»', 'error', 3500);
-                return;
-            }
+            // Левая карточка в режиме призрака показывает оригинальную
+            // точку, поэтому закладка сохраняет именно её.
             const nameInput = document.getElementById('bookmarkName');
             // Снимок точки: ползунок километража может изменить activePoint,
             // пока запрос в полёте.
@@ -2955,7 +2962,9 @@ function drawBoundaryFromGeoJSON(data) {
             roadKmSlider.max = '0';
             clearRoadKmDisplay();
             setRoadKmControlsEnabled(false);
-            roadKmPanel.hidden = true;
+            // Панель километража остаётся на месте (ползунок виден, но
+            // выключен): иначе правый фрейм «теряет» ползунок при смене точки.
+            roadKmPanel.hidden = false;
             roadKmRange.textContent = '';
             roadKmStatus.textContent = statusText;
             searchDraft.roadKm = null;
@@ -2991,6 +3000,8 @@ function drawBoundaryFromGeoJSON(data) {
             if (!road) return;
             // Локальная база не должна ходить в онлайн-СКДФ за участками.
             if (useLocalRoadData) {
+                roadKmPanel.hidden = false;
+                setRoadKmControlsEnabled(false);
                 if (roadKmEnabled && !roadKmState) {
                     roadKmStatus.textContent =
                         'Для локальной базы официальный километраж СКДФ недоступен.';
@@ -3689,6 +3700,24 @@ function drawBoundaryFromGeoJSON(data) {
             window.currentRoadKmText = text;
         }
 
+        // В правом фрейме призрак показывается отдельной строкой; левая
+        // карточка при этом остаётся на оригинальной красной точке.
+        function updateGhostResultHint(officialKm = null) {
+            const element = document.getElementById('resultGhostHint');
+            if (!element) return;
+            if (!ghostPointEnabled
+                || !Number.isFinite(ghostLat) || !Number.isFinite(ghostLon)) {
+                element.hidden = true;
+                element.textContent = '';
+                return;
+            }
+            const km = Number.isFinite(officialKm)
+                ? officialKm : parseRoadKmNumber(roadKmNumber.value);
+            element.textContent = `👻 Призрак: ${ghostLat.toFixed(6)}, ${ghostLon.toFixed(6)}`
+                + (Number.isFinite(km) ? ` · ${formatKm(km)}` : '');
+            element.hidden = false;
+        }
+
         function ensureGhostMarker(lat, lon) {
             if (!ghostMarker) {
                 ghostMarker = L.circleMarker([lat, lon], {
@@ -3738,6 +3767,7 @@ function drawBoundaryFromGeoJSON(data) {
             ghostPointToggle.setAttribute('aria-pressed', 'false');
             renderCurrentPointCard();
             renderCoordsInput();
+            updateGhostResultHint();
             if (wasGhost) renderBookmarks();
         }
 
@@ -3754,6 +3784,7 @@ function drawBoundaryFromGeoJSON(data) {
                 renderCoordsInput();
                 resolveCoordsMsk();
                 updateResultKmText(officialKm);
+                updateGhostResultHint(officialKm);
                 updateStatusBar();
                 if (track) trackRoadKmPoint(point.lat, point.lon);
                 return;
@@ -3824,6 +3855,10 @@ function drawBoundaryFromGeoJSON(data) {
                         roadKmStatus.textContent = `Километраж исходной точки: ${formatKm(nearest.officialKm)}.`;
                     }
                 }
+                if (activePoint) {
+                    // Возвращаем карту к оригинальной красной точке.
+                    map.panTo([activePoint.lat, activePoint.lon], {animate: true});
+                }
                 return;
             }
             // При каждом включении призрак сбрасывается к исходной точке,
@@ -3842,6 +3877,7 @@ function drawBoundaryFromGeoJSON(data) {
                         `Призрак сброшен к точке: ${formatKm(nearest.officialKm)}.`;
                 }
             }
+            updateGhostResultHint();
             renderCoordsInput();
             resolveCoordsMsk();
         }
@@ -4361,6 +4397,7 @@ function drawBoundaryFromGeoJSON(data) {
                         });
                         const data = await response.json();
                         if (!response.ok) return null;
+                        if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return null;
                         return {x: data.x, y: data.y, zone: data.zone};
                     } catch (error) {
                         return null;
@@ -4621,34 +4658,34 @@ function drawBoundaryFromGeoJSON(data) {
             scheduleUrlSync();
         }
 
-        // Карточка «Текущая точка» показывает призрак, пока он активен, иначе
-        // основную точку. Сам activePoint при этом не подменяется.
-        function currentCardPoint() {
-            if (ghostPointEnabled && ghostMarker
-                && Number.isFinite(ghostLat) && Number.isFinite(ghostLon)) {
-                return {
-                    lat: ghostLat,
-                    lon: ghostLon,
-                    source: 'ghost',
-                    address: null,
-                    district: null,
-                    ghost: true,
-                };
+        function formatMskCard(msk) {
+            if (!msk || !Number.isFinite(Number(msk.x)) || !Number.isFinite(Number(msk.y))) {
+                return '';
             }
-            return activePoint;
+            return `X ${Number(msk.x).toFixed(2)}, Y ${Number(msk.y).toFixed(2)} (зона ${msk.zone}, предварительно)`;
         }
 
-        function formatMskCard(msk) {
-            return msk
-                ? `X ${msk.x.toFixed(2)}, Y ${msk.y.toFixed(2)} (зона ${msk.zone}, предварительно)`
-                : '';
+        // Значение координат может состоять из двух строк: оригинальная
+        // точка и (в режиме призрака) точка призрака с 👻.
+        function setCardCoordinates(id, primary, ghostLine = null) {
+            const element = document.getElementById(id);
+            element.replaceChildren();
+            const first = document.createElement('span');
+            first.className = 'point-value-primary';
+            first.textContent = primary;
+            element.appendChild(first);
+            if (ghostLine) {
+                const second = document.createElement('span');
+                second.className = 'point-ghost-line';
+                second.textContent = `👻 ${ghostLine}`;
+                element.appendChild(second);
+            }
         }
 
         function renderCurrentPointCard() {
             const empty = document.getElementById('currentPointEmpty');
             const details = document.getElementById('currentPointDetails');
-            const point = currentCardPoint();
-            if (!point) {
+            if (!activePoint) {
                 empty.hidden = false;
                 details.hidden = true;
                 document.getElementById('saveFavoriteBtn').disabled = true;
@@ -4657,30 +4694,29 @@ function drawBoundaryFromGeoJSON(data) {
             }
             empty.hidden = true;
             details.hidden = false;
-            const isGhost = point.ghost === true;
-            document.getElementById('cpWgs').textContent =
-                `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+            // Левая карточка всегда показывает оригинальную красную точку.
+            // Призрак отображается в правом фрейме и в строке поиска.
+            setCardCoordinates(
+                'cpWgs',
+                `${activePoint.lat.toFixed(6)}, ${activePoint.lon.toFixed(6)}`
+            );
+            setCardCoordinates(
+                'cpMsk',
+                formatMskCard(activeMsk) || 'не рассчитано'
+            );
             document.getElementById('cpSource').textContent =
-                isGhost ? '👻 Точка призрака (предпросмотр)' : (SOURCE_LABELS[point.source] || '');
+                SOURCE_LABELS[activePoint.source] || '';
             document.getElementById('cpAddress').textContent =
-                isGhost ? 'не определено' : (point.address || 'не определено');
+                activePoint.address || 'не определено';
             document.getElementById('cpDistrict').textContent =
-                isGhost ? 'не определено' : (point.district || 'не определено');
-            document.getElementById('cpMsk').textContent = isGhost
-                ? (formatMskCard(ghostMsk) || '…')
-                : (formatMskCard(activeMsk) || (activePoint ? 'не рассчитано' : '—'));
-            // Призрак — предпросмотр; закладку сохраняем только после «Перейти».
-            document.getElementById('saveFavoriteBtn').disabled = isGhost;
-            document.getElementById('saveFavoriteBtn').title = isGhost
-                ? 'Сначала зафиксируйте призрак кнопкой «Перейти»'
-                : '';
+                activePoint.district || 'не определено';
+            document.getElementById('saveFavoriteBtn').disabled = false;
+            document.getElementById('saveFavoriteBtn').title = '';
         }
 
         function renderActivePoint() {
             renderCurrentPointCard();
             if (!activePoint) return;
-            const point = currentCardPoint();
-            if (point && point.ghost) return;
             const { lat, lon } = activePoint;
             // Пытаемся подобрать зону МСК-61 автоматически по долготе.
             autoMskZone(lon);
@@ -5620,7 +5656,9 @@ function drawBoundaryFromGeoJSON(data) {
 
         function copyField(button) {
             const target = document.getElementById(button.dataset.copy);
-            const text = target ? target.textContent.trim() : '';
+            // В режиме призрака копируем исходную точку, а не обе строки.
+            const primary = target && target.querySelector('.point-value-primary');
+            const text = (primary || target) ? (primary || target).textContent.trim() : '';
             if (!text || text === '—' || text === 'не определено') {
                 showToast('Нет данных для копирования', 'error');
                 return;

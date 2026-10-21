@@ -362,34 +362,43 @@ def test_current_point_card_shows_active_ghost(page, app_server):
         slider.value = String(Number(slider.max) * 0.5);
         slider.dispatchEvent(new Event('input', {bubbles: true}));
         await sleep(250);
+        const ghostHint = document.getElementById('resultGhostHint');
         const ghostCard = {
-            wgs: document.getElementById('cpWgs').textContent,
+            wgs: document.querySelector('#cpWgs .point-value-primary')?.textContent,
+            ghostLine: document.querySelector('#cpWgs .point-ghost-line'),
+            msk: document.querySelector('#cpMsk .point-value-primary')?.textContent,
             source: document.getElementById('cpSource').textContent,
-            address: document.getElementById('cpAddress').textContent,
             favoriteDisabled: document.getElementById('saveFavoriteBtn').disabled,
+            hint: ghostHint.hidden ? null : ghostHint.textContent,
             active: [activePoint.lat, activePoint.lon],
             ghost: [ghostLat, ghostLon],
         };
         ghostPointToggle.click();
-        await sleep(80);
+        await sleep(500);
+        const center = map.getCenter();
         return {
             ghostCard,
-            baseCard: {
-                wgs: document.getElementById('cpWgs').textContent,
+            afterOff: {
+                wgs: document.querySelector('#cpWgs .point-value-primary')?.textContent,
+                hintHidden: ghostHint.hidden,
+                center: [center.lat, center.lng],
                 source: document.getElementById('cpSource').textContent,
-                favoriteDisabled: document.getElementById('saveFavoriteBtn').disabled,
             },
         };
     }""")
-    assert result["ghostCard"]["wgs"] == "47.200000, 39.800000"
-    assert "призрак" in result["ghostCard"]["source"].lower()
-    assert result["ghostCard"]["address"] == "не определено"
-    assert result["ghostCard"]["favoriteDisabled"] is True
+    assert result["ghostCard"]["wgs"] == "47.200000, 39.700000"
+    assert result["ghostCard"]["ghostLine"] is None
+    assert result["ghostCard"]["msk"]
+    assert "Точка выбрана" in result["ghostCard"]["source"]
+    assert result["ghostCard"]["favoriteDisabled"] is False
+    assert result["ghostCard"]["hint"].startswith("👻 Призрак")
+    assert "47.200000, 39.800000" in result["ghostCard"]["hint"]
     assert result["ghostCard"]["active"] == pytest.approx([47.2, 39.7])
     assert result["ghostCard"]["ghost"] == pytest.approx([47.2, 39.8])
-    assert result["baseCard"]["wgs"] == "47.200000, 39.700000"
-    assert "Точка выбрана" in result["baseCard"]["source"]
-    assert result["baseCard"]["favoriteDisabled"] is False
+    assert result["afterOff"]["wgs"] == "47.200000, 39.700000"
+    assert result["afterOff"]["hintHidden"] is True
+    assert result["afterOff"]["center"] == pytest.approx([47.2, 39.7], abs=0.01)
+    assert "Точка выбрана" in result["afterOff"]["source"]
 
 
 def test_ghost_resets_to_point_after_toggle(page, app_server):
@@ -1562,8 +1571,8 @@ def test_escape_closes_suggestions_from_search_field(page, app_server):
     assert page.evaluate("document.activeElement !== modeInput1")
 
 
-def test_ghost_toggle_disables_bookmark_button(page, app_server):
-    """В режиме призрака «➕» в закладках блокируется и разблокируется обратно."""
+def test_ghost_keeps_bookmark_button_for_original_point(page, app_server):
+    """Левая карточка/закладки в режиме призрака относятся к оригинальной точке."""
     login(page, app_server["base_url"])
     result = page.evaluate("""() => {
         const ok = data => new Response(JSON.stringify(data), {
@@ -1580,7 +1589,7 @@ def test_ghost_toggle_disables_bookmark_button(page, app_server):
         removeGhostMarker();
         return {before, during, after};
     }""")
-    assert result == {"before": False, "during": True, "after": False}, result
+    assert result == {"before": False, "during": False, "after": False}, result
 
 
 def test_km_range_restored_after_activation(page, app_server):
@@ -1834,3 +1843,22 @@ def test_local_road_without_chainage_can_place_fragment_point(page, app_server):
     assert result["active"]["roadLabel"] == "М4 Дон - Вёшенская"
     assert result["active"]["lat"] == pytest.approx(48.99, abs=1e-6)
     assert result["armed"] is False
+
+
+def test_km_slider_stays_visible_when_km_state_is_cleared(page, app_server):
+    """Сброс километража не должен скрывать панель и ползунок справа."""
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{start_km: 0, finish_km: 20,
+                        coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
+        });
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        clearLoadedRoadKmState('Километраж сброшен.');
+    }""")
+    assert page.locator("#roadKmPanel").is_visible()
+    assert page.locator("#roadKmSlider").is_visible()
+    assert page.locator("#roadKmSlider").is_disabled()
