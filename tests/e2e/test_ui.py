@@ -945,6 +945,9 @@ def test_chainage_gap_and_overlap_state(page, app_server):
         applyRoadKmActivation();
         searchDraft.mode = 'road';
         const preview = previewRoadKm(10);
+        const gapStatus = roadKmStatus.textContent;
+        const outside = previewRoadKm(999);
+        const outsideStatus = roadKmStatus.textContent;
         return {
             gaps: gapState.gaps,
             hasGaps: gapState.hasGaps,
@@ -954,7 +957,9 @@ def test_chainage_gap_and_overlap_state(page, app_server):
             preview,
             draftLat: searchDraft.roadLat,
             modeInput: modeInput2.value,
-            status: roadKmStatus.textContent
+            status: gapStatus,
+            outside,
+            outsideStatus,
         };
     }""")
     assert result["hasGaps"] is True
@@ -966,6 +971,8 @@ def test_chainage_gap_and_overlap_state(page, app_server):
     assert result["draftLat"] is None
     assert result["modeInput"] == ""
     assert "разрыв" in result["status"]
+    assert result["outside"] is None
+    assert "вне доступного диапазона" in result["outsideStatus"]
 
 
 def test_committed_map_point_syncs_official_km_slider(page, app_server):
@@ -1258,6 +1265,14 @@ def test_optional_url_state_sync_shares_and_restores_point(page, app_server):
         timeout=8000,
     )
     assert page.evaluate("searchDraft.mode") == "coords"
+    page.wait_for_function("map.getZoom() === 16", timeout=3000)
+    page.wait_for_timeout(300)
+    assert page.evaluate("map.getZoom()") == 16
+    linked = page.evaluate("""() => {
+        const encoded = new URLSearchParams(location.hash.slice(1)).get('s');
+        return AlbionGeo.decodeUrlState(encoded);
+    }""")
+    assert linked["zoom"] == 16
 
     # Старые длинные ссылки продолжают работать.
     page.goto(app_server["base_url"] + "/?lat=47.4&lon=40.1&zoom=15&mode=road")
@@ -1306,3 +1321,312 @@ def test_optional_multi_select_bulk_show_and_delete(page, app_server):
 
     page.evaluate("applyMultiSelectSetting(false, true)")
     page.evaluate("() => saveUserState()")
+
+
+def test_new_point_blocks_stale_km_until_locate(page, app_server):
+    """Старый километраж нельзя применить, пока locate не подтвердил дорогу."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        let releaseLocate = null;
+        let historyPosts = 0;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') {
+                const body = JSON.parse((options && options.body) || '{}');
+                // Новая точка отвечает с задержкой, старая — сразу.
+                if (Math.abs(body.lat - 47.5) < 1e-9) {
+                    await new Promise(resolve => { releaseLocate = resolve; });
+                    return ok({point: {lat: 47.5, lon: 40.5}, road: null, side: null});
+                }
+                return ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+            }
+            if (url.startsWith('/api/history') && options && options.method === 'POST') {
+                historyPosts += 1;
+            }
+            return ok({entries: [], status: 'ok'});
+        };
+        activePoint = {lat: 47.2, lon: 39.8, source: 'click'};
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{
+                start_km: 0, finish_km: 20,
+                coordinates: [[39.70, 47.20], [39.90, 47.20]]
+            }]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        commitPoint(47.5, 40.5, 'click');   // locate для неё ждёт releaseLocate
+        roadKmNumber.value = '20+000';
+        applyRoadKmNumber(true);
+        const during = {
+            point: [activePoint.lat, activePoint.lon],
+            stale: roadKmStale,
+            disabled: roadKmSlider.disabled,
+            history: historyPosts,
+        };
+        releaseLocate();
+        await sleep(120);
+        return {
+            during,
+            after: {
+                point: [activePoint.lat, activePoint.lon],
+                stale: roadKmStale,
+                disabled: roadKmSlider.disabled,
+                hasState: Boolean(roadKmState),
+            },
+        };
+    }""")
+    assert result["during"]["point"] == pytest.approx([47.5, 40.5])
+    assert result["during"]["stale"] is True
+    assert result["during"]["disabled"] is True
+    assert result["during"]["history"] == 0
+    assert result["after"]["point"] == pytest.approx([47.5, 40.5])
+    assert result["after"]["stale"] is False
+    assert result["after"]["hasState"] is False
+
+
+def test_screenshot_rect_can_be_moved_by_middle(page, app_server):
+    """После фиксации выделения рамку можно тянуть за середину."""
+    login(page, app_server["base_url"])
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        startScreenshotMode();
+    }""")
+    before = page.evaluate("""() => ({
+        left: parseInt(rect.style.left),
+        top: parseInt(rect.style.top),
+        pointerEvents: getComputedStyle(rect).pointerEvents,
+    })""")
+    assert before["pointerEvents"] == "auto"
+    box = page.locator("#selection-rect").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2 + 35,
+                    box["y"] + box["height"] / 2 + 25, steps=5)
+    page.mouse.up()
+    after = page.evaluate("""() => ({
+        left: parseInt(rect.style.left),
+        top: parseInt(rect.style.top),
+    })""")
+    assert after["left"] == pytest.approx(before["left"] + 35, abs=2)
+    assert after["top"] == pytest.approx(before["top"] + 25, abs=2)
+    page.evaluate("clearScreenshotUI()")
+    assert page.evaluate("rect.classList.contains('editable')") is False
+
+
+def test_mobile_status_bar_wraps_without_horizontal_overflow(page, app_server):
+    """На 390px статус-бар переносится, кнопка настроек остаётся в экране."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    login(page, app_server["base_url"])
+    metrics = page.evaluate("""() => {
+        const doc = document.documentElement;
+        const bar = document.getElementById('status-bar').getBoundingClientRect();
+        const gear = document.getElementById('settingsOpenButton').getBoundingClientRect();
+        return {
+            scrollWidth: doc.scrollWidth,
+            clientWidth: doc.clientWidth,
+            barHeight: bar.height,
+            gearLeft: gear.left,
+            gearRight: gear.right,
+            gearVisible: gear.width > 0,
+        };
+    }""")
+    assert metrics["scrollWidth"] <= metrics["clientWidth"] + 1
+    assert metrics["barHeight"] >= 54
+    assert metrics["gearVisible"] is True
+    assert metrics["gearLeft"] >= 0
+    assert metrics["gearRight"] <= 391
+    page.click("#settingsOpenButton")
+    assert page.locator("#settings-modal").evaluate("el => el.classList.contains('open')")
+
+
+def test_multi_select_checkbox_keyboard_and_shift(page, app_server):
+    """Space переключает чекбокс без потери фокуса, Shift по чекбоксу — диапазон."""
+    login(page, app_server["base_url"])
+    page.click("#settingsOpenButton")
+    page.check("#multiSelectToggle")
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+        activateFrameTab('batch');
+        batchPoints = [
+            {id: 'a', name: 'A', lat: 47.2, lon: 39.8},
+            {id: 'b', name: 'B', lat: 47.3, lon: 39.9},
+            {id: 'c', name: 'C', lat: 47.4, lon: 40.0},
+        ];
+        renderBatchList();
+        updateBatchBulkBar();
+    }""")
+    checkbox = page.locator('.batch-item[data-id="a"] .batch-select')
+    checkbox.focus()
+    page.keyboard.press("Space")
+    assert checkbox.is_checked()
+    assert page.evaluate("batchSelection.size") == 1
+    assert page.evaluate("document.activeElement === document.querySelector('.batch-item[data-id=\"a\"] .batch-select')")
+    page.keyboard.press("Space")
+    assert not checkbox.is_checked()
+    assert page.evaluate("batchSelection.size") == 0
+    assert page.locator("#batchBulkBar").is_hidden()
+
+    checkbox.click()
+    page.locator('.batch-item[data-id="c"] .batch-select').click(modifiers=["Shift"])
+    assert sorted(page.evaluate("Array.from(batchSelection)")) == ["a", "b", "c"]
+    page.evaluate("applyMultiSelectSetting(false, true)")
+    page.evaluate("() => saveUserState()")
+
+
+def test_escape_closes_suggestions_from_search_field(page, app_server):
+    """Esc внутри панели поиска закрывает подсказки и снимает фокус."""
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({roads: [{
+            title: 'М-4 Дон', road_code: 'М-4', precision: 'exact',
+            lat: 47.2, lon: 39.8, query: 'М-4'
+        }]});
+        document.getElementById('searchArmCheckbox').checked = true;
+        applySearchArmState();
+        document.getElementById('modeRoadBtn').click();
+    }""")
+    page.fill("#modeInput1", "М-4")
+    page.wait_for_selector("#modeSuggestions.open .geo-suggestion", timeout=5000)
+    assert page.evaluate("document.activeElement === modeInput1")
+    page.keyboard.press("Escape")
+    assert page.evaluate("!document.getElementById('modeSuggestions').classList.contains('open')")
+    assert page.evaluate("document.activeElement !== modeInput1")
+
+
+def test_ghost_toggle_disables_bookmark_button(page, app_server):
+    """В режиме призрака «➕» в закладках блокируется и разблокируется обратно."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({x: 422630.864, y: 2204440.047, zone: 2});
+        activePoint = {lat: 47.2, lon: 39.8, source: 'click'};
+        renderBookmarks();
+        const before = document.getElementById('addBookmarkBtn').disabled;
+        toggleGhostPoint();
+        const during = document.getElementById('addBookmarkBtn').disabled;
+        toggleGhostPoint();
+        const after = document.getElementById('addBookmarkBtn').disabled;
+        removeGhostMarker();
+        return {before, during, after};
+    }""")
+    assert result == {"before": False, "during": True, "after": False}, result
+
+
+def test_km_range_restored_after_activation(page, app_server):
+    """Диапазон и предупреждения восстанавливаются при включении км после выбора дороги."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async (url) => {
+            if (url === '/api/roads/online/search') {
+                return ok({roads: [{title: 'М-4 Дон', road_code: 'М-4', lat: 47.2, lon: 39.8, precision: 'exact'}]});
+            }
+            if (url === '/api/roads/online/sections') {
+                return ok({code: 'М-4', first_km: 0, last_km: 20, sections: [
+                    {start_km: 0, finish_km: 5, coordinates: [[39.70, 47.20], [39.74, 47.20]]},
+                    {start_km: 15, finish_km: 20, coordinates: [[39.80, 47.20], [39.84, 47.20]]},
+                ]});
+            }
+            if (url === '/api/locate') return ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+            return ok({entries: [], status: 'ok'});
+        };
+        setSearchMode('road');
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        await resolveOnlineRoad({query: 'М-4'});
+        document.querySelector('#modeSuggestions .geo-suggestion').click();
+        for (let i = 0; i < 40 && !roadKmState; i += 1) await sleep(25);
+        const rangeWhileOff = roadKmRange.textContent;
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        return {rangeWhileOff, rangeOn: roadKmRange.textContent};
+    }""")
+    assert result["rangeWhileOff"] == ""
+    assert "Участок" in result["rangeOn"]
+    assert "разрывы" in result["rangeOn"]
+
+
+def test_address_hint_clears_when_input_shrinks(page, app_server):
+    """При сокращении адреса до <3 символов старый статус не остаётся."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""() => {
+        searchDraft.mode = 'address';
+        modeInput1.value = 'Ростов';
+        modeInput1.dispatchEvent(new Event('input', {bubbles: true}));
+        const longStatus = modeStatus.textContent;
+        modeInput1.value = '  ';
+        modeInput1.dispatchEvent(new Event('input', {bubbles: true}));
+        return {longStatus, shortStatus: modeStatus.textContent};
+    }""")
+    assert "Выберите адрес" in result["longStatus"]
+    assert result["shortStatus"] == ""
+
+
+def test_crs_toggle_converts_uncommitted_draft(page, app_server):
+    """Без зафиксированной точки переключение WGS/МСК конвертирует ввод."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async (url) => {
+            if (url === '/api/msk61/from-geographic') {
+                return ok({x: 422630.864, y: 2204440.047, zone: 2,
+                           profile: 'gost_51794_2008', warning: ''});
+            }
+            if (url === '/api/msk61/to-geographic') {
+                return ok({lat: 47.23, lon: 39.72, zone: 2,
+                           profile: 'gost_51794_2008', can_place_on_map: true, warning: ''});
+            }
+            return ok({});
+        };
+        activePoint = null;
+        availableMskZone = null;
+        mskZone = 2;
+        searchDraft.mode = 'coords';
+        crsState = 'gps';
+        updateCrsLabel();
+        modeInput1.value = '47.23, 39.72';
+        modeInput1.dispatchEvent(new Event('input', {bubbles: true}));
+        cycleCrs();
+        await sleep(100);
+        const msk = {
+            crs: crsState,
+            value: modeInput1.value,
+            reference: modeInput2.value,
+            lat: searchDraft.coordLat,
+            lon: searchDraft.coordLon,
+        };
+        cycleCrs();
+        await sleep(100);
+        return {
+            msk,
+            wgs: {crs: crsState, value: modeInput1.value, reference: modeInput2.value},
+        };
+    }""")
+    assert result["msk"]["crs"] == "msk2"
+    assert result["msk"]["value"].startswith("422630.864")
+    assert result["msk"]["reference"].startswith("47.230000")
+    assert result["msk"]["lat"] == pytest.approx(47.23, abs=1e-6)
+    assert result["wgs"]["crs"] == "gps", result
+    assert result["wgs"]["value"].startswith("47.230000, 39.720000"), result

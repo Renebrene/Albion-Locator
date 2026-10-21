@@ -158,6 +158,23 @@ def _msk61_module():
         return importlib.import_module("offline_geo.msk61")
     except ImportError as exc:
         raise HTTPException(503, "Модуль расчёта МСК-61 недоступен") from exc
+
+
+_MSK61_ERROR_TRANSLATIONS = {
+    "latitude and longitude must be finite numbers":
+        "Широта и долгота должны быть конечными числами.",
+    "latitude or longitude is outside its geographic range":
+        "Широта или долгота вне допустимого географического диапазона.",
+    "latitude is outside the preliminary local domain (40 to 55 degrees)":
+        "Широта вне предварительного локального домена МСК-61 (40–55°).",
+    "longitude is outside the selected zone's preliminary 3-degree domain":
+        "Долгота вне предварительного 3-градусного домена выбранной зоны МСК-61.",
+}
+
+
+def _msk61_error_message(exc: Exception) -> str:
+    text = str(exc)
+    return _MSK61_ERROR_TRANSLATIONS.get(text, text)
 CATEGORY_MAP = {1: "Автомагистраль", 2: "I категория", 3: "II категория",
                 4: "III категория", 5: "IV категория", 6: "V категория"}
 COATING_MAP = {1: "Капитальный", 2: "Облегчённый", 3: "Переходный", 4: "Низший"}
@@ -2074,7 +2091,7 @@ async def msk61_to_geographic(payload: MSK61ToGeographicPayload):
     try:
         result = module.msk61_to_latlon(payload.x, payload.y, zone=payload.zone, profile=payload.profile)
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, _msk61_error_message(exc)) from exc
     return {
         "lat": result.latitude,
         "lon": result.longitude,
@@ -2093,7 +2110,7 @@ async def geographic_to_msk61(payload: GeographicToMSK61Payload):
     try:
         result = module.latlon_to_msk61(payload.lat, payload.lon, zone=payload.zone, profile=payload.profile)
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, _msk61_error_message(exc)) from exc
     return {
         "x": result.x,
         "y": result.y,

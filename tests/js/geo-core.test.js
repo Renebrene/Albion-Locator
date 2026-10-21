@@ -35,6 +35,14 @@ describe('parseWgsCoordinates', () => {
         expect(result.lat).toBeLessThan(0);
     });
 
+    test('отрицательные десятичные координаты сохраняют знак', () => {
+        const both = geo.parseWgsCoordinates('-33.45, -70.66');
+        expect(both.lat).toBeCloseTo(-33.45, 6);
+        expect(both.lon).toBeCloseTo(-70.66, 6);
+        expect(geo.parseWgsCoordinates('-47.23 39.72').lat).toBeCloseTo(-47.23, 6);
+        expect(geo.parseDmsComponent('-47 14 42.2')).toBeLessThan(0);
+    });
+
     test('порядок «долгота, широта» распознаётся по диапазону', () => {
         // Значение 139.72 не может быть широтой -> порядок меняется.
         const result = geo.parseWgsCoordinates('139.72, 47.23');

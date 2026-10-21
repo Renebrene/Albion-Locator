@@ -103,6 +103,8 @@
         const hemisphere = /([NSEWnsew])\s*$/.exec(text);
         const ref = hemisphere ? hemisphere[1].toUpperCase() : null;
         const body = hemisphere ? text.slice(0, hemisphere.index) : text;
+        // Знак стоит перед градусами и не попадает в числовую регулярку.
+        const negative = /^\s*-/.test(body);
         const numbers = body.match(/\d+(?:\.\d+)?/g);
         if (!numbers || numbers.length === 0 || numbers.length > 3) return null;
         const degrees = Number(numbers[0]);
@@ -112,7 +114,7 @@
         if (minutes < 0 || minutes >= 60 || seconds < 0 || seconds >= 60) return null;
         const sign = ref ? HEMISPHERE_REF[ref] : 1;
         const value = degrees + minutes / 60 + seconds / 3600;
-        if (degrees < 0) return -Math.abs(value);
+        if (negative) return -Math.abs(value);
         return sign * Math.abs(value);
     }
 

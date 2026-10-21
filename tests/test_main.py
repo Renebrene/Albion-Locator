@@ -990,3 +990,11 @@ def test_reverse_geocode_without_key_returns_empty_fields(monkeypatch):
 def test_reverse_geocode_validates_coordinates():
     response = client.post("/api/geocode/reverse", json={"lat": 91, "lon": 39.7})
     assert response.status_code == 422
+
+
+def test_msk61_validation_error_is_localized():
+    response = client.post("/api/msk61/from-geographic", json={
+        "lat": 20.0, "lon": 39.7, "zone": 2, "profile": "gost_51794_2008",
+    })
+    assert response.status_code == 422
+    assert "Широта вне" in response.json()["detail"]
