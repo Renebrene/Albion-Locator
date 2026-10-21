@@ -323,9 +323,126 @@
         return best;
     }
 
+    // ===== КОМПАКТНАЯ ССЫЛКА НА СОСТОЯНИЕ =====
+    // Формат: v1 + сегменты «буква + значение фиксированной ширины».
+    // Пример: v1l29pevbo3mt74pzgmctpk00jmek
+    // lat/lon кодируются как смещённые целые микроградусы в base36,
+    // поэтому знаки и десятичные точки не занимают места.
+    const URL_STATE_VERSION = 'v1';
+    const BASE36_DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
+    const URL_STATE_MODES = { address: 'a', coords: 'c', road: 'r' };
+    const URL_STATE_TABS = { point: 'p', batch: 'b', saved: 's' };
+    const URL_STATE_MODE_CODES = { a: 'address', c: 'coords', r: 'road' };
+    const URL_STATE_TAB_CODES = { p: 'point', b: 'batch', s: 'saved' };
+    const URL_STATE_SEGMENT_WIDTH = { l: 6, o: 6, z: 1, m: 1, t: 1, k: 6 };
+    const LAT_OFFSET_MICRO = 90_000_000;
+    const LON_OFFSET_MICRO = 180_000_000;
+    const MAX_KM_METRES = 99_999_999;
+
+    function base36Encode(value, width) {
+        let number = Math.round(Number(value));
+        if (!Number.isFinite(number) || number < 0) number = 0;
+        let text = '';
+        do {
+            text = BASE36_DIGITS[number % 36] + text;
+            number = Math.floor(number / 36);
+        } while (number > 0);
+        return text.padStart(width, '0');
+    }
+
+    function base36Decode(text) {
+        if (typeof text !== 'string' || !/^[0-9a-z]+$/.test(text)) return null;
+        const value = parseInt(text, 36);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    /**
+     * Кодирует состояние приложения в компактную строку без разделителей.
+     * state: { lat, lon, zoom, mode, tab, km } — все поля необязательны.
+     */
+    function encodeUrlState(state) {
+        const data = state && typeof state === 'object' ? state : {};
+        const parts = [URL_STATE_VERSION];
+        const lat = Number(data.lat);
+        const lon = Number(data.lon);
+        if (isFiniteNumber(lat) && isFiniteNumber(lon) && inGpsRange(lat, lon)) {
+            parts.push('l' + base36Encode(Math.round(lat * 1e6) + LAT_OFFSET_MICRO, 6));
+            parts.push('o' + base36Encode(Math.round(lon * 1e6) + LON_OFFSET_MICRO, 6));
+        }
+        const zoom = Math.round(Number(data.zoom));
+        if (Number.isFinite(zoom)) {
+            parts.push('z' + base36Encode(Math.max(1, Math.min(19, zoom)), 1));
+        }
+        if (URL_STATE_MODES[data.mode]) parts.push('m' + URL_STATE_MODES[data.mode]);
+        if (URL_STATE_TABS[data.tab]) parts.push('t' + URL_STATE_TABS[data.tab]);
+        const km = Number(data.km);
+        if (Number.isFinite(km) && km >= 0) {
+            parts.push('k' + base36Encode(Math.min(Math.round(km * 1000), MAX_KM_METRES), 6));
+        }
+        return parts.join('');
+    }
+
+    /**
+     * Разбирает строку формата v1... Возвращает
+     * { point?, zoom?, mode?, tab?, km? } или null.
+     */
+    function decodeUrlState(value) {
+        const text = String(value == null ? '' : value).trim().replace(/^#/, '');
+        if (!text.startsWith(URL_STATE_VERSION)) return null;
+        let index = URL_STATE_VERSION.length;
+        let lat = null;
+        let lon = null;
+        let zoom = null;
+        let mode = null;
+        let tab = null;
+        let km = null;
+
+        while (index < text.length) {
+            const code = text[index];
+            const width = URL_STATE_SEGMENT_WIDTH[code];
+            if (!width) return null;
+            const segment = text.slice(index + 1, index + 1 + width);
+            if (segment.length !== width) return null;
+            index += 1 + width;
+            const number = base36Decode(segment);
+            if (code === 'l') {
+                if (number === null || number < 0 || number > LAT_OFFSET_MICRO * 2) return null;
+                lat = number / 1e6 - 90;
+            } else if (code === 'o') {
+                if (number === null || number < 0 || number > LON_OFFSET_MICRO * 2) return null;
+                lon = number / 1e6 - 180;
+            } else if (code === 'z') {
+                if (number === null || number < 1 || number > 19) return null;
+                zoom = number;
+            } else if (code === 'm') {
+                mode = URL_STATE_MODE_CODES[segment] || null;
+                if (!mode) return null;
+            } else if (code === 't') {
+                tab = URL_STATE_TAB_CODES[segment] || null;
+                if (!tab) return null;
+            } else if (code === 'k') {
+                if (number === null || number > MAX_KM_METRES) return null;
+                km = number / 1000;
+            }
+        }
+
+        const state = {};
+        if (lat !== null && lon !== null) {
+            if (!inGpsRange(lat, lon)) return null;
+            state.point = { lat, lon };
+        }
+        if (zoom !== null) state.zoom = zoom;
+        if (mode) state.mode = mode;
+        if (tab) state.tab = tab;
+        if (km !== null) state.km = km;
+        return Object.keys(state).length ? state : null;
+    }
+
     return {
         EARTH_RADIUS_KM,
         suggestMskZone,
+        encodeUrlState,
+        decodeUrlState,
         LATIN_TO_CYRILLIC,
         looksLikeWrongLayout,
         toCyrillicLayout,

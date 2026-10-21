@@ -172,3 +172,55 @@ describe('haversineKm', () => {
         expect(km).toBeCloseTo(3.0, 0);
     });
 });
+
+describe('encodeUrlState / decodeUrlState', () => {
+    test('полный round-trip без потери точности', () => {
+        const encoded = geo.encodeUrlState({
+            lat: 47.234567,
+            lon: 39.712345,
+            zoom: 16,
+            mode: 'coords',
+            tab: 'point',
+            km: 915.5,
+        });
+        const decoded = geo.decodeUrlState(encoded);
+        expect(decoded.point.lat).toBeCloseTo(47.234567, 6);
+        expect(decoded.point.lon).toBeCloseTo(39.712345, 6);
+        expect(decoded.zoom).toBe(16);
+        expect(decoded.mode).toBe('coords');
+        expect(decoded.tab).toBe('point');
+        expect(decoded.km).toBeCloseTo(915.5, 3);
+        expect(encoded.length).toBeLessThanOrEqual(32);
+        expect(encoded.startsWith('v1')).toBe(true);
+    });
+
+    test('южные/западные координаты и границы диапазонов', () => {
+        for (const [lat, lon] of [[-33.85833, -70.5], [90, 180], [-90, -180]]) {
+            const decoded = geo.decodeUrlState(geo.encodeUrlState({lat, lon}));
+            expect(decoded.point.lat).toBeCloseTo(lat, 6);
+            expect(decoded.point.lon).toBeCloseTo(lon, 6);
+        }
+    });
+
+    test('километр 0 сохраняется, отсутствующий — нет', () => {
+        expect(geo.decodeUrlState(geo.encodeUrlState({lat: 47.2, lon: 39.8, km: 0})).km).toBe(0);
+        expect(geo.decodeUrlState(geo.encodeUrlState({lat: 47.2, lon: 39.8})).km).toBeUndefined();
+    });
+
+    test('состояние без точки (только режим и вкладка)', () => {
+        const decoded = geo.decodeUrlState(geo.encodeUrlState({mode: 'road', tab: 'batch'}));
+        expect(decoded.point).toBeUndefined();
+        expect(decoded.mode).toBe('road');
+        expect(decoded.tab).toBe('batch');
+    });
+
+    test('битые и чужие строки отклоняются', () => {
+        expect(geo.decodeUrlState('')).toBeNull();
+        expect(geo.decodeUrlState('v2labcdef')).toBeNull();
+        expect(geo.decodeUrlState('v1q123456')).toBeNull();
+        expect(geo.decodeUrlState('v1l29pev')).toBeNull();
+        expect(geo.decodeUrlState('v1lzzzzzz')).toBeNull();
+        expect(geo.decodeUrlState('v1mz')).toBeNull();
+        expect(geo.decodeUrlState(null)).toBeNull();
+    });
+});

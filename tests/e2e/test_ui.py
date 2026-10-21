@@ -1136,3 +1136,173 @@ def test_visible_buttons_have_accessible_names(page, app_server):
     }""")
     assert unnamed == []
     assert not page._e2e_errors, page._e2e_errors
+
+
+def test_km_change_and_enter_commit_only_once(page, app_server):
+    """Enter, а затем blur/change того же значения не должны дублировать запись."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        let historyPosts = 0;
+        apiFetch = async (url, options) => {
+            if (url.startsWith('/api/history') && options && options.method === 'POST') {
+                historyPosts += 1;
+            }
+            return ok({entries: []});
+        };
+        activePoint = {lat: 47.2, lon: 39.8, source: 'click'};
+        roadKmTitle.textContent = 'М-4';
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 20,
+            sections: [{
+                start_km: 0, finish_km: 20,
+                coordinates: [[39.70, 47.20], [39.90, 47.20]]
+            }]
+        });
+        roadKmSlider.max = String(roadKmState.totalLengthKm);
+        roadKmEnableCheckbox.checked = true;
+        applyRoadKmActivation();
+        roadKmNumber.value = '10+000';
+        roadKmNumber.dispatchEvent(new Event('input', {bubbles: true}));
+        roadKmNumber.dispatchEvent(new Event('change', {bubbles: true}));
+        const afterChange = historyPosts;
+        applyRoadKmNumber(true);  // эквивалент Enter
+        return {afterChange, afterEnter: historyPosts};
+    }""")
+    assert result["afterChange"] == 1
+    assert result["afterEnter"] == 1
+
+
+def test_removing_selected_batch_point_clears_map_selection(page, app_server):
+    """Удаление выбранной точки не должно оставлять её в activePoint."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        batchPoints = [
+            {id: 'a', name: 'A', lat: 47.2, lon: 39.8},
+            {id: 'b', name: 'B', lat: 47.3, lon: 39.9},
+        ];
+        renderBatchList();
+        selectBatchPoint('a');
+        await new Promise(resolve => setTimeout(resolve, 60));
+        editBatchPoint('b');
+        const before = {
+            activeId: batchEdit.activeId,
+            selectedId: activePoint ? activePoint.batchId : null,
+        };
+        removeBatchPoint('a');
+        return {
+            before,
+            remaining: batchPoints.map(point => point.id),
+            active: activePoint,
+            marker: Boolean(redPointMarker),
+        };
+    }""")
+    assert result["before"] == {"activeId": "b", "selectedId": "a"}
+    assert result["remaining"] == ["b"]
+    assert result["active"] is None
+    assert result["marker"] is False
+
+
+def test_optional_url_state_sync_shares_and_restores_point(page, app_server):
+    """Opt-in режим: состояние попадает в URL и восстанавливается по ссылке."""
+    login(page, app_server["base_url"])
+    page.click("#settingsOpenButton")
+    page.check("#urlStateSyncToggle")
+    page.keyboard.press("Escape")
+    page.evaluate("() => saveUserState()")
+    expected_mode = page.evaluate("searchDraft.mode")
+    # Точка ставится через единый commitPoint; locate мокаем.
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const original = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({point: {lat: 47.25, lon: 39.75}, road: null, side: null});
+            return original(url, options);
+        };
+        commitPoint(47.25, 39.75, 'click');
+        await new Promise(resolve => setTimeout(resolve, 700));
+    }""")
+    page.wait_for_function("location.hash.startsWith('#s=v1')", timeout=5000)
+    compact = page.evaluate("""() => {
+        const encoded = new URLSearchParams(location.hash.slice(1)).get('s');
+        return {
+            encoded,
+            state: AlbionGeo.decodeUrlState(encoded),
+            search: location.search,
+        };
+    }""")
+    assert compact["encoded"].startswith("v1")
+    assert len(compact["encoded"]) <= 40
+    assert compact["state"]["point"]["lat"] == pytest.approx(47.25, abs=1e-6)
+    assert compact["state"]["point"]["lon"] == pytest.approx(39.75, abs=1e-6)
+    assert compact["state"]["mode"] == expected_mode
+    assert compact["search"] == ""
+
+    # Новая компактная ссылка в hash восстанавливает точку и режим.
+    encoded = page.evaluate(
+        "AlbionGeo.encodeUrlState({lat: 47.3, lon: 39.9, zoom: 16, mode: 'coords', tab: 'point'})"
+    )
+    page.goto(app_server["base_url"] + "/#s=" + encoded)
+    page.wait_for_selector("body.authenticated")
+    page.wait_for_function(
+        "activePoint && Math.abs(activePoint.lat - 47.3) < 1e-6"
+        " && Math.abs(activePoint.lon - 39.9) < 1e-6",
+        timeout=8000,
+    )
+    assert page.evaluate("searchDraft.mode") == "coords"
+
+    # Старые длинные ссылки продолжают работать.
+    page.goto(app_server["base_url"] + "/?lat=47.4&lon=40.1&zoom=15&mode=road")
+    page.wait_for_selector("body.authenticated")
+    page.wait_for_function(
+        "activePoint && Math.abs(activePoint.lat - 47.4) < 1e-6"
+        " && Math.abs(activePoint.lon - 40.1) < 1e-6",
+        timeout=8000,
+    )
+
+    # Выключаем режим, чтобы настройка не влияла на другие тесты.
+    page.evaluate("applyUrlStateSyncSetting(false, true)")
+    page.evaluate("() => saveUserState()")
+
+
+def test_optional_multi_select_bulk_show_and_delete(page, app_server):
+    """Opt-in режим: чекбоксы, показ выбранных на карте и массовое удаление."""
+    login(page, app_server["base_url"])
+    page.click("#settingsOpenButton")
+    page.check("#multiSelectToggle")
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+        activateFrameTab('batch');
+        batchPoints = [
+            {id: 'a', name: 'A', lat: 47.2, lon: 39.8},
+            {id: 'b', name: 'B', lat: 47.3, lon: 39.9},
+            {id: 'c', name: 'C', lat: 47.4, lon: 40.0},
+        ];
+        renderBatchList();
+        updateBatchBulkBar();
+    }""")
+    assert page.locator(".batch-select").count() == 3
+    page.check('.batch-item[data-id="a"] .batch-select')
+    page.check('.batch-item[data-id="c"] .batch-select')
+    assert page.locator("#batchBulkBar").is_visible()
+    assert "2" in page.locator("#batchBulkCount").inner_text()
+
+    page.click("#batchBulkShowBtn")
+    assert page.evaluate("batchLayerGroup.getLayers().length") == 2
+
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.click("#batchBulkDeleteBtn")
+    assert page.evaluate("batchPoints.map(point => point.id)") == ["b"]
+    assert page.locator("#batchBulkBar").is_hidden()
+    assert page.locator(".batch-select").count() == 1
+
+    page.evaluate("applyMultiSelectSetting(false, true)")
+    page.evaluate("() => saveUserState()")
