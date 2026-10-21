@@ -1240,7 +1240,7 @@ class Msk61ConvertPayload(BaseModel):
     longitude: FiniteFloat | None = Field(default=None, ge=-180, le=180)
 
 # ========== НАСТРОЙКИ ==========
-SETTINGS_FILE = PROJECT_DIR / "user_settings.json"
+SETTINGS_FILE = Path(os.getenv("ALBION_SETTINGS_FILE", PROJECT_DIR / "user_settings.json"))
 
 def load_settings() -> dict:
     defaults = {"delay": 3, "save_path": "screenshots", "auto_enabled": False,
@@ -1602,8 +1602,16 @@ async def data_sources():
     db = _geo_database_path()
     tiles = _mbtiles_path()
     vector_tiles = _vector_mbtiles_path()
+    offline = offline_mode_enabled()
+    if offline and vector_tiles.is_file():
+        default_map_source = "vector"
+    elif offline and tiles.is_file():
+        default_map_source = "local"
+    else:
+        default_map_source = "external"
     return {
-        "default_source": "local" if offline_mode_enabled() else "external",
+        "default_source": "local" if offline else "external",
+        "default_map_source": default_map_source,
         "local_available": db.is_file(),
         "local_tiles_available": tiles.is_file(),
         "vector_tiles_available": vector_tiles.is_file(),
@@ -1611,7 +1619,9 @@ async def data_sources():
         "address_suggest_available": bool(YANDEX_SUGGEST_API_KEY),
         "suggest_view_available": bool(YANDEX_JS_API_KEY and YANDEX_SUGGEST_API_KEY),
         "address_geocoder_available": bool(YANDEX_API_KEY),
-        "fully_offline_ready": False,
+        # Полный офлайн = локальный поиск + любая локальная подложка
+        # (растровая MBTiles или векторная MapLibre).
+        "fully_offline_ready": db.is_file() and (tiles.is_file() or vector_tiles.is_file()),
         "note": "Local index and tile archive are separate generated datasets; missing local data will return an error, never fall back silently.",
     }
 
@@ -2166,7 +2176,9 @@ async def offline_vector_tile(z: int, x: int, y: int):
     except sqlite3.Error as exc:
         raise HTTPException(503, "Vector tile archive is unreadable") from exc
     if row is None:
-        raise HTTPException(404, "tile not found")
+        # 204 = «тайла нет»; MapLibre не пишет ошибку в консоль на границе
+        # региона, в отличие от 404.
+        return Response(status_code=204, headers={"Cache-Control": "public, max-age=86400"})
     data = row[0]
     headers = {"Cache-Control": "public, max-age=86400"}
     # tilemaker stores gzipped PBF tiles; let the browser decode them.

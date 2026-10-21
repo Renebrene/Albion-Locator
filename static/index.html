@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>АЛЬБИОН: Локатор (Autonom) v5.0</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/vendor/leaflet.css" />
     <link rel="stylesheet" href="/static/vendor/maplibre-gl.css" />
     <script src="/static/vendor/leaflet.js"></script>
@@ -475,6 +476,9 @@
             cursor: crosshair;
             position: relative;
             min-width: 0;
+            /* Leaflet по умолчанию красит контейнер в #ddd. Для композитинга
+               скриншота с WebGL-подложкой фон должен быть прозрачным. */
+            background: transparent;
         }
         #map-source-notice { position: absolute; z-index: 1200; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%); display: none; max-width: min(560px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--border-strong); border-radius: 8px; background: rgba(255,255,255,.96); color: #222; box-shadow: 0 3px 14px rgba(0,0,0,.22); text-align: center; font-size: 13px; }
         #map-source-notice.visible { display: block; }
@@ -776,19 +780,31 @@
         /* Вектор трассы с километражом */
         .road-line-hover { cursor: crosshair; }
         .road-tooltip {
-            background: rgba(26, 58, 92, 0.95);
-            color: white;
-            padding: 8px 12px;
+            background: #fff;
+            color: #1f2933;
+            padding: 4px 8px;
             border-radius: 4px;
-            font-size: 13px;
-            font-weight: 500;
+            font-size: 12px;
+            font-weight: 600;
             white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            border: none;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.25);
+            border: 1px solid #d5dbe1;
         }
-        .road-tooltip::before {
-            content: '📍 ';
+        /* Чистый тултип: без иконки и без стрелки. */
+        .road-tooltip::before { display: none; }
+        .road-line-hit { cursor: crosshair; }
+        .point-label {
+            background: #fff;
+            color: #1f2933;
+            padding: 3px 7px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            border: 1px solid #cbd5e1;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
         }
+        .point-label::before { display: none; }
     
         .batch-drop-zone {
             border: 2px dashed var(--border);
@@ -1277,6 +1293,7 @@
         <button class="sb-seg" type="button" id="roadKmStepButton" title="Шаг ползунка километража: 50 м" aria-label="Шаг ползунка километража: 50 м">50</button>
         <button class="sb-seg" type="button" id="ghostPointToggle" title="Точка призрака" aria-label="Точка призрака" aria-pressed="false">👻</button>
         <button class="sb-seg" type="button" id="trackPointToggle" title="Слежение за ползунком: карта следует за выбранным километром" aria-label="Слежение за ползунком" aria-pressed="false">👁</button>
+        <button class="sb-seg" type="button" id="pointLabelsToggle" title="Показывать подписи всех точек на карте" aria-label="Показывать подписи всех точек на карте" aria-pressed="false">💬</button>
         <button class="sb-seg" type="button" id="goToRostovButton" onclick="centerMapOnData()" title="Центрировать по точке или всем точкам пакета" aria-label="Центрировать по точке или всем точкам пакета">🎯</button>
         <button class="sb-seg" type="button" id="autoScreenshotToggle" title="Автоскриншот" aria-label="Автоскриншот" aria-pressed="false">⏱<span id="autoScreenshotSeconds">3</span>с</button>
         <button class="sb-seg" type="button" id="helpButton" onclick="toggleHelpFrame()" title="Справка" aria-label="Справка">❓</button>
@@ -1348,6 +1365,10 @@
                     <input type="checkbox" id="excludeMinor" checked style="cursor:pointer;">
                     <span>Только основные дороги</span>
                 </label>
+            </div>
+            <div class="settings-row">
+                <label for="roadHoverRadiusInput">Радиус наведения на дорогу (px):</label>
+                <input type="number" id="roadHoverRadiusInput" value="12" min="4" max="40">
             </div>
         </div>
         <div class="settings-block">
@@ -1445,26 +1466,84 @@
         const mapZoomControl = L.control.zoom({ position: 'bottomleft' }).addTo(map);
         let baseTileLayer = null;
         let vectorBaseLayer = null;
+        let vectorAttributionAdded = false;
+        const VECTOR_ATTRIBUTION = '© OpenStreetMap contributors';
 
         function removeVectorBase() {
             if (!vectorBaseLayer) return;
             map.removeLayer(vectorBaseLayer);
             vectorBaseLayer = null;
+            if (vectorAttributionAdded && map.attributionControl) {
+                map.attributionControl.removeAttribution(VECTOR_ATTRIBUTION);
+                vectorAttributionAdded = false;
+            }
         }
 
         // Векторная подложка — отдельный слой MapLibre внутри Leaflet.
         // Все маркеры/линии/оверлеи остаются обычными Leaflet-объектами.
-        function setVectorBase() {
+        let vectorStylePromise = null;
+        function loadVectorStyle() {
+            if (vectorStylePromise) return vectorStylePromise;
+            const origin = window.location.origin;
+            vectorStylePromise = fetch('/static/vector-style.json', {cache: 'no-cache'})
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
+                .then(style => {
+                    // Worker MapLibre не умеет относительные URL — делаем
+                    // тайлы и шрифты абсолютными под текущий origin.
+                    for (const source of Object.values(style.sources || {})) {
+                        if (Array.isArray(source.tiles)) {
+                            source.tiles = source.tiles.map(url =>
+                                url.startsWith('/') ? origin + url : url);
+                        }
+                    }
+                    if (style.glyphs && style.glyphs.startsWith('/')) {
+                        style.glyphs = origin + style.glyphs;
+                    }
+                    return style;
+                })
+                .catch(error => {
+                    vectorStylePromise = null;
+                    throw error;
+                });
+            return vectorStylePromise;
+        }
+
+        async function setVectorBase() {
             removeVectorBase();
+            // Растровая подложка не должна оставаться под вектором:
+            // иначе она грузит тайлы и дублирует attribution.
+            if (baseTileLayer) { map.removeLayer(baseTileLayer); baseTileLayer = null; }
             if (!window.maplibregl || !L.maplibreGL) return false;
-            vectorBaseLayer = L.maplibreGL({
-                style: '/static/vector-style.json',
-                interactive: false,
-                pane: 'tilePane',
-                // Нужно для dom-to-image: иначе WebGL-canvas попадёт в
-                // скриншот пустым.
-                preserveDrawingBuffer: true,
-            }).addTo(map);
+            let style;
+            try {
+                style = await loadVectorStyle();
+            } catch (error) {
+                console.warn('Не удалось загрузить стиль векторной карты:', error);
+                return false;
+            }
+            // Пока грузился стиль, пользователь мог переключить источник.
+            if (!useVectorTiles || !vectorTilesAvailable) return false;
+            try {
+                vectorBaseLayer = L.maplibreGL({
+                    style,
+                    interactive: false,
+                    pane: 'tilePane',
+                    // Нужно для скриншота: MapLibre 5 принимает атрибуты
+                    // контекста через canvasContextAttributes.
+                    canvasContextAttributes: { preserveDrawingBuffer: true },
+                }).addTo(map);
+                if (map.attributionControl) {
+                    map.attributionControl.addAttribution(VECTOR_ATTRIBUTION);
+                    vectorAttributionAdded = true;
+                }
+            } catch (error) {
+                console.warn('MapLibre не инициализировался:', error);
+                vectorBaseLayer = null;
+                return false;
+            }
             return true;
         }
 
@@ -1775,25 +1854,32 @@
 
 // === ГРАНИЦЫ РО (с переключателем) ===
 async function loadLocalRostovBoundary() {
-    try {
-        const detailed = screenshotSettings.detailedBoundary === true;
-        const url = detailed
-            ? '/static/rostov_boundary_detailed.geojson'
-            : '/static/rostov_boundary.geojson';
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const detailed = screenshotSettings.detailedBoundary === true;
+    // Если детальный файл ещё не развёрнут на сервере, показываем обычный
+    // локальный контур вместо перехода на медленный Overpass.
+    const urls = detailed
+        ? ['/static/rostov_boundary_detailed.geojson', '/static/rostov_boundary.geojson']
+        : ['/static/rostov_boundary.geojson'];
+    for (const url of urls) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        const data = await response.json();
-        drawBoundaryFromGeoJSON(data);
-        const pointCount = geojsonOuterRings(data).reduce((sum, ring) => sum + ring.length, 0);
-        console.log(`✅ Локальный контур РО отрисован (${pointCount} точек)`);
-        updateFolderStatus(`🗺️ Локальный контур (${pointCount} точек)`);
-        return true;
-    } catch (error) {
-        console.error("❌ Ошибка локального контура:", error);
-        showToast('⚠️ Локальный файл не найден, переключите на Overpass', 'error', 5000);
-        return false;
+            const data = await response.json();
+            drawBoundaryFromGeoJSON(data);
+            const pointCount = geojsonOuterRings(data).reduce((sum, ring) => sum + ring.length, 0);
+            console.log(`✅ Локальный контур РО отрисован (${pointCount} точек)`);
+            updateFolderStatus(`🗺️ Локальный контур (${pointCount} точек)`);
+            if (url !== urls[0]) {
+                showToast('⚠️ Детальный контур недоступен, показан обычный локальный', 'info', 4000);
+            }
+            return true;
+        } catch (error) {
+            console.warn(`⚠️ Локальный контур недоступен (${url}):`, error);
+        }
     }
+    showToast('⚠️ Локальный файл не найден, переключите на Overpass', 'error', 5000);
+    return false;
 }
 
 async function loadRostovBoundary() {
@@ -2039,8 +2125,10 @@ function drawBoundaryFromGeoJSON(data) {
             if (window.currentRoadName && window.currentRoadKmText) {
                 return `${window.currentRoadName} · ${window.currentRoadKmText}`;
             }
-            if (activePoint.roadLabel && Number.isFinite(activePoint.roadKm)) {
-                return `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`;
+            if (activePoint.roadLabel) {
+                return Number.isFinite(activePoint.roadKm)
+                    ? `${activePoint.roadLabel} · ${formatKm(activePoint.roadKm)}`
+                    : activePoint.roadLabel;
             }
             if (activePoint.address) return activePoint.address;
             return `${activePoint.lat.toFixed(6)}, ${activePoint.lon.toFixed(6)}`;
@@ -2058,13 +2146,96 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('statusPointText').textContent = currentStatusText();
             const hasPoint = Boolean(activePoint);
             document.getElementById('statusCopyBtn').disabled = !hasPoint;
+            updateActivePointTooltips();
+        }
+
+        // === ПОДПИСИ ТОЧЕК НА КАРТЕ ===
+        function makeMarkerLabelElement(text) {
+            const element = document.createElement('div');
+            element.textContent = text;
+            return element;
+        }
+
+        function setMarkerLabel(marker, text) {
+            if (!marker) return;
+            const content = String(text || '');
+            if (marker._pointLabelText === content
+                && marker._pointLabelPermanent === pointLabelsEnabled) {
+                if (pointLabelsEnabled && !marker.isTooltipOpen()) marker.openTooltip();
+                return;
+            }
+            marker.unbindTooltip();
+            if (content) {
+                marker.bindTooltip(makeMarkerLabelElement(content), {
+                    permanent: pointLabelsEnabled,
+                    direction: 'top',
+                    offset: [0, -8],
+                    className: 'point-label',
+                    opacity: 1,
+                });
+                if (pointLabelsEnabled) marker.openTooltip();
+            }
+            marker._pointLabelText = content;
+            marker._pointLabelPermanent = pointLabelsEnabled;
+        }
+
+        function activePointLabelText() {
+            if (!activePoint) return '';
+            return currentStatusText();
+        }
+
+        function ghostLabelText() {
+            if (!Number.isFinite(ghostLat) || !Number.isFinite(ghostLon)) return '';
+            return `Призрак · ${ghostLat.toFixed(5)}, ${ghostLon.toFixed(5)}`;
+        }
+
+        function batchLabelText(point) {
+            return `${point.name} · ${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+        }
+
+        function updateActivePointTooltips(force = false) {
+            if (force) {
+                if (redPointMarker) redPointMarker._pointLabelPermanent = null;
+                if (ghostMarker) ghostMarker._pointLabelPermanent = null;
+            }
+            if (redPointMarker) setMarkerLabel(redPointMarker, activePointLabelText());
+            if (ghostMarker) setMarkerLabel(ghostMarker, ghostLabelText());
+        }
+
+        // Вызывается только после инициализации batch-структур (кнопка,
+        // preferences), поэтому batchMarkerIndex уже существует.
+        function refreshAllPointTooltips(force = false) {
+            updateActivePointTooltips(force);
+            batchMarkerIndex.forEach((marker, id) => {
+                if (force) marker._pointLabelPermanent = null;
+                const point = batchPoints.find(item => item.id === id);
+                setMarkerLabel(marker, point ? batchLabelText(point) : '');
+            });
+        }
+
+        function applyPointLabelsSetting(enabled, persist = true) {
+            pointLabelsEnabled = Boolean(enabled);
+            const toggle = document.getElementById('pointLabelsToggle');
+            if (toggle) {
+                toggle.setAttribute('aria-pressed', String(pointLabelsEnabled));
+                toggle.classList.toggle('hl', pointLabelsEnabled);
+            }
+            refreshAllPointTooltips(true);
+            if (persist) {
+                try {
+                    localStorage.setItem('albion_point_labels', pointLabelsEnabled ? '1' : '0');
+                } catch (e) { /* ignore */ }
+                scheduleStateSave();
+            }
         }
 
         function statusCopyText() {
             if (!activePoint) return '';
             if (window.currentRoadCopyText) return window.currentRoadCopyText;
-            if (activePoint.roadLabel && Number.isFinite(activePoint.roadKm)) {
-                return `${activePoint.roadLabel}, ${formatKm(activePoint.roadKm)}`;
+            if (activePoint.roadLabel) {
+                return Number.isFinite(activePoint.roadKm)
+                    ? `${activePoint.roadLabel}, ${formatKm(activePoint.roadKm)}`
+                    : activePoint.roadLabel;
             }
             if (activePoint.address) return activePoint.address;
             return `${activePoint.lat.toFixed(6)}, ${activePoint.lon.toFixed(6)}`;
@@ -2136,6 +2307,7 @@ function drawBoundaryFromGeoJSON(data) {
         let useLocalRoadData = localStorage.getItem('albion_data_source') === 'local';
         let dataSourceWasChosen = localStorage.getItem('albion_data_source') !== null;
         const storedMapSource = localStorage.getItem('albion_map_source');
+        let mapSourceWasChosen = storedMapSource !== null;
         let useLocalTiles = storedMapSource === 'local';
         let useVectorTiles = storedMapSource === 'vector';
         let localGeoAvailable = false;
@@ -2184,6 +2356,14 @@ function drawBoundaryFromGeoJSON(data) {
         let batchPhotosLoaded = false;
         let photosLoaded = false;
         let mskCopyText = '';
+        // Радиус попадания мыши по оси дороги для тултипа километража, px.
+        const storedHoverRadiusRaw = localStorage.getItem('albion_road_hover_radius');
+        const storedHoverRadius = storedHoverRadiusRaw === null ? NaN : Number(storedHoverRadiusRaw);
+        let roadHoverRadius = Number.isFinite(storedHoverRadius)
+            ? Math.max(4, Math.min(40, storedHoverRadius))
+            : 12;
+        // Постоянные подписи всех точек на карте (включая призрака).
+        let pointLabelsEnabled = localStorage.getItem('albion_point_labels') === '1';
         // Последнее значение поля км, которое уже зафиксировано. Enter и
         // последующий blur/change не должны создавать вторую запись истории.
         let lastRoadKmCommittedValue = null;
@@ -2215,7 +2395,17 @@ function drawBoundaryFromGeoJSON(data) {
             document.getElementById('geoStatus').textContent = `${roadStatus}; ${mapStatus}. Браузерные библиотеки подключены локально.${tileStatus && !useLocalTiles && !useVectorTiles ? ` ${tileStatus}.` : ''}`;
         }
 
+        // Несколько источников (инициализация, preferences, ручной выбор)
+        // могут применяться одновременно — выполняем их строго по очереди.
+        let mapSourceApplyChain = Promise.resolve();
         function applyMapSourceSelection() {
+            mapSourceApplyChain = mapSourceApplyChain
+                .catch(() => false)
+                .then(applyMapSourceSelectionNow);
+            return mapSourceApplyChain;
+        }
+
+        async function applyMapSourceSelectionNow() {
             const notice = document.getElementById('map-source-notice');
             const removeAll = () => {
                 removeVectorBase();
@@ -2227,7 +2417,7 @@ function drawBoundaryFromGeoJSON(data) {
                     showMapSourceNotice('Векторный архив карты не установлен. Можно вручную переключиться на OSM онлайн; без переключения карта останется без подложки.');
                     return false;
                 }
-                if (!setVectorBase()) {
+                if (!(await setVectorBase())) {
                     removeAll();
                     showMapSourceNotice('MapLibre не загрузился. Можно вручную переключиться на OSM онлайн.');
                     return false;
@@ -2259,6 +2449,10 @@ function drawBoundaryFromGeoJSON(data) {
                 localTilesAvailable = data.local_tiles_available === true;
                 vectorTilesAvailable = data.vector_tiles_available === true;
                 if (!dataSourceWasChosen) useLocalRoadData = data.default_source === 'local';
+                if (!mapSourceWasChosen && data.default_map_source) {
+                    useVectorTiles = data.default_map_source === 'vector';
+                    useLocalTiles = data.default_map_source === 'local';
+                }
                 const select = document.getElementById('dataSourceSelect');
                 const mapSelect = document.getElementById('mapSourceSelect');
                 select.value = useLocalRoadData ? 'local' : 'external';
@@ -2267,7 +2461,7 @@ function drawBoundaryFromGeoJSON(data) {
                 const tileStatus = data.local_tiles_available ? 'локальные тайлы готовы' : 'локальные тайлы не установлены';
                 const vectorStatus = data.vector_tiles_available ? 'векторные тайлы готовы' : 'векторные тайлы не установлены';
                 updateDataSourceStatus(`${tileStatus}; ${vectorStatus}`);
-                applyMapSourceSelection();
+                await applyMapSourceSelection();
                 select.onchange = () => {
                     useLocalRoadData = select.value === 'local';
                     localStorage.setItem('albion_data_source', useLocalRoadData ? 'local' : 'external');
@@ -2280,8 +2474,9 @@ function drawBoundaryFromGeoJSON(data) {
                     const value = mapSelect.value;
                     useVectorTiles = value === 'vector';
                     useLocalTiles = value === 'local';
+                    mapSourceWasChosen = true;
                     localStorage.setItem('albion_map_source', value);
-                    applyMapSourceSelection();
+                    void applyMapSourceSelection();
                     updateDataSourceStatus(`${tileStatus}; ${vectorStatus}`);
                     scheduleStateSave();
                 };
@@ -2794,6 +2989,14 @@ function drawBoundaryFromGeoJSON(data) {
         // трассы (если у дороги есть код) и делает ползунок активным.
         function autoLoadOfficialKmForRoad(road, lat, lon) {
             if (!road) return;
+            // Локальная база не должна ходить в онлайн-СКДФ за участками.
+            if (useLocalRoadData) {
+                if (roadKmEnabled && !roadKmState) {
+                    roadKmStatus.textContent =
+                        'Для локальной базы официальный километраж СКДФ недоступен.';
+                }
+                return;
+            }
             const code = road.road_code;
             if (!code) {
                 if (roadKmState) {
@@ -2963,6 +3166,20 @@ function drawBoundaryFromGeoJSON(data) {
         function cycleRoadKmStep() {
             const index = ROAD_KM_STEP_OPTIONS.indexOf(roadKmStepMeters);
             applyRoadKmStep(ROAD_KM_STEP_OPTIONS[(index + 1) % ROAD_KM_STEP_OPTIONS.length]);
+        }
+
+        function applyRoadHoverRadius(value, persist = true) {
+            const parsed = Math.round(Number(value));
+            if (!Number.isFinite(parsed)) return;
+            roadHoverRadius = Math.max(4, Math.min(40, parsed));
+            const input = document.getElementById('roadHoverRadiusInput');
+            if (input) input.value = String(roadHoverRadius);
+            if (persist) {
+                try {
+                    localStorage.setItem('albion_road_hover_radius', String(roadHoverRadius));
+                } catch (e) { /* ignore */ }
+                scheduleStateSave();
+            }
         }
 
         function applyRoadKmInputSettings(keyboard, wheel, persist = true) {
@@ -3481,11 +3698,12 @@ function drawBoundaryFromGeoJSON(data) {
                     dashArray: '4, 3',
                     fillColor: '#2f9e44',
                     fillOpacity: 0.18,
-                }).addTo(map).bindTooltip('Точка призрака');
+                }).addTo(map);
                 ghostMarker.on('click', armRoadKmKeyboard);
             } else {
                 ghostMarker.setLatLng([lat, lon]);
             }
+            setMarkerLabel(ghostMarker, ghostLabelText());
         }
 
         // Клавиатурное управление ползунком включается после фокуса в поле км
@@ -3801,26 +4019,41 @@ function drawBoundaryFromGeoJSON(data) {
                 const data = await response.json();
                 if (sequence !== roadSuggestionSequence) return;
                 if (!response.ok) throw new Error(data.detail || 'Локальная база дорог недоступна');
-                const rows = (data.roads || []).map(item => ({...item,
-                    display_name: `${item.name || item.ref || 'Дорога'} · ${formatKm(item.selected_km)} · ${item.km_provenance === 'official start/finish' ? 'официальные начало/конец; промежуточный км интерполирован' : 'оценка по геометрии'} (${item.source})`}));
+                // OSM-импорт хранит отдельные way-фрагменты; одинаковые
+                // подсказки схлопываем, чтобы не выбирать один и тот же кусок.
+                const seen = new Set();
+                const rows = (data.roads || []).filter(item => {
+                    // Дорога с кодом показывается одной строкой, даже если
+                    // OSM хранит её отдельными way-фрагментами.
+                    const key = item.ref
+                        ? `ref:${item.ref}`
+                        : `${item.name || ''}|${Number(item.selected_lat).toFixed(4)}|${Number(item.selected_lon).toFixed(4)}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                }).map(item => ({...item,
+                    display_name: `${item.name || item.ref || 'Дорога'} · ${item.selected_km != null ? formatKm(item.selected_km) : 'км в OSM не определён'} · ${item.km_provenance === 'official start/finish' ? 'официальные начало/конец; промежуточный км интерполирован' : 'оценка по геометрии'} (${item.source})`}));
                 renderSuggestionList(modeSuggestions, rows, item => {
                     modeSuggestions.classList.remove('open');
                     if (Number.isFinite(item.selected_lat) && Number.isFinite(item.selected_lon)) {
                         const lat = item.selected_lat;
                         const lon = item.selected_lon;
-                        searchDraft.roadKm = item.selected_km;
+                        const km = Number.isFinite(item.selected_km) ? item.selected_km : null;
+                        searchDraft.roadKm = km;
                         searchDraft.roadLat = lat;
                         searchDraft.roadLon = lon;
                         searchDraft.roadLabel = item.name || item.ref || 'Дорога';
                         modeInput1.value = searchDraft.roadLabel;
                         lastRoadCode = item.ref || null;
                         lastRoadTitle = searchDraft.roadLabel;
-                        if (roadKmEnabled && Number.isFinite(item.selected_km)) {
-                            roadKmNumber.value = formatRoadKmNumber(item.selected_km);
-                            roadKmStatus.textContent = `Локальная база: ${formatKm(item.selected_km)}.`;
+                        if (roadKmEnabled && km !== null) {
+                            roadKmNumber.value = formatRoadKmNumber(km);
+                            roadKmStatus.textContent = `Локальная база: ${formatKm(km)}.`;
                         }
                         updatePlacePointButton();
-                        modeStatus.textContent = `Выбран км ${formatKm(item.selected_km)}. Нажмите 🔍, чтобы поставить точку.`;
+                        modeStatus.textContent = km !== null
+                            ? `Выбран км ${formatKm(km)}. Нажмите 🔍, чтобы поставить точку.`
+                            : 'Дорога выбрана. В OSM нет официального километража: 🔍 поставит точку на её ближайший фрагмент.';
                     } else showToast('Для дороги не рассчитана точка выбранного километража', 'error');
                 }, 'Дорога не найдена в локальной базе');
             } catch (error) {
@@ -4675,8 +4908,16 @@ function drawBoundaryFromGeoJSON(data) {
                     return;
                 }
                 const coords = readDraftCoordinates();
-                if (coords && Number.isFinite(searchDraft.roadKm)) {
-                    commitRoadKmPoint(searchDraft.roadKm, coords);
+                if (coords) {
+                    if (Number.isFinite(searchDraft.roadKm)) {
+                        commitRoadKmPoint(searchDraft.roadKm, coords);
+                    } else {
+                        // Локальная/OSM дорога без chainage: ставим точку на
+                        // ближайший выбранный фрагмент, км остаётся пустым.
+                        commitPoint(coords.lat, coords.lon, 'road', {
+                            roadLabel: searchDraft.roadLabel || 'Дорога',
+                        });
+                    }
                 } else {
                     const query = modeInput1.value.trim();
                     if (query.length < 2) { showToast('Введите название или код дороги', 'error'); return; }
@@ -4764,6 +5005,7 @@ function drawBoundaryFromGeoJSON(data) {
             url: '🔗 Точка по ссылке',
             photo: '📷 Из фото',
             address: '🏠 Онлайн-адрес (Яндекс)',
+            road: '🛣️ Дорога (километраж недоступен)',
             'road-km': '🛣️ Дорога и километраж',
             msk61: '📐 Координаты МСК-61',
         };
@@ -4800,6 +5042,8 @@ function drawBoundaryFromGeoJSON(data) {
                 roadKmKeyboard: roadKmKeyboardEnabled,
                 roadKmWheel: roadKmWheelEnabled,
                 trackPoint: trackPointEnabled,
+                pointLabels: pointLabelsEnabled,
+                roadHoverRadius: roadHoverRadius,
                 urlStateSync: urlStateSyncEnabled,
                 multiSelect: multiSelectEnabled,
             };
@@ -4874,6 +5118,12 @@ function drawBoundaryFromGeoJSON(data) {
             }
             if (typeof preferences.trackPoint === 'boolean') {
                 applyTrackPointState(preferences.trackPoint, false);
+            }
+            if (typeof preferences.pointLabels === 'boolean') {
+                applyPointLabelsSetting(preferences.pointLabels, false);
+            }
+            if (Number.isFinite(preferences.roadHoverRadius)) {
+                applyRoadHoverRadius(preferences.roadHoverRadius, false);
             }
             if (typeof preferences.urlStateSync === 'boolean') {
                 applyUrlStateSyncSetting(preferences.urlStateSync, false);
@@ -5347,6 +5597,17 @@ function drawBoundaryFromGeoJSON(data) {
             trackPointToggle.addEventListener('click', () => applyTrackPointState(!trackPointEnabled));
             trackPointSetting.addEventListener('change', () => applyTrackPointState(trackPointSetting.checked));
             applyTrackPointState(trackPointEnabled, false);
+            const pointLabelsToggle = document.getElementById('pointLabelsToggle');
+            pointLabelsToggle.setAttribute('aria-pressed', String(pointLabelsEnabled));
+            pointLabelsToggle.classList.toggle('hl', pointLabelsEnabled);
+            pointLabelsToggle.addEventListener('click', () => {
+                applyPointLabelsSetting(!pointLabelsEnabled);
+            });
+            const hoverRadiusInput = document.getElementById('roadHoverRadiusInput');
+            hoverRadiusInput.addEventListener('change', () => {
+                applyRoadHoverRadius(hoverRadiusInput.value);
+            });
+            applyRoadHoverRadius(roadHoverRadius, false);
             document.getElementById('urlStateSyncToggle').addEventListener('change', event => {
                 applyUrlStateSyncSetting(event.target.checked, true);
             });
@@ -5885,8 +6146,9 @@ function drawBoundaryFromGeoJSON(data) {
             const rectBounds = rect.getBoundingClientRect();
             if (rectBounds.width < 15 || rectBounds.height < 15) { clearScreenshotUI(); return; }
             rect.style.display = 'none'; menu.style.display = 'none';
+            // Без bgcolor: прозрачный фон нужен, чтобы под Leaflet-оверлеи
+            // можно было подложить WebGL-canvas MapLibre.
             domtoimage.toPng(document.getElementById('map'), {
-                bgcolor: '#ffffff',
                 filter: node => !['map-source-notice', 'status-bar'].includes(node.id)
             }).then(function (dataUrl) {
                 const img = new Image();
@@ -5910,6 +6172,30 @@ function drawBoundaryFromGeoJSON(data) {
                     canvas.width = Math.max(1, Math.round(sw));
                     canvas.height = Math.max(1, Math.round(sh));
                     const ctx = canvas.getContext('2d');
+                    // dom-to-image не захватывает WebGL-canvas. Рисуем
+                    // подложку MapLibre под прозрачным слоем Leaflet-оверлеев.
+                    if (vectorBaseLayer && typeof vectorBaseLayer.getCanvas === 'function') {
+                        try {
+                            const glCanvas = vectorBaseLayer.getCanvas();
+                            if (glCanvas && glCanvas.width && glCanvas.height) {
+                                const glRect = glCanvas.getBoundingClientRect();
+                                const glScaleX = glCanvas.width / Math.max(1, glRect.width);
+                                const glScaleY = glCanvas.height / Math.max(1, glRect.height);
+                                const glLeft = glRect.left - mapRect.left;
+                                const glTop = glRect.top - mapRect.top;
+                                const vx = (left - glLeft) * glScaleX;
+                                const vy = (top - glTop) * glScaleY;
+                                const vw = width * glScaleX;
+                                const vh = height * glScaleY;
+                                if (vw > 0 && vh > 0) {
+                                    ctx.drawImage(glCanvas, vx, vy, vw, vh,
+                                        0, 0, canvas.width, canvas.height);
+                                }
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось вставить векторную подложку в скриншот:', error);
+                        }
+                    }
                     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
                     capturedImageData = canvas.toDataURL('image/png');
                     capturedBlob = await canvasToBlobAsync(canvas);
@@ -6409,6 +6695,7 @@ function drawBoundaryFromGeoJSON(data) {
             redPointMarker.on('click', () => {
                 if (!ghostPointEnabled) armRoadKmKeyboard();
             });
+            setMarkerLabel(redPointMarker, activePointLabelText());
 
             syncSearchFieldFromActivePoint();
 
@@ -6517,16 +6804,49 @@ function drawBoundaryFromGeoJSON(data) {
         // === ВЕКТОР ТРАССЫ С КИЛОМЕТРАЖОМ ===
         let roadVectorLine = null;
         let roadTooltip = null;
+        let roadHoverHandlers = null;
 
         function clearRoadVectorLayer() {
             if (roadVectorLine) {
                 map.removeLayer(roadVectorLine);
                 roadVectorLine = null;
             }
+            if (roadHoverHandlers) {
+                map.off('mousemove', roadHoverHandlers.move);
+                map.off('mouseout', roadHoverHandlers.out);
+                roadHoverHandlers = null;
+            }
             if (roadTooltip) {
                 map.removeLayer(roadTooltip);
                 roadTooltip = null;
             }
+        }
+
+        // Минимальное расстояние от курсора до ломаной в пикселях.
+        function minPixelDistanceToLines(latlng, lines) {
+            const point = map.latLngToContainerPoint(latlng);
+            const normalized = Array.isArray(lines) && Array.isArray(lines[0])
+                && Array.isArray(lines[0][0]) ? lines : [lines];
+            let best = Infinity;
+            for (const line of normalized) {
+                for (let index = 0; index < line.length - 1; index += 1) {
+                    const a = map.latLngToContainerPoint(line[index]);
+                    const b = map.latLngToContainerPoint(line[index + 1]);
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const lengthSquared = dx * dx + dy * dy;
+                    let t = lengthSquared > 0
+                        ? ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared
+                        : 0;
+                    t = Math.max(0, Math.min(1, t));
+                    const distance = Math.hypot(
+                        point.x - (a.x + dx * t),
+                        point.y - (a.y + dy * t),
+                    );
+                    if (distance < best) best = distance;
+                }
+            }
+            return best;
         }
 
         function drawRoadVector(road, side) {
@@ -6549,9 +6869,10 @@ function drawBoundaryFromGeoJSON(data) {
                 weight: 4,
                 opacity: 0.7,
                 dashArray: '10, 5',
+                interactive: false,
                 className: 'road-line-hover'
             }).addTo(map);
-            
+
             // Создаём tooltip (скрытый по умолчанию)
             roadTooltip = L.tooltip({
                 permanent: false,
@@ -6559,31 +6880,27 @@ function drawBoundaryFromGeoJSON(data) {
                 className: 'road-tooltip',
                 offset: [0, -10]
             });
-            
-            // Обработчик наведения мыши на линию
-            roadVectorLine.on('mousemove', function(e) {
-                const latlng = e.latlng;
-                
-                // Находим ближайшую точку на линии и интерполируем километраж
+
+            // Слушаем карту, а не линию: широкий невидимый путь перехватывал
+            // бы клики и перетаскивание рядом с дорогой.
+            const handleMove = event => {
+                const latlng = event.latlng;
+                if (minPixelDistanceToLines(latlng, latlngs) > roadHoverRadius) {
+                    if (map.hasLayer(roadTooltip)) map.removeLayer(roadTooltip);
+                    return;
+                }
                 const km = interpolateKm(latlng, latlngs, startKm, finishKm);
-                
-                if (km !== null) {
-                    const kmText = formatKm(km);
-                    roadTooltip.setLatLng(latlng);
-                    roadTooltip.setContent(kmText);
-                    
-                    if (!map.hasLayer(roadTooltip)) {
-                        roadTooltip.addTo(map);
-                    }
-                }
-            });
-            
-            // Скрываем tooltip при уходе мыши
-            roadVectorLine.on('mouseout', function() {
-                if (map.hasLayer(roadTooltip)) {
-                    map.removeLayer(roadTooltip);
-                }
-            });
+                if (km === null) return;
+                roadTooltip.setLatLng(latlng);
+                roadTooltip.setContent(formatKm(km));
+                if (!map.hasLayer(roadTooltip)) roadTooltip.addTo(map);
+            };
+            const handleOut = () => {
+                if (map.hasLayer(roadTooltip)) map.removeLayer(roadTooltip);
+            };
+            map.on('mousemove', handleMove);
+            map.on('mouseout', handleOut);
+            roadHoverHandlers = {move: handleMove, out: handleOut};
         }
 
         function interpolateKm(latlng, lines, startKm, finishKm) {
@@ -6887,7 +7204,7 @@ function createBatchMarker(point) {
         icon: batchIcon('#17a2b8'),
         draggable: false,
     });
-    marker.bindTooltip(point.name || 'Точка', {direction: 'top'});
+    setMarkerLabel(marker, batchLabelText(point));
     marker.on('click', () => selectBatchPoint(point.id));
     marker.on('dragend', () => {
         if (batchEdit.activeId !== point.id) return;
@@ -6899,6 +7216,7 @@ function createBatchMarker(point) {
             .find(item => item.dataset.id === point.id);
         const coords = row && row.querySelector('.batch-status-ok');
         if (coords) coords.textContent = `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+        setMarkerLabel(marker, batchLabelText(point));
         scheduleStateSave();
     });
     batchMarkerIndex.set(point.id, marker);
@@ -6997,7 +7315,10 @@ function syncBatchPointFromActivePoint() {
     point.lat = activePoint.lat;
     point.lon = activePoint.lon;
     const marker = batchMarker(point);
-    if (marker) marker.setLatLng([point.lat, point.lon]);
+    if (marker) {
+        marker.setLatLng([point.lat, point.lon]);
+        setMarkerLabel(marker, batchLabelText(point));
+    }
     const row = Array.from(document.querySelectorAll('.batch-item'))
         .find(item => item.dataset.id === id);
     const coords = row && row.querySelector('.batch-status-ok');
@@ -7012,7 +7333,7 @@ function renameBatchPoint(id) {
     if (next === null) return;
     point.name = next.trim() || point.name;
     const marker = batchMarker(point);
-    if (marker) marker.setTooltipContent(point.name);
+    if (marker) setMarkerLabel(marker, batchLabelText(point));
     renderBatchList();
 }
 

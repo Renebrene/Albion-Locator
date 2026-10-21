@@ -12,6 +12,9 @@ def login(page, base_url):
     page.fill("#authPassword", "альбион")
     page.click("#authSubmit")
     page.wait_for_selector("body.authenticated")
+    # Дать приложению применить preferences/workspace, иначе тест может
+    # изменить состояние, которое затем перезапишет loadUserState().
+    page.wait_for_function("uiState.ready", timeout=15000)
 
 
 def _search_geometry(page):
@@ -891,6 +894,25 @@ def test_map_double_click_sets_point_without_changing_view(page, app_server):
     assert not page._e2e_errors, page._e2e_errors
 
 
+def test_detailed_boundary_falls_back_to_local_file(page, app_server):
+    login(page, app_server["base_url"])
+    page.route(
+        "**/static/rostov_boundary_detailed.geojson",
+        lambda route: route.fulfill(status=404, body="not found"),
+    )
+    page.evaluate("""async () => {
+        screenshotSettings.detailedBoundary = true;
+        await loadRostovBoundary();
+    }""")
+    state = page.evaluate(
+        "({line: !!boundaryLineLayer, mask: !!boundaryMaskLayer,"
+        " status: document.getElementById('folderStatus').textContent})"
+    )
+    assert state["line"] and state["mask"], state
+    assert "696" in state["status"], state
+    assert not page._e2e_errors, page._e2e_errors
+
+
 def test_batch_mode_uses_selected_point_and_blocks_new_search_points(page, app_server):
     login(page, app_server["base_url"])
     page.evaluate("""() => {
@@ -1663,3 +1685,152 @@ def test_crs_toggle_converts_uncommitted_draft(page, app_server):
     assert result["msk"]["lat"] == pytest.approx(47.23, abs=1e-6)
     assert result["wgs"]["crs"] == "gps", result
     assert result["wgs"]["value"].startswith("47.230000, 39.720000"), result
+
+
+def test_vector_map_source_requires_archive(page, app_server):
+    """Без vector.mbtiles режим MapLibre явно сообщает об отсутствии архива."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    assert page.evaluate("vectorTilesAvailable") is False
+    page.evaluate("""() => {
+        const select = document.getElementById('mapSourceSelect');
+        select.value = 'vector';
+        select.dispatchEvent(new Event('change'));
+    }""")
+    page.wait_for_selector("#map-source-notice.visible", timeout=5000)
+    assert "Векторный архив" in page.locator("#map-source-notice").inner_text()
+    assert page.evaluate("Boolean(vectorBaseLayer)") is False
+    page.evaluate("""() => {
+        const select = document.getElementById('mapSourceSelect');
+        select.value = 'external';
+        select.dispatchEvent(new Event('change'));
+    }""")
+    page.wait_for_function("Boolean(baseTileLayer)", timeout=5000)
+
+
+def test_point_labels_toggle_shows_all_map_tooltips(page, app_server):
+    """Кнопка 💬 показывает постоянные подписи активной, пакетных точек и призрака."""
+    login(page, app_server["base_url"])
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async () => ok({point: {lat: 47.2, lon: 39.8}, road: null, side: null});
+        commitPoint(47.2, 39.8, 'click');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        if (!ghostPointEnabled) toggleGhostPoint();
+        batchPoints = [{id: 'label-1', name: 'Тестовая', lat: 47.3, lon: 39.9}];
+        renderBatchMarkers(false);
+    }""")
+    page.click("#pointLabelsToggle")
+    page.wait_for_function("document.querySelectorAll('.leaflet-tooltip.point-label').length >= 3",
+                           timeout=5000)
+    assert page.locator("#pointLabelsToggle").get_attribute("aria-pressed") == "true"
+    labels = page.locator(".leaflet-tooltip.point-label").all_inner_texts()
+    assert any("Призрак" in text for text in labels)
+    assert any("Тестовая" in text for text in labels)
+    page.click("#pointLabelsToggle")
+    assert page.locator("#pointLabelsToggle").get_attribute("aria-pressed") == "false"
+    page.wait_for_function("document.querySelectorAll('.leaflet-tooltip.point-label').length === 0",
+                           timeout=5000)
+
+
+def test_road_tooltip_is_clean_and_hover_radius_is_configurable(page, app_server):
+    """Тултип дороги — только километраж на белом фоне; радиус меняется в настройках."""
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        map.setView([47.20, 39.80], 14, {animate: false});
+        drawRoadVector({
+            start_km: 0,
+            finish_km: 20,
+            geometry: {type: 'LineString', coordinates: [[39.70, 47.20], [39.90, 47.20]]},
+        }, {});
+        const input = document.getElementById('roadHoverRadiusInput');
+        input.value = '20';
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+    }""")
+    assert page.evaluate("roadHoverRadius") == 20
+    assert page.evaluate("Number(localStorage.getItem('albion_road_hover_radius'))") == 20
+    # 0.001° по широте на z14 — около 12 px, попадает в радиус 20.
+    page.evaluate("map.fire('mousemove', {latlng: L.latLng(47.201, 39.80)})")
+    page.wait_for_selector(".road-tooltip", timeout=5000)
+    text = page.locator(".road-tooltip").inner_text()
+    assert "км" in text and "📍" not in text
+    style = page.evaluate("""() => {
+        const el = document.querySelector('.road-tooltip');
+        return {
+            background: getComputedStyle(el).backgroundColor,
+            beforeDisplay: getComputedStyle(el, '::before').display,
+        };
+    }""")
+    assert style["background"] == "rgb(255, 255, 255)"
+    assert style["beforeDisplay"] == "none"
+    # При радиусе 4 та же точка уже вне зоны — тултип скрывается.
+    page.evaluate("""() => {
+        const input = document.getElementById('roadHoverRadiusInput');
+        input.value = '4';
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+        map.fire('mousemove', {latlng: L.latLng(47.201, 39.80)});
+    }""")
+    page.wait_for_function("!document.querySelector('.road-tooltip')", timeout=5000)
+    page.evaluate("""() => {
+        const input = document.getElementById('roadHoverRadiusInput');
+        input.value = '12';
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+        clearRoadVectorLayer();
+    }""")
+
+
+def test_local_road_without_chainage_can_place_fragment_point(page, app_server):
+    """Локальная дорога без официального км ставит точку на выбранный фрагмент."""
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const original = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url.startsWith('/api/roads/search')) {
+                return ok({roads: [{
+                    id: 'osm-way:1', ref: '60К-16', name: 'М4 Дон - Вёшенская',
+                    selected_km: null, selected_lat: 48.99, selected_lon: 40.55,
+                    source: 'OpenStreetMap', km_provenance: 'no authoritative chainage; geometry length only',
+                }]});
+            }
+            if (url === '/api/locate') {
+                return ok({point: {lat: 48.99, lon: 40.55}, road: null, side: null});
+            }
+            return original(url, options);
+        };
+        activateFrameTab('point');
+        useLocalRoadData = true;
+        setSearchMode('road');
+        searchArmCheckbox.checked = true;
+        applySearchArmState();
+        modeInput1.value = 'Дон';
+        modeInput1.dispatchEvent(new Event('input', {bubbles: true}));
+        await searchLocalRoad();
+        document.querySelector('#modeSuggestions .geo-suggestion').click();
+        const prepared = {
+            status: modeStatus.textContent,
+            roadKm: searchDraft.roadKm,
+            lat: searchDraft.roadLat,
+        };
+        await runSearchAction();
+        await new Promise(resolve => setTimeout(resolve, 120));
+        return {
+            prepared,
+            active: activePoint ? {
+                lat: activePoint.lat, lon: activePoint.lon, source: activePoint.source,
+                roadLabel: activePoint.roadLabel,
+            } : null,
+            armed: searchArmCheckbox.checked,
+        };
+    }""")
+    assert result["prepared"]["roadKm"] is None
+    assert result["prepared"]["lat"] == pytest.approx(48.99, abs=1e-6)
+    assert "километраж" in result["prepared"]["status"] or "километр" in result["prepared"]["status"]
+    assert result["active"]["source"] == "road"
+    assert result["active"]["roadLabel"] == "М4 Дон - Вёшенская"
+    assert result["active"]["lat"] == pytest.approx(48.99, abs=1e-6)
+    assert result["armed"] is False

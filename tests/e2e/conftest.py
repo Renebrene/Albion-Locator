@@ -41,6 +41,10 @@ def app_server(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     env = dict(os.environ)
     env.update({
         "ALBION_USERS_DB": str(data_dir / "users.db"),
+        "ALBION_SETTINGS_FILE": str(data_dir / "user_settings.json"),
+        "ALBION_GEO_DATA_DIR": str(data_dir / "geo"),
+        "ALBION_BASEMAP_MBTILES": str(data_dir / "basemap.mbtiles"),
+        "ALBION_VECTOR_MBTILES": str(data_dir / "vector.mbtiles"),
         "YANDEX_API_KEY": "",
         "YANDEX_SUGGEST_API_KEY": "",
         "YANDEX_JS_API_KEY": "",

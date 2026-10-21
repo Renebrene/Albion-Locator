@@ -1026,7 +1026,7 @@ def test_vector_tile_endpoint_serves_gzipped_pbf(tmp_path, monkeypatch):
     assert response.content == gzip.decompress(payload)
     assert response.headers["content-encoding"] == "gzip"
     assert response.headers["content-type"].startswith("application/vnd.mapbox-vector-tile")
-    assert client.get("/api/vector-tiles/5/10/4.pbf").status_code == 404
+    assert client.get("/api/vector-tiles/5/10/4.pbf").status_code == 204
 
 
 def test_maplibre_assets_and_vector_style_are_served():

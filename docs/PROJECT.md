@@ -105,6 +105,7 @@ FastAPI / Uvicorn (src/main.py)
 | Настройки скриншота (без координат) | `src/user_settings.json` |
 | Локальный геоиндекс | `ALBION_GEO_DATA_DIR/offline_geo.sqlite3` |
 | Локальные тайлы | `ALBION_BASEMAP_MBTILES` |
+| Векторные тайлы | `ALBION_VECTOR_MBTILES` (по умолчанию `$ALBION_GEO_DATA_DIR/vector.mbtiles`) |
 | Граница области | `static/rostov_boundary.geojson` |
 | Скриншоты серверного API | `src/screenshots/` |
 | Скриншоты браузера | file picker / Downloads |
@@ -152,7 +153,8 @@ FastAPI / Uvicorn (src/main.py)
 | `ALBION_USERS_DB` | путь SQLite users/state |
 | `ALBION_OFFLINE` | локальный источник дорог по умолчанию |
 | `ALBION_GEO_DATA_DIR` | каталог offline index / MBTiles |
-| `ALBION_BASEMAP_MBTILES` | явный путь MBTiles |
+| `ALBION_BASEMAP_MBTILES` | явный путь растровых MBTiles |
+| `ALBION_VECTOR_MBTILES` | явный путь векторных MBTiles (MapLibre) |
 | `ALBION_ALLOWED_ORIGINS` | дополнительные Origin |
 | `YANDEX_JS_API_KEY` | Yandex JS API |
 | `YANDEX_SUGGEST_API_KEY` | Yandex SuggestView |

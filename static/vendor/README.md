@@ -9,6 +9,8 @@ Opera/ad-blocker environments).
 |---|---|---|---|
 | `leaflet.js`, `leaflet.css`, `images/*` | 1.9.4 | https://leafletjs.com/ | BSD-2-Clause |
 | `dom-to-image-more.min.js` | 3.4.5 | https://github.com/1904labs/dom-to-image-more | MIT |
+| `maplibre-gl.js`, `maplibre-gl.css` | 5.6.0 | https://maplibre.org/ | BSD-3-Clause |
+| `leaflet-maplibre-gl.js` | 0.1.4 | https://github.com/maplibre/maplibre-gl-leaflet | MIT |
 
 Leaflet attribution prefix is disabled in the UI, but the required
 OpenStreetMap attribution remains visible. Do not remove OSM attribution.
