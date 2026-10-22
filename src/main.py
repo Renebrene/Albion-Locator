@@ -286,6 +286,13 @@ app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_BY
 
 # ========== АВТОРИЗАЦИЯ ==========
 PUBLIC_API_PATHS = {"/api/health", "/api/auth/login"}
+# Пока пароль не сменён, пользователь может только выйти, узнать себя и
+# сменить учётные данные — остальные API закрыты.
+PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/auth/change-credentials",
+    "/api/auth/logout",
+    "/api/auth/me",
+}
 
 
 def _cookie_token(scope) -> str | None:
@@ -329,6 +336,9 @@ class SessionAuthMiddleware:
             user = auth.get_user_by_token(_cookie_token(scope))
             if user is None:
                 await _send_json(send, 401, {"detail": "Требуется авторизация"})
+                return
+            if user.get("must_change_password") and path not in PASSWORD_CHANGE_ALLOWED_PATHS:
+                await _send_json(send, 403, {"detail": "Требуется сменить пароль"})
                 return
             scope.setdefault("state", {})["user"] = user
 

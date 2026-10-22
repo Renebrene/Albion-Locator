@@ -151,6 +151,7 @@ FastAPI / Uvicorn (src/main.py)
 | Переменная | Назначение |
 |---|---|
 | `ALBION_USERS_DB` | путь SQLite users/state |
+| `ALBION_REQUIRE_PASSWORD_CHANGE` | требовать смену пароля после первого входа/сброса (по умолчанию `1`) |
 | `ALBION_OFFLINE` | локальный источник дорог по умолчанию |
 | `ALBION_GEO_DATA_DIR` | каталог offline index / MBTiles |
 | `ALBION_BASEMAP_MBTILES` | явный путь растровых MBTiles |

@@ -492,6 +492,16 @@
         #settings-dialog-content { overflow-y: auto; padding: 16px; }
         #settings-dialog-content .settings-block { margin-bottom: 12px; }
         #settings-dialog-content .btn { margin-top: 5px; }
+        /* Аккаунт: та же геометрия, что и настройки. */
+        #account-modal { position: fixed; inset: 0; z-index: 16000; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.48); }
+        #account-modal.open { display: flex; }
+        #account-dialog { width: min(420px, 100%); max-height: min(90vh, 720px); overflow: hidden; display: flex; flex-direction: column; background: var(--bg-sidebar); color: var(--text-main); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+        #account-dialog-header { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--accent); color: white; }
+        #account-dialog-header h2 { color: white; font-size: 17px; margin: 0; flex: 1; }
+        #account-dialog-close { border: 0; background: transparent; color: white; font-size: 24px; cursor: pointer; }
+        #account-dialog-content { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+        #account-dialog-content .action-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        body.account-modal-open { overflow: hidden; }
         #settings-open-button { margin-left: auto; border: 0; border-radius: 5px; background: rgba(255,255,255,.14); color: white; padding: 6px 9px; cursor: pointer; white-space: nowrap; }
         body.settings-modal-open { overflow: hidden; }
         @media (max-width: 900px) {
@@ -922,14 +932,18 @@
 <body>
     <div id="authOverlay" class="auth-overlay" role="region" aria-label="Вход в приложение">
         <form id="authForm" class="auth-card">
-            <h2>🔒 АЛЬБИОН: Вход</h2>
-            <input id="authLogin" class="auth-field" type="text" value="админ"
+            <h2>АЛЬБИОН.Локатор</h2>
+            <input id="authLogin" class="auth-field" type="text"
                    placeholder="Логин" autocomplete="username" required>
             <input id="authPassword" class="auth-field" type="password"
                    placeholder="Пароль" autocomplete="current-password" required>
             <div id="authError" class="auth-error"></div>
             <button id="authSubmit" type="submit" class="auth-submit">Войти</button>
-            <div class="auth-hint">По умолчанию: админ / альбион</div>
+            <div class="auth-hint">
+                Закрытый веб-сервис.<br>
+                Вход по логину и паролю.<br>
+                Их можно получить у Администратора.
+            </div>
         </form>
     </div>
     <!-- ЛЕВЫЙ ФРЕЙМ -->
@@ -1308,6 +1322,7 @@
         <button class="sb-seg" type="button" id="goToRostovButton" onclick="centerMapOnData()" title="Центрировать по точке или всем точкам пакета" aria-label="Центрировать по точке или всем точкам пакета">🎯</button>
         <button class="sb-seg" type="button" id="autoScreenshotToggle" title="Автоскриншот" aria-label="Автоскриншот" aria-pressed="false">⏱<span id="autoScreenshotSeconds">3</span>с</button>
         <button class="sb-seg" type="button" id="helpButton" onclick="toggleHelpFrame()" title="Справка" aria-label="Справка">❓</button>
+        <button class="sb-seg" type="button" id="accountOpenButton" title="Пользователь" aria-label="Пользователь" aria-haspopup="dialog">👤</button>
         <button class="sb-seg" type="button" id="settingsOpenButton" title="Настройки" aria-label="Настройки" aria-haspopup="dialog">⚙️</button>
         <button class="sb-seg" type="button" id="resetWorkspaceBtn" title="Очистить рабочую сессию" aria-label="Очистить рабочую сессию">↺</button>
     </footer>
@@ -1423,24 +1438,6 @@
                 <div class="theme-switch" id="themeSwitch" role="switch" tabindex="0" aria-checked="false" aria-label="Тёмная тема" onclick="toggleTheme()"></div>
             </div>
         </div>
-        <div class="settings-block">
-            <h2>👤 Мой аккаунт</h2>
-            <div class="settings-row">
-                <label>Текущий логин:</label>
-                <b id="currentUserLogin">—</b>
-            </div>
-            <div class="settings-row">
-                <input type="text" id="newOwnLogin" placeholder="Новый логин (необязательно)">
-            </div>
-            <div class="settings-row">
-                <input type="password" id="currentPassword" placeholder="Текущий пароль" autocomplete="current-password">
-            </div>
-            <div class="settings-row">
-                <input type="password" id="newOwnPassword" placeholder="Новый пароль (необязательно)" autocomplete="new-password">
-            </div>
-            <button class="btn btn-small" onclick="changeOwnCredentials()">💾 Сохранить логин/пароль</button>
-            <button class="btn btn-small btn-secondary" onclick="logoutUser()" style="margin-top: 6px;">🚪 Выйти</button>
-        </div>
         <div class="settings-block" id="usersSettingsBlock" style="display: none;">
             <h2>👥 Пользователи</h2>
             <div class="users-list" id="usersList"></div>
@@ -1462,6 +1459,41 @@
             <button class="btn btn-small" onclick="createUser()">➕ Создать пользователя</button>
         </div>
         <div class="folder-status" id="folderStatus">Загрузка...</div>
+    </div>
+
+    <!-- АККАУНТ: вход из статус-бара и принудительная смена пароля -->
+    <div id="account-modal" role="presentation">
+        <section id="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
+            <div id="account-dialog-header">
+                <h2 id="account-dialog-title">👤 Пользователь</h2>
+                <button id="account-dialog-close" type="button" aria-label="Закрыть">×</button>
+            </div>
+            <div id="account-dialog-content">
+                <div class="settings-row"><label>Логин:</label><b id="accountLogin">—</b></div>
+                <div class="settings-row"><label>Роль:</label><b id="accountRole">—</b></div>
+                <div class="hint" id="accountForcedHint" hidden>
+                    Пароль выдан администратором. Смените его, чтобы продолжить работу.
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="accountCurrentPassword" placeholder="Текущий пароль" autocomplete="current-password">
+                </div>
+                <div class="settings-row">
+                    <input type="text" id="accountNewLogin" placeholder="Новый логин (необязательно)" autocomplete="username">
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="accountNewPassword" placeholder="Новый пароль" autocomplete="new-password">
+                </div>
+                <div class="settings-row">
+                    <input type="password" id="accountConfirmPassword" placeholder="Повторите новый пароль" autocomplete="new-password">
+                </div>
+                <div class="auth-error" id="accountError"></div>
+                <div class="action-btns">
+                    <button class="btn btn-small" id="accountSaveBtn" type="button">💾 Сохранить</button>
+                    <button class="btn btn-small btn-secondary" id="accountLogoutBtn" type="button">🚪 Выйти</button>
+                    <button class="btn btn-small btn-secondary" id="accountCloseBtn" type="button">Закрыть</button>
+                </div>
+            </div>
+        </section>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -2308,6 +2340,14 @@ function drawBoundaryFromGeoJSON(data) {
         async function apiFetch(url, options) {
             const response = await fetch(url, options);
             if (response.status === 401) showAuthOverlay();
+            if (response.status === 403) {
+                // Администратор мог сбросить пароль уже во время сессии.
+                const data = await response.clone().json().catch(() => ({}));
+                if (data.detail === 'Требуется сменить пароль') {
+                    currentUser = { ...(currentUser || {}), must_change_password: true };
+                    openAccountModal(true);
+                }
+            }
             return response;
         }
 
@@ -5848,8 +5888,13 @@ function drawBoundaryFromGeoJSON(data) {
                 currentUser = data.user;
                 hideAuthOverlay();
                 document.body.classList.add('authenticated');
+                updateAccountUi();
+                if (currentUser.must_change_password) {
+                    // Пока пароль не сменён, сервер закрывает остальные API.
+                    openAccountModal(true);
+                    return;
+                }
                 await initializeLocalGeo();
-                document.getElementById('currentUserLogin').textContent = currentUser.login;
                 document.getElementById('usersSettingsBlock').style.display =
                     currentUser.role === 'admin' ? '' : 'none';
                 if (currentUser.role === 'admin') loadUsers();
@@ -5896,12 +5941,68 @@ function drawBoundaryFromGeoJSON(data) {
             }
         });
 
-        async function changeOwnCredentials() {
-            const currentPassword = document.getElementById('currentPassword').value;
-            const newLogin = document.getElementById('newOwnLogin').value.trim();
-            const newPassword = document.getElementById('newOwnPassword').value;
-            if (!currentPassword) { showToast('Укажите текущий пароль', 'error'); return; }
-            if (!newLogin && !newPassword) { showToast('Укажите новый логин или пароль', 'error'); return; }
+        // === АККАУНТ ПОЛЬЗОВАТЕЛЯ ===
+        let accountForced = false;
+
+        function updateAccountUi() {
+            const login = currentUser ? currentUser.login : '—';
+            document.getElementById('accountLogin').textContent = login;
+            document.getElementById('accountRole').textContent = currentUser
+                ? (ROLE_LABELS[currentUser.role] || currentUser.role) : '—';
+            const button = document.getElementById('accountOpenButton');
+            if (button) {
+                button.title = `Пользователь: ${login}`;
+                button.setAttribute('aria-label', `Пользователь: ${login}`);
+            }
+        }
+
+        function openAccountModal(forced = false) {
+            accountForced = Boolean(forced);
+            updateAccountUi();
+            document.getElementById('accountError').textContent = '';
+            for (const id of ['accountCurrentPassword', 'accountNewLogin',
+                              'accountNewPassword', 'accountConfirmPassword']) {
+                document.getElementById(id).value = '';
+            }
+            document.getElementById('accountForcedHint').hidden = !accountForced;
+            document.getElementById('account-dialog-close').style.display = accountForced ? 'none' : '';
+            document.getElementById('accountCloseBtn').style.display = accountForced ? 'none' : '';
+            document.getElementById('account-modal').classList.add('open');
+            document.body.classList.add('account-modal-open');
+            setTimeout(() => document.getElementById(
+                accountForced ? 'accountNewPassword' : 'accountCurrentPassword'
+            ).focus(), 50);
+        }
+
+        function closeAccountModal() {
+            if (accountForced) return;
+            document.getElementById('account-modal').classList.remove('open');
+            document.body.classList.remove('account-modal-open');
+        }
+
+        async function submitAccountChange() {
+            const errorBox = document.getElementById('accountError');
+            errorBox.textContent = '';
+            const currentPassword = document.getElementById('accountCurrentPassword').value;
+            const newLogin = document.getElementById('accountNewLogin').value.trim();
+            const newPassword = document.getElementById('accountNewPassword').value;
+            const confirmPassword = document.getElementById('accountConfirmPassword').value;
+            if (!currentPassword) { errorBox.textContent = 'Укажите текущий пароль.'; return; }
+            if (newPassword !== confirmPassword) {
+                errorBox.textContent = 'Пароли не совпадают.';
+                return;
+            }
+            if (!newPassword && !newLogin && !accountForced) {
+                errorBox.textContent = 'Укажите новый логин или пароль.';
+                return;
+            }
+            if (accountForced && !newPassword) {
+                errorBox.textContent = 'Задайте новый пароль.';
+                return;
+            }
+            const wasForced = accountForced;
+            const button = document.getElementById('accountSaveBtn');
+            button.disabled = true;
             try {
                 const response = await fetch('/api/auth/change-credentials', {
                     method: 'POST',
@@ -5909,18 +6010,54 @@ function drawBoundaryFromGeoJSON(data) {
                     body: JSON.stringify({
                         current_password: currentPassword,
                         login: newLogin || null,
-                        password: newPassword || null
-                    })
+                        password: newPassword || null,
+                    }),
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.detail || 'Не удалось сохранить');
                 currentUser = data.user;
-                document.getElementById('currentUserLogin').textContent = currentUser.login;
-                document.getElementById('newOwnLogin').value = '';
-                document.getElementById('currentPassword').value = '';
-                document.getElementById('newOwnPassword').value = '';
-                showToast('Логин/пароль обновлены', 'success');
-            } catch (error) { showToast('❌ ' + error.message, 'error', 5000); }
+                accountForced = false;
+                updateAccountUi();
+                closeAccountModal();
+                if (wasForced) {
+                    // После снятия блокировки загружаем рабочее состояние заново.
+                    location.reload();
+                    return;
+                }
+                showToast('Учётные данные обновлены', 'success');
+                if (currentUser.role === 'admin') loadUsers();
+            } catch (error) {
+                errorBox.textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function setupAccountModal() {
+            const modal = document.getElementById('account-modal');
+            document.getElementById('accountOpenButton')
+                .addEventListener('click', () => openAccountModal(false));
+            document.getElementById('account-dialog-close')
+                .addEventListener('click', closeAccountModal);
+            document.getElementById('accountCloseBtn')
+                .addEventListener('click', closeAccountModal);
+            document.getElementById('accountSaveBtn')
+                .addEventListener('click', () => { void submitAccountChange(); });
+            document.getElementById('accountLogoutBtn')
+                .addEventListener('click', logoutUser);
+            modal.addEventListener('mousedown', event => {
+                if (event.target === modal) closeAccountModal();
+            });
+            document.getElementById('account-dialog').addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void submitAccountChange();
+                }
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key !== 'Escape' || !modal.classList.contains('open')) return;
+                closeAccountModal();
+            });
         }
 
         async function logoutUser() {
@@ -6974,6 +7111,7 @@ function drawBoundaryFromGeoJSON(data) {
         // === ИНИЦИАЛИЗАЦИЯ ===
         setupFrameTabs();
         setupSettingsModal();
+        setupAccountModal();
         setupSearchPanel();
         initApp();
         // === ПАКЕТНАЯ ОБРАБОТКА ===

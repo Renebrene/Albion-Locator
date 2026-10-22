@@ -54,6 +54,7 @@ def init_db() -> None:
                 role TEXT NOT NULL DEFAULT 'admin'
                     CHECK (role IN ('admin', 'editor')),
                 is_active INTEGER NOT NULL DEFAULT 1,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL
             );
 
@@ -113,20 +114,29 @@ def init_db() -> None:
                 ON user_history(user_id, created_at DESC);
             """
         )
+        # Миграция существующих БД: колонка появилась вместе с принудительной
+        # сменой пароля и добавляется вперёд, без потери данных.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        if "must_change_password" not in columns:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
+            )
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count == 0:
             conn.execute(
                 """
                 INSERT INTO users
-                    (login, login_norm, password_hash, name, role, is_active, created_at)
+                    (login, login_norm, password_hash, name, role, is_active,
+                     must_change_password, created_at)
                 VALUES
-                    (?, ?, ?, ?, 'admin', 1, ?)
+                    (?, ?, ?, ?, 'admin', 1, ?, ?)
                 """,
                 (
                     DEFAULT_LOGIN,
                     _normalize_login(DEFAULT_LOGIN),
                     hash_password(DEFAULT_PASSWORD),
                     DEFAULT_NAME,
+                    1 if require_password_change() else 0,
                     time.time(),
                 ),
             )
@@ -165,6 +175,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def _public_user(row: sqlite3.Row) -> dict[str, Any]:
+    keys = row.keys()
     return {
         "id": row["id"],
         "login": row["login"],
@@ -172,18 +183,26 @@ def _public_user(row: sqlite3.Row) -> dict[str, Any]:
         "role": row["role"],
         "is_active": bool(row["is_active"]),
         "created_at": row["created_at"],
+        "must_change_password": bool(row["must_change_password"])
+        if "must_change_password" in keys else False,
     }
 
 
 def _row_by_id(conn: sqlite3.Connection, user_id: int) -> sqlite3.Row | None:
     return conn.execute(
         """
-        SELECT id, login, name, role, is_active, created_at
+        SELECT id, login, name, role, is_active, created_at, must_change_password
         FROM users
         WHERE id = ?
         """,
         (user_id,),
     ).fetchone()
+
+
+def require_password_change() -> bool:
+    """Флаг принудительной смены пароля (можно выключить в тестах)."""
+    configured = os.getenv("ALBION_REQUIRE_PASSWORD_CHANGE", "1")
+    return configured.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def authenticate(login: str, password: str) -> dict[str, Any] | None:
@@ -194,7 +213,8 @@ def authenticate(login: str, password: str) -> dict[str, Any] | None:
     with closing(_connect()) as conn:
         row = conn.execute(
             """
-            SELECT id, login, password_hash, name, role, is_active, created_at
+            SELECT id, login, password_hash, name, role, is_active, created_at,
+                   must_change_password
             FROM users
             WHERE login_norm = ? AND is_active = 1
             LIMIT 1
@@ -235,7 +255,8 @@ def get_user_by_token(token: str | None) -> dict[str, Any] | None:
     with closing(_connect()) as conn:
         row = conn.execute(
             """
-            SELECT u.id, u.login, u.name, u.role, u.is_active, u.created_at
+            SELECT u.id, u.login, u.name, u.role, u.is_active, u.created_at,
+                   u.must_change_password
             FROM sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.token_hash = ?
@@ -315,7 +336,8 @@ def change_credentials(
     with closing(_connect()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT id, login, password_hash FROM users WHERE id = ?",
+            "SELECT id, login, password_hash, must_change_password "
+            "FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
 
@@ -323,6 +345,8 @@ def change_credentials(
             raise ValueError("Пользователь не найден.")
         if not verify_password(current_password, row["password_hash"]):
             raise ValueError("Текущий пароль указан неверно.")
+        if row["must_change_password"] and not new_password:
+            raise ValueError("Нужно задать новый пароль.")
 
         login = row["login"]
         password_hash = row["password_hash"]
@@ -344,7 +368,7 @@ def change_credentials(
         if new_password:
             password_hash = hash_password(_validate_password(new_password))
             conn.execute(
-                "UPDATE users SET password_hash = ? WHERE id = ?",
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
                 (password_hash, user_id),
             )
 
@@ -358,7 +382,7 @@ def list_users() -> list[dict[str, Any]]:
     with closing(_connect()) as conn:
         rows = conn.execute(
             """
-            SELECT id, login, name, role, is_active, created_at
+            SELECT id, login, name, role, is_active, created_at, must_change_password
             FROM users
             ORDER BY id
             """
@@ -389,14 +413,23 @@ def create_user(
         conn.execute(
             """
             INSERT INTO users
-                (login, login_norm, password_hash, name, role, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
+                (login, login_norm, password_hash, name, role, is_active,
+                 must_change_password, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
             """,
-            (login, login_norm, hash_password(password), name, role, time.time()),
+            (
+                login,
+                login_norm,
+                hash_password(password),
+                name,
+                role,
+                1 if require_password_change() else 0,
+                time.time(),
+            ),
         )
         row = conn.execute(
             """
-            SELECT id, login, name, role, is_active, created_at
+            SELECT id, login, name, role, is_active, created_at, must_change_password
             FROM users
             WHERE login_norm = ?
             """,
@@ -483,8 +516,12 @@ def set_password(user_id: int, password: str) -> None:
     password = _validate_password(password)
     with closing(_connect()) as conn:
         result = conn.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?",
-            (hash_password(password), user_id),
+            "UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?",
+            (
+                hash_password(password),
+                1 if require_password_change() else 0,
+                user_id,
+            ),
         )
         if result.rowcount == 0:
             raise ValueError("Пользователь не найден.")

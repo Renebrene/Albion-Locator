@@ -1862,3 +1862,94 @@ def test_km_slider_stays_visible_when_km_state_is_cleared(page, app_server):
     assert page.locator("#roadKmPanel").is_visible()
     assert page.locator("#roadKmSlider").is_visible()
     assert page.locator("#roadKmSlider").is_disabled()
+
+
+def test_account_modal_opens_from_status_bar(page, app_server):
+    """Кнопка 👤 открывает аккаунт; Esc и фон закрывают окно."""
+    login(page, app_server["base_url"])
+    page.click("#accountOpenButton")
+    assert page.locator("#account-modal").evaluate("el => el.classList.contains('open')")
+    assert page.locator("#accountLogin").inner_text() == "админ"
+    assert "Администратор" in page.locator("#accountRole").inner_text()
+    assert page.locator("#accountForcedHint").is_hidden()
+    page.keyboard.press("Escape")
+    assert not page.locator("#account-modal").evaluate("el => el.classList.contains('open')")
+
+
+def test_forced_password_change_on_bootstrap(browser, tmp_path):
+    """Пустая БД с ALBION_REQUIRE_PASSWORD_CHANGE=1 требует смены пароля."""
+    import os
+    import socket
+    import subprocess
+    import sys
+    import time
+    import urllib.request
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env = dict(os.environ)
+    env.update({
+        "ALBION_USERS_DB": str(tmp_path / "users.db"),
+        "ALBION_SETTINGS_FILE": str(tmp_path / "user_settings.json"),
+        "ALBION_GEO_DATA_DIR": str(tmp_path / "geo"),
+        "ALBION_BASEMAP_MBTILES": str(tmp_path / "basemap.mbtiles"),
+        "ALBION_VECTOR_MBTILES": str(tmp_path / "vector.mbtiles"),
+        "ALBION_REQUIRE_PASSWORD_CHANGE": "1",
+        "YANDEX_API_KEY": "",
+        "YANDEX_SUGGEST_API_KEY": "",
+        "YANDEX_JS_API_KEY": "",
+    })
+    process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--app-dir", str(root / "src"),
+         "--host", "127.0.0.1", "--port", str(port)],
+        cwd=str(root), env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    base_url = f"http://127.0.0.1:{port}"
+    context = browser.new_context(viewport={"width": 1280, "height": 800})
+    page = context.new_page()
+    try:
+        deadline = time.time() + 20
+        healthy = False
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as response:
+                    if response.status == 200:
+                        healthy = True
+                        break
+            except OSError:
+                time.sleep(0.15)
+        assert healthy, "forced-password server did not start"
+        page.goto(base_url)
+        page.fill("#authLogin", "админ")
+        page.fill("#authPassword", "альбион")
+        page.click("#authSubmit")
+        page.wait_for_selector("body.authenticated")
+        page.wait_for_selector("#account-modal.open", timeout=5000)
+        assert page.locator("#accountForcedHint").is_visible()
+        assert page.locator("#account-dialog-close").is_hidden()
+        page.keyboard.press("Escape")
+        assert page.locator("#account-modal").evaluate("el => el.classList.contains('open')")
+        page.fill("#accountCurrentPassword", "альбион")
+        page.fill("#accountNewPassword", "НовыйПароль123")
+        page.fill("#accountConfirmPassword", "НовыйПароль123")
+        with page.expect_navigation():
+            page.click("#accountSaveBtn")
+        page.wait_for_selector("body.authenticated")
+        page.wait_for_selector("#account-modal.open", state="detached", timeout=5000)
+        assert page.evaluate(
+            "async () => (await (await fetch('/api/auth/me')).json()).user.must_change_password"
+        ) is False
+        # После смены пароля остальные API снова доступны.
+        page.click("#settingsOpenButton")
+        assert page.locator("#settings-modal").evaluate("el => el.classList.contains('open')")
+    finally:
+        context.close()
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()

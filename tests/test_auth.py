@@ -194,3 +194,63 @@ def test_last_admin_cannot_be_disabled():
     me = admin.get("/api/auth/me").json()["user"]
     response = admin.patch(f"/api/users/{me['id']}", json={"is_active": False})
     assert response.status_code == 400
+
+
+def test_schema_migration_adds_password_change_flag(tmp_path, monkeypatch):
+    import sqlite3
+    import auth
+
+    database = tmp_path / "old-users.db"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            login TEXT NOT NULL,
+            login_norm TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "INSERT INTO users (login, login_norm, password_hash, name, role, is_active, created_at) "
+        "VALUES ('старый', 'старый', 'x', 'Старый', 'admin', 1, 0)"
+    )
+    connection.commit()
+    connection.close()
+
+    monkeypatch.setattr(auth, "DB_PATH", database)
+    auth.init_db()
+    with sqlite3.connect(database) as check:
+        columns = {row[1] for row in check.execute("PRAGMA table_info(users)")}
+    assert "must_change_password" in columns
+
+
+def test_forced_password_change_flow(tmp_path, monkeypatch):
+    import pytest
+    import auth
+
+    monkeypatch.setattr(auth, "DB_PATH", tmp_path / "flag-users.db")
+    monkeypatch.setenv("ALBION_REQUIRE_PASSWORD_CHANGE", "1")
+    auth.init_db()
+
+    user = auth.authenticate("админ", "альбион")
+    assert user is not None
+    assert user["must_change_password"] is True
+
+    with pytest.raises(ValueError):
+        auth.change_credentials(user["id"], "альбион", None, None)
+
+    updated = auth.change_credentials(user["id"], "альбион", None, "НовыйПароль123")
+    assert updated["must_change_password"] is False
+    assert auth.authenticate("админ", "НовыйПароль123")["must_change_password"] is False
+
+    created = auth.create_user("editor_temp", "ВременныйПароль1", "Редактор", "editor")
+    assert created["must_change_password"] is True
+
+    auth.set_password(user["id"], "СброшенныйПароль1")
+    assert auth.authenticate("админ", "СброшенныйПароль1")["must_change_password"] is True

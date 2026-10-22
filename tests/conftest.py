@@ -7,6 +7,8 @@ _test_data_dir = Path(tempfile.mkdtemp(prefix="albion-auth-"))
 os.environ.setdefault("ALBION_USERS_DB", str(_test_data_dir / "users.db"))
 # Tests must not leave global screenshot settings in the project tree.
 os.environ.setdefault("ALBION_SETTINGS_FILE", str(_test_data_dir / "user_settings.json"))
+# Тестовые учётки не должны упираться в принудительную смену пароля.
+os.environ.setdefault("ALBION_REQUIRE_PASSWORD_CHANGE", "0")
 
 # Prevent the ignored developer .env from enabling real provider calls in tests.
 for _name in ("YANDEX_API_KEY", "YANDEX_SUGGEST_API_KEY", "YANDEX_JS_API_KEY"):
