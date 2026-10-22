@@ -213,7 +213,9 @@ uv pip install --python .venv/bin/python -r requirements-e2e.txt
 .venv/bin/pytest -q tests/e2e
 ```
 
-Текущие результаты: Python **140 passed** (+52 offline tests), Bun **24 passed**, Playwright **29 passed**, axe-core **0 violations**.
+Текущие результаты (23.10.2026): Python **178 passed, 1 skipped** (+**53** offline-теста), Bun **30 passed**, Playwright **55 passed**, axe-core **0 violations**.
+
+Подготовка E2E-сервера: `tests/e2e/conftest.py` создаёт изолированную SQLite и настройки, отключает rate limit и очищает пользовательскую сессию/`workspace` перед каждым тестом — иначе восстановление состояния из прошлого теста гоняется с его assert'ами.
 
 QA-документы:
 

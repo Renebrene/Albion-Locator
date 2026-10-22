@@ -93,9 +93,21 @@ def browser():
 
 
 @pytest.fixture()
-def page(browser):
+def page(browser, app_server):
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
+    # Each test must start from a clean server-side session: otherwise
+    # loadUserState() restores the previous test's point/map and the real
+    # locate request it fires races the stubbed assertions of the next test.
+    base_url = app_server["base_url"]
+    page.request.post(f"{base_url}/api/auth/login",
+                      data={"login": "админ", "password": "альбион"})
+    csrf = next((item["value"] for item in context.cookies()
+                 if item["name"] == "albion_csrf"), "")
+    csrf_headers = {"X-CSRF-Token": csrf}
+    page.request.delete(f"{base_url}/api/user/workspace", headers=csrf_headers)
+    page.request.delete(f"{base_url}/api/user/preferences", headers=csrf_headers)
+    context.clear_cookies()
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
 

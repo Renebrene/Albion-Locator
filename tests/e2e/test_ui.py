@@ -1914,6 +1914,60 @@ def test_km_slider_stays_visible_when_km_state_is_cleared(page, app_server):
     assert page.locator("#roadKmSlider").is_disabled()
 
 
+def _install_slider_stub(page, road_code):
+    page.evaluate("""(code) => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async (url) => {
+            if (url === '/api/locate') return ok({
+                point: {lat: 47.2, lon: 39.8, bearing: null},
+                road: {road_code: code, full_name: 'Тестовая дорога', skdf_name: 'Тест'},
+                side: {side: 1, km_estimate: 10, perpendicular_m: 12,
+                       projected_lat: 47.2, projected_lon: 39.8},
+            });
+            if (url === '/api/roads/online/sections') return ok({
+                code: code, name: 'Тест', first_km: 0, last_km: 20,
+                sections: [{start_km: 0, finish_km: 20,
+                            coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
+            });
+            if (url === '/api/msk61/from-geographic') return ok({
+                x: 422630.864, y: 2204440.047, zone: 2,
+                profile: 'gost_51794_2008', warning: '',
+            });
+            return ok({status: 'ok', entries: []});
+        };
+    }""", road_code)
+
+
+def test_road_km_slider_activates_via_checkbox(page, app_server):
+    """Галка километража включает ползунок для дороги с участками СКДФ."""
+    login(page, app_server["base_url"])
+    _install_slider_stub(page, "М-4")
+    page.evaluate("commitPoint(47.2, 39.8, 'click')")
+    page.wait_for_function("Boolean(roadKmState)", timeout=10000)
+    page.check("#roadKmEnableCheckbox")
+    page.wait_for_timeout(400)
+    assert page.evaluate("roadKmEnabled") is True
+    assert page.locator("#roadKmSlider").is_disabled() is False
+    assert page.evaluate("roadKmNumber.value") != ""
+
+
+def test_road_km_slider_reports_unavailable_chainage(page, app_server):
+    """Дорога без кода: ползунок не включается, но причина названа явно."""
+    login(page, app_server["base_url"])
+    _install_slider_stub(page, None)
+    page.evaluate("commitPoint(47.2, 39.8, 'click')")
+    page.wait_for_timeout(400)
+    page.check("#roadKmEnableCheckbox")
+    page.wait_for_timeout(300)
+    state = page.evaluate(
+        "({disabled: roadKmSlider.disabled, status: roadKmStatus.textContent})"
+    )
+    assert state["disabled"] is True
+    assert state["status"] == "Для этой дороги официальный километраж СКДФ недоступен."
+
+
 def test_account_modal_opens_from_status_bar(page, app_server):
     """Кнопка 👤 открывает аккаунт; Esc и фон закрывают окно."""
     login(page, app_server["base_url"])

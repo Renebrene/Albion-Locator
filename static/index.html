@@ -2458,6 +2458,8 @@ function drawBoundaryFromGeoJSON(data) {
         let filterRefreshTimer = null;
         let lastRoadCode = null;
         let lastRoadTitle = '';
+        // Причина, по которой для текущей дороги нет официального километража.
+        let lastRoadKmHint = '';
         let ghostPointEnabled = false;
         let roadKmKeyboardArmed = false;
         const ROAD_KM_STEP_OPTIONS = [5, 10, 50, 100, 500];
@@ -3115,26 +3117,37 @@ function drawBoundaryFromGeoJSON(data) {
         // Для найденной точки автоматически подтягивает официальные участки
         // трассы (если у дороги есть код) и делает ползунок активным.
         function autoLoadOfficialKmForRoad(road, lat, lon) {
-            if (!road) return;
+            if (!road) {
+                lastRoadKmHint = '';
+                return;
+            }
             // Локальная база не должна ходить в онлайн-СКДФ за участками.
             if (useLocalRoadData) {
                 roadKmPanel.hidden = false;
                 setRoadKmControlsEnabled(false);
+                lastRoadCode = null;
+                lastRoadTitle = '';
+                lastRoadKmHint = 'Для локальной базы официальный километраж СКДФ недоступен.';
                 if (roadKmEnabled && !roadKmState) {
-                    roadKmStatus.textContent =
-                        'Для локальной базы официальный километраж СКДФ недоступен.';
+                    roadKmStatus.textContent = lastRoadKmHint;
                 }
                 return;
             }
             const code = road.road_code;
             if (!code) {
+                // Дорога без кода (улица, проезд): код прошлой трассы нельзя
+                // оставлять — иначе ползунок загрузит чужой километраж.
+                lastRoadCode = null;
+                lastRoadTitle = '';
+                lastRoadKmHint = 'Для этой дороги официальный километраж СКДФ недоступен.';
                 if (roadKmState) {
-                    clearLoadedRoadKmState('Для этой дороги официальный километраж СКДФ недоступен.');
+                    clearLoadedRoadKmState(lastRoadKmHint);
                 } else if (roadKmEnabled) {
-                    roadKmStatus.textContent = 'Для этой дороги официальный километраж СКДФ недоступен.';
+                    roadKmStatus.textContent = lastRoadKmHint;
                 }
                 return;
             }
+            lastRoadKmHint = '';
             if (roadKmState && roadKmState.code === code) {
                 // Точка относится к той же дороге — состояние снова актуально.
                 roadKmStale = false;
@@ -3458,6 +3471,9 @@ function drawBoundaryFromGeoJSON(data) {
                     lat: activePoint ? activePoint.lat : undefined,
                     lon: activePoint ? activePoint.lon : undefined,
                 });
+            } else if (activePoint && lastRoadKmHint) {
+                // Точка выбрана, но у её дороги нет официального километража.
+                roadKmStatus.textContent = lastRoadKmHint;
             } else {
                 roadKmStatus.textContent = 'Сначала выберите точку или трассу.';
             }
