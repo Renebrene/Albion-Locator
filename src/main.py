@@ -32,7 +32,7 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from PIL import Image
-from pydantic import BaseModel, Field, FiniteFloat, field_validator
+from pydantic import BaseModel, Field, FiniteFloat, field_validator, model_validator
 
 # A local ignored .env is convenient for the single-user deployment. Explicit
 # process environment values (e.g. systemd/CloudPub secrets) take precedence.
@@ -862,7 +862,7 @@ def _order_component_ways(ways: list[dict], hint: tuple[float, float] | None) ->
 
 def _build_overpass_candidates(
     ways: list[dict],
-    code: str,
+    code: str | None,
     name_hint: str | None,
     hint: tuple[float, float] | None,
 ) -> list[dict]:
@@ -877,7 +877,7 @@ def _build_overpass_candidates(
             for way in ordered
             if (way.get("tags") or {}).get("name")
         ]
-        component_name = max(set(names), key=lambda value: (names.count(value), len(value))) if names else code
+        component_name = max(set(names), key=lambda value: (names.count(value), len(value))) if names else (name_hint or code or "OSM")
         highways = [
             str((way.get("tags") or {}).get("highway") or "")
             for way in ordered
@@ -940,16 +940,32 @@ def _build_overpass_candidates(
     return candidates[:5]
 
 
-async def _fetch_overpass_ways(code: str) -> list[dict]:
-    cached = _OVERPASS_GEOMETRY_CACHE.get(code)
+def _overpass_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+async def _fetch_overpass_ways(code: str | None, name: str | None = None) -> list[dict]:
+    """Fetch OSM ways by road code (``ref``) or, when there is no code, by name."""
+    cache_key = f"ref:{code}" if code else f"name:{name}"
+    cached = _OVERPASS_GEOMETRY_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < OVERPASS_GEOMETRY_CACHE_TTL:
         observability.record_cache("overpass", True)
         return cached[1]
     observability.record_cache("overpass", False)
-    escaped = code.replace("\\", "\\\\").replace('"', '\\"')
+    if code:
+        selector = f'way["ref"="{_overpass_escape(code)}"]'
+    elif name:
+        # Streets have no ref. Exact name match is too brittle (СДКФ abbreviates:
+        # "пр-кт Буденновский" vs OSM "проспект Буденновский"), so search by the
+        # longest word of the name and keep only real road ways.
+        tokens = [token for token in re.split(r"[^\wёЁа-яА-Я-]+", name) if len(token) >= 5]
+        core = max(tokens, key=len) if tokens else name
+        selector = f'way["name"~"{_overpass_escape(core)}",i]["highway"]'
+    else:
+        return []
     query = (
         f'[out:json][timeout:{int(OVERPASS_TIMEOUT)}];'
-        f'way["ref"="{escaped}"]'
+        f'{selector}'
         f'({ROSTOV_SOUTH},{ROSTOV_WEST},{ROSTOV_NORTH},{ROSTOV_EAST});'
         "out tags geom;"
     )
@@ -969,7 +985,7 @@ async def _fetch_overpass_ways(code: str) -> list[dict]:
         if len(points) >= 2:
             ways.append(element)
     if ways:
-        _OVERPASS_GEOMETRY_CACHE[code] = (time.monotonic(), ways)
+        _OVERPASS_GEOMETRY_CACHE[cache_key] = (time.monotonic(), ways)
     return ways
 
 
@@ -1273,18 +1289,40 @@ class OnlineRoadSectionsPayload(BaseModel):
 
 
 class RoadGeometryPayload(BaseModel):
-    code: str = Field(min_length=2, max_length=40)
+    """Approximate OSM axis request.
+
+    Either a road code (``ref`` tag) or a road name is enough: streets and
+    regional roads without a code can still get a relative kilometre scale.
+    """
+
+    code: str | None = Field(default=None, max_length=40)
     name: str | None = Field(default=None, max_length=240)
     lat: FiniteFloat | None = Field(default=None, ge=-90, le=90)
     lon: FiniteFloat | None = Field(default=None, ge=-180, le=180)
 
     @field_validator("code")
     @classmethod
-    def normalize_code(cls, value: str) -> str:
+    def normalize_code(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
         code = canonical_road_code(value.strip())
         if not code:
-            raise ValueError("Укажите код дороги, например М-4 или Р-280")
+            raise ValueError("Некорректный код дороги, например М-4 или Р-280")
         return code
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        return name or None
+
+    @model_validator(mode="after")
+    def require_code_or_name(self):
+        if not self.code and not self.name:
+            raise ValueError("Укажите код или название дороги")
+        return self
 
 
 class LoginPayload(BaseModel):
@@ -2332,19 +2370,20 @@ async def overpass_road_geometry(payload: RoadGeometryPayload, request: Request)
     if not await _allow_address_suggest(user.get("id", "unknown"), "road-geometry"):
         raise HTTPException(429, "Слишком частые запросы геометрии дорог; подождите немного")
     try:
-        ways = await _fetch_overpass_ways(payload.code)
+        ways = await _fetch_overpass_ways(payload.code, payload.name)
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         raise HTTPException(502, "Overpass API недоступен или вернул некорректные данные") from exc
+    road_label = payload.code or payload.name
     if not ways:
-        raise HTTPException(404, f"В OpenStreetMap не найдена геометрия для {payload.code}")
+        raise HTTPException(404, f"В OpenStreetMap не найдена геометрия для {road_label}")
     hint = None
     if payload.lat is not None and payload.lon is not None:
         hint = (payload.lon, payload.lat)
     candidates = _build_overpass_candidates(ways, payload.code, payload.name, hint)
     if not candidates:
-        raise HTTPException(404, f"Не удалось собрать ось дороги {payload.code} из OSM")
+        raise HTTPException(404, f"Не удалось собрать ось дороги {road_label} из OSM")
     return {
-        "code": payload.code,
+        "code": payload.code or payload.name,
         "source": "OpenStreetMap Overpass",
         "approximate": True,
         "provenance": (

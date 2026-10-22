@@ -32,7 +32,8 @@ def test_login_default_road_mode_and_statusbar_layout(page, app_server):
     assert page.locator("#modeRoadBtn").get_attribute("aria-pressed") == "true"
     assert page.locator("#searchDockBottomHost").evaluate("el => getComputedStyle(el).display") == "contents"
     assert page.locator("#statusPointText").is_hidden()
-    assert page.locator("#roadKmEnableCheckbox").is_checked() is False
+    # Ползунок километража активен сразу, но без точки данных ещё нет.
+    assert page.locator("#roadKmEnableCheckbox").is_checked() is True
     assert page.locator("#roadKmSlider").is_disabled()
     assert page.locator("#roadKmNumber").input_value() == ""
     assert page.locator("#roadKmStatus").inner_text() == ""
@@ -489,7 +490,7 @@ def test_ghost_resets_to_point_after_toggle(page, app_server):
     assert result["reset"] == pytest.approx(result["point"], abs=1e-9)
 
 
-def test_online_road_selection_prepares_point_without_km(page, app_server):
+def test_online_road_selection_prepares_point_without_commit(page, app_server):
     login(page, app_server["base_url"])
     result = page.evaluate("""async () => {
         const ok = data => new Response(JSON.stringify(data), {
@@ -530,7 +531,7 @@ def test_online_road_selection_prepares_point_without_km(page, app_server):
             searchArmed: searchArmCheckbox.checked,
         };
     }""")
-    assert result["prepared"]["kmEnabled"] is False
+    assert result["prepared"]["kmEnabled"] is True
     assert result["prepared"]["draftLat"] == pytest.approx(47.2, abs=1e-6)
     assert result["prepared"]["draftKm"] is not None
     assert result["active"] is not None
@@ -1170,9 +1171,10 @@ def test_map_point_auto_loads_official_sections(page, app_server):
     }""")
     assert result["code"] == "М-4"
     assert "М-4" in result["title"]
-    assert result["inactive"]["disabled"] is True
-    assert result["inactive"]["km"] == ""
-    assert result["inactive"]["status"] == ""
+    # Ползунок включается автоматически: отдельная активация не требуется.
+    assert result["inactive"]["disabled"] is False
+    assert result["inactive"]["km"]
+    assert result["inactive"]["status"]
     assert result["active"]["disabled"] is False
     assert result["active"]["km"]
     assert ("выбранной точке" in result["active"]["status"]
@@ -1674,9 +1676,9 @@ def test_km_range_restored_after_activation(page, app_server):
         applyRoadKmActivation();
         return {rangeWhileOff, rangeOn: roadKmRange.textContent};
     }""")
-    assert result["rangeWhileOff"] == ""
-    assert "Участок" in result["rangeOn"]
-    assert "разрывы" in result["rangeOn"]
+    assert "Участок" in result["rangeWhileOff"]
+    assert "разрывы" in result["rangeWhileOff"]
+    assert result["rangeOn"] == result["rangeWhileOff"]
 
 
 def test_address_hint_clears_when_input_shrinks(page, app_server):
@@ -1914,10 +1916,13 @@ def test_km_slider_stays_visible_when_km_state_is_cleared(page, app_server):
     assert page.locator("#roadKmSlider").is_disabled()
 
 
-def _install_slider_stub(page, road_code):
-    page.evaluate("""(code) => {
+def _install_slider_stub(page, road_code, overpass=None):
+    page.evaluate("""([code, overpassMode]) => {
         const ok = data => new Response(JSON.stringify(data), {
             status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const missing = new Response('{}', {
+            status: 404, headers: {'Content-Type': 'application/json'}
         });
         apiFetch = async (url) => {
             if (url === '/api/locate') return ok({
@@ -1931,41 +1936,87 @@ def _install_slider_stub(page, road_code):
                 sections: [{start_km: 0, finish_km: 20,
                             coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
             });
+            if (url === '/api/roads/overpass/geometry') {
+                if (overpassMode !== 'ok') return missing;
+                return ok({
+                    code: code || 'Тестовая дорога',
+                    source: 'OpenStreetMap Overpass',
+                    approximate: true,
+                    provenance: 'OSM',
+                    candidates: [{
+                        name: 'Тестовая дорога', total_length_km: 12,
+                        sections: [{coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
+                    }],
+                });
+            }
             if (url === '/api/msk61/from-geographic') return ok({
                 x: 422630.864, y: 2204440.047, zone: 2,
                 profile: 'gost_51794_2008', warning: '',
             });
             return ok({status: 'ok', entries: []});
         };
-    }""", road_code)
+    }""", [road_code, overpass])
 
 
-def test_road_km_slider_activates_via_checkbox(page, app_server):
-    """Галка километража включает ползунок для дороги с участками СКДФ."""
+def test_road_km_slider_activates_automatically(page, app_server):
+    """Для дороги с участками СКДФ ползунок активен без отдельной галки."""
     login(page, app_server["base_url"])
     _install_slider_stub(page, "М-4")
     page.evaluate("commitPoint(47.2, 39.8, 'click')")
     page.wait_for_function("Boolean(roadKmState)", timeout=10000)
-    page.check("#roadKmEnableCheckbox")
-    page.wait_for_timeout(400)
     assert page.evaluate("roadKmEnabled") is True
     assert page.locator("#roadKmSlider").is_disabled() is False
     assert page.evaluate("roadKmNumber.value") != ""
 
 
-def test_road_km_slider_reports_unavailable_chainage(page, app_server):
-    """Дорога без кода: ползунок не включается, но причина названа явно."""
+def test_auto_km_does_not_move_committed_point(page, app_server):
+    """Активная точка не съезжает на ось, пока пользователь не двинул километраж."""
     login(page, app_server["base_url"])
-    _install_slider_stub(page, None)
+    _install_slider_stub(page, "М-4")
+    page.evaluate("commitPoint(47.25, 39.8, 'click')")
+    page.wait_for_function("Boolean(roadKmState)", timeout=10000)
+    state = page.evaluate(
+        "({lat: activePoint.lat, lon: activePoint.lon,"
+        " disabled: roadKmSlider.disabled, km: roadKmNumber.value})"
+    )
+    assert state["lat"] == pytest.approx(47.25, abs=1e-6)
+    assert state["lon"] == pytest.approx(39.8, abs=1e-6)
+    assert state["disabled"] is False
+    assert state["km"]
+
+
+def test_road_without_code_falls_back_to_osm_name_axis(page, app_server):
+    """Дорога без кода получает приблизительный километраж по названию из OSM."""
+    login(page, app_server["base_url"])
+    _install_slider_stub(page, None, overpass="ok")
     page.evaluate("commitPoint(47.2, 39.8, 'click')")
-    page.wait_for_timeout(400)
-    page.check("#roadKmEnableCheckbox")
-    page.wait_for_timeout(300)
+    page.wait_for_function("Boolean(roadKmState)", timeout=10000)
+    state = page.evaluate(
+        "({approximate: Boolean(roadKmState.approximate),"
+        " disabled: roadKmSlider.disabled, max: roadKmSlider.max,"
+        " status: roadKmStatus.textContent,"
+        " title: roadKmTitle.textContent})"
+    )
+    assert state["approximate"] is True
+    assert state["disabled"] is False
+    assert float(state["max"]) > 0
+    assert "Официальных участков СКДФ нет" in state["status"]
+    assert "Тестовая дорога" in state["title"]
+
+
+def test_road_without_code_and_without_osm_axis_reports_reason(page, app_server):
+    """Если и OSM-ось не построилась, ползунок выключен и причина названа."""
+    login(page, app_server["base_url"])
+    _install_slider_stub(page, None, overpass=None)
+    page.evaluate("commitPoint(47.2, 39.8, 'click')")
+    page.wait_for_function(
+        "roadKmStatus.textContent.includes('Приблизительную ось OSM')", timeout=10000
+    )
     state = page.evaluate(
         "({disabled: roadKmSlider.disabled, status: roadKmStatus.textContent})"
     )
     assert state["disabled"] is True
-    assert state["status"] == "Для этой дороги официальный километраж СКДФ недоступен."
+    assert "официального километража нет" in state["status"]
 
 
 def test_account_modal_opens_from_status_bar(page, app_server):
