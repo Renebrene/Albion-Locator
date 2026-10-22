@@ -331,7 +331,7 @@ def test_skdf_name_moves_to_status_bar_left(page, app_server):
     assert result["afterClear"] == {"text": "", "hidden": True}
 
 
-def test_current_point_card_shows_road_and_km_without_side(page, app_server):
+def test_current_point_card_shows_road_and_km_with_copy_icons_first(page, app_server):
     login(page, app_server["base_url"])
     result = page.evaluate("""async () => {
         const ok = data => new Response(JSON.stringify(data), {
@@ -365,14 +365,20 @@ def test_current_point_card_shows_road_and_km_without_side(page, app_server):
             msk: document.querySelector('#cpMsk .point-value-primary')?.textContent || '',
             cardText: document.getElementById('currentPointCard').innerText,
             resultText: document.getElementById('results').innerText,
+            labels: document.querySelectorAll('#currentPointDetails .point-label').length,
+            iconFirst: ['cpWgs', 'cpMsk', 'cpAddress', 'cpDistrict', 'cpRoad', 'cpKm']
+                .every(id => document.getElementById(id).previousElementSibling
+                    ?.classList.contains('copy-icon')),
         };
     }""")
     assert result["road"] == "М-4 «Дон»"
     assert result["km"] == "10 км + 0 м"
     assert "~МСК-61-2" in result["msk"], result["msk"]
-    assert "до оси дороги" not in result["resultText"]
-    assert "по ходу движения" not in result["resultText"]
+    assert result["labels"] == 0
+    assert result["iconFirst"] is True
     assert "WGS84" not in result["cardText"]
+    assert "по ходу движения" in result["resultText"]
+    assert "до оси дороги" in result["resultText"]
 
 
 def test_current_point_card_shows_active_ghost(page, app_server):

@@ -975,28 +975,28 @@
                     <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
                     <div id="currentPointDetails" hidden>
                         <div class="point-row">
-                            <span class="point-value" id="cpWgs">—</span>
                             <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84">⧉</button>
+                            <span class="point-value" id="cpWgs">—</span>
                         </div>
                         <div class="point-row">
-                            <span class="point-value" id="cpMsk">—</span>
                             <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61">⧉</button>
+                            <span class="point-value" id="cpMsk">—</span>
                         </div>
                         <div class="point-row">
-                            <span class="point-value" id="cpAddress">не определено</span>
                             <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес">⧉</button>
+                            <span class="point-value" id="cpAddress">не определено</span>
                         </div>
                         <div class="point-row">
-                            <span class="point-value" id="cpDistrict">не определено</span>
                             <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район">⧉</button>
+                            <span class="point-value" id="cpDistrict">не определено</span>
                         </div>
                         <div class="point-row">
-                            <span class="point-value" id="cpRoad">—</span>
                             <button class="copy-icon" type="button" data-copy="cpRoad" title="Скопировать название трассы">⧉</button>
+                            <span class="point-value" id="cpRoad">—</span>
                         </div>
                         <div class="point-row">
-                            <span class="point-value" id="cpKm">—</span>
                             <button class="copy-icon" type="button" data-copy="cpKm" title="Скопировать километраж">⧉</button>
+                            <span class="point-value" id="cpKm">—</span>
                         </div>
                         <div class="point-source hint" id="cpSource"></div>
                     </div>
@@ -1276,6 +1276,8 @@
                         <p class="no-select">Из справочника:</p>
                         <p id="resultRoadName" class="result-road-name"></p>
                         <p id="resultKmText"></p>
+                        <p id="resultSideText"></p>
+                        <p id="resultPerpendicular"></p>
                         <p id="resultProvenance" class="hint" hidden></p>
                         <p id="resultCategoryHint" class="hint" hidden></p>
                         <div class="action-btns">
@@ -3189,7 +3191,8 @@ function drawBoundaryFromGeoJSON(data) {
             searchDraft.previewVersion += 1;
             updatePlacePointButton();
             roadKmStatus.textContent =
-                `Ползунок синхронизирован с точкой по ${roadKmState && roadKmState.approximate ? 'приблизительной шкале OSM' : 'СКДФ'}: ${formatKm(nearest.officialKm)}.`;
+                `Ползунок синхронизирован с точкой по ${roadKmState && roadKmState.approximate ? 'приблизительной шкале OSM' : 'СКДФ'}: ${formatKm(nearest.officialKm)} `
+                + `(${Math.round(nearest.distanceKm * 1000)} м до оси дороги).`;
             return nearest;
         }
 
@@ -3813,6 +3816,7 @@ function drawBoundaryFromGeoJSON(data) {
             const element = document.getElementById('resultKmText');
             if (element) element.textContent = text;
             window.currentRoadKmText = text;
+            currentRoadCardStale = false;
             renderCurrentPointRoad();
         }
 
@@ -4331,6 +4335,9 @@ function drawBoundaryFromGeoJSON(data) {
         let coordMskTimer = null;
         let coordMskSequence = 0;
         let activePoint = null;
+        // Пока locate не ответил по только что выбранной точке, строки трассы
+        // и километража в карточке показывают «—».
+        let currentRoadCardStale = false;
         let pointRevision = 0;
 
         function normalizeQueryInput(input) {
@@ -4753,9 +4760,7 @@ function drawBoundaryFromGeoJSON(data) {
                 // До ответа locate старые участки не относятся к новой точке.
                 markRoadKmStale();
                 // Карточка не должна показывать трассу и километраж прошлой точки.
-                window.currentRoadName = '';
-                window.currentRoadKmText = '';
-                window.currentRoadCopyText = '';
+                currentRoadCardStale = true;
             }
             pointRevision += 1;
             activeMsk = null;
@@ -4808,8 +4813,10 @@ function drawBoundaryFromGeoJSON(data) {
             const road = document.getElementById('cpRoad');
             const km = document.getElementById('cpKm');
             if (!road || !km) return;
-            road.textContent = window.currentRoadName || '—';
-            km.textContent = window.currentRoadKmText || '—';
+            // Пока locate не ответил по новой точке, прошлая трасса не показывается.
+            const stale = currentRoadCardStale;
+            road.textContent = stale ? '—' : (window.currentRoadName || '—');
+            km.textContent = stale ? '—' : (window.currentRoadKmText || '—');
         }
 
         function renderCurrentPointCard() {
@@ -6781,6 +6788,7 @@ function drawBoundaryFromGeoJSON(data) {
             window.currentRoadCopyText = '';
             window.currentRoadName = '';
             window.currentRoadKmText = '';
+            currentRoadCardStale = false;
             renderCurrentPointRoad();
             setStatusSkdfName('');
             updateStatusBar();
@@ -6804,22 +6812,29 @@ function drawBoundaryFromGeoJSON(data) {
                 window.currentRoadCopyText = '';
                 window.currentRoadName = (road && road.full_name) || '';
                 window.currentRoadKmText = '';
+                currentRoadCardStale = false;
                 renderCurrentPointRoad();
                 updateStatusBar();
                 return;
             }
+            const sideText = side.side === 1 ? 'справа по ходу движения'
+                : side.side === -1 ? 'слева по ходу движения'
+                    : side.side === 0 ? 'на оси дороги' : 'сторона не определена';
             const kmText = formatKm(side.km_estimate);
             document.getElementById('resultSourceValue').textContent = road.source || 'СКДФ WFS';
             document.getElementById('resultRoadName').textContent = road.full_name || '';
             document.getElementById('resultKmText').textContent = kmText;
+            document.getElementById('resultSideText').textContent = sideText;
+            document.getElementById('resultPerpendicular').textContent = `${side.perpendicular_m} м до оси дороги`;
             const provenance = document.getElementById('resultProvenance');
             provenance.hidden = !side.km_provenance;
             provenance.textContent = side.km_provenance ? `Километраж: ${side.km_provenance}` : '';
             const categoryHint = document.getElementById('resultCategoryHint');
             categoryHint.hidden = road.category_filter_applied !== false;
-            window.currentRoadCopyText = `${road.full_name}, ${kmText}`;
+            window.currentRoadCopyText = `${road.full_name}, ${kmText}, ${sideText}`;
             window.currentRoadName = road.full_name || '';
             window.currentRoadKmText = kmText;
+            currentRoadCardStale = false;
             renderCurrentPointRoad();
             updateStatusBar();
         }
