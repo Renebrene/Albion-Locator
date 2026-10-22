@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import difflib
 import importlib
 import io
 import json
+import logging
 import math
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -39,6 +42,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 from batch import router as batch_router
 
 import auth
+import observability
+import upstream
+
+observability.configure_logging()
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 MAX_REQUEST_BODY_BYTES = 110 * 1024 * 1024
@@ -46,10 +53,11 @@ MAX_REQUEST_BODY_BYTES = 110 * 1024 * 1024
 # --- СПРАВОЧНИК ДОРОГ ---
 try:
     from roads import ROADS
-    print(f"✅ База дорог загружена: {len(ROADS)} записей")
+    observability.log_event(logging.INFO, "roads_loaded", "roads loaded",
+                            detail=str(len(ROADS)))
 except ImportError:
     ROADS = {}
-    print("⚠️ Файл roads.py не найден!")
+    observability.log_event(logging.WARNING, "roads_missing", "roads.py not found")
 
 # --- OLLAMA ---
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -102,6 +110,20 @@ WFS_BASE = "https://скдф.рф/api-geoserver/skdf_open/wfs"
 WFS_TIMEOUT = 15.0
 WFS_PAGE_SIZE = 500
 WFS_MAX_FEATURES = 10_000
+def _env_number(name: str, default: float, cast):
+    try:
+        return cast(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+UPSTREAM_RETRY_ATTEMPTS = max(1, _env_number("ALBION_UPSTREAM_RETRY_ATTEMPTS", 3, int))
+_UPSTREAM_CACHE_TTL = max(0.0, _env_number("ALBION_UPSTREAM_CACHE_TTL", 300, float))
+_WFS_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=128)
+_YANDEX_SUGGEST_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
+_YANDEX_GEOCODER_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
+_YANDEX_REVERSE_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
+_YANDEX_ROAD_NAME_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
 PROJECT_DIR = Path(__file__).parent
 GEO_PACKAGE_SRC = PROJECT_DIR.parent / "packages" / "offline_geo" / "src"
 ROAD_LAYER = "skdf_open:lyr_road_by_value_line"
@@ -346,6 +368,8 @@ class SessionAuthMiddleware:
 
 
 app.add_middleware(SessionAuthMiddleware)
+# Outermost middleware: assigns a request id and records every HTTP call.
+app.add_middleware(observability.ObservabilityMiddleware)
 
 
 def _request_user(request: Request) -> dict[str, Any]:
@@ -477,75 +501,108 @@ def _road_side_info(road_feature, lon, lat):
     return best
 
 # ========== WFS ==========
-async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
-    if bbox_deg and cql_filter:
-        raise ValueError("WFS bbox and CQL_FILTER are mutually exclusive")
+def _cache_get(cache: upstream.TTLCache, key, service: str):
+    """Return (hit, value) and keep cache observability in one place."""
+    if cache.ttl <= 0:
+        return False, None
+    hit, value = cache.get(key)
+    observability.record_cache(service, hit)
+    return hit, value
+
+
+async def _fetch_wfs_pages(client, type_name, bbox_deg=None, max_features=None,
+                           cql_filter=None) -> list[dict]:
     page_size = min(max_features or WFS_PAGE_SIZE, WFS_PAGE_SIZE)
     features: list[dict] = []
     start_index = 0
 
+    while True:
+        params = {
+            "service": "WFS",
+            "version": "2.0.0",
+            "request": "GetFeature",
+            "typeNames": type_name,
+            "outputFormat": "application/json",
+            "srsName": "EPSG:4326",
+            "count": str(min(page_size, WFS_MAX_FEATURES - len(features))),
+            "startIndex": str(start_index),
+            "sortBy": "id A",
+        }
+        if bbox_deg:
+            params["bbox"] = f"{bbox_deg[0]},{bbox_deg[1]},{bbox_deg[2]},{bbox_deg[3]},EPSG:4326"
+        elif cql_filter:
+            params["CQL_FILTER"] = cql_filter
+
+        response = await upstream.request_with_retry(
+            client, "GET", WFS_BASE,
+            service="wfs", attempts=UPSTREAM_RETRY_ATTEMPTS,
+            params=params, timeout=WFS_TIMEOUT,
+        )
+        response.raise_for_status()
+        collection = response.json()
+        if not isinstance(collection, dict):
+            raise ValueError("Invalid WFS feature collection")
+        page = collection.get("features", [])
+        if not isinstance(page, list):
+            raise ValueError("Invalid WFS feature list")
+
+        returned = collection.get("numberReturned")
+        if returned is not None and int(returned) != len(page):
+            raise ValueError("Inconsistent WFS numberReturned")
+        if not page:
+            return features
+        if len(features) + len(page) > WFS_MAX_FEATURES:
+            raise ValueError("WFS result exceeds the local feature limit")
+
+        # A full page that repeats a previous page means paging was ignored.
+        if len(page) == page_size and any(
+            page == features[offset:offset + len(page)]
+            for offset in range(0, len(features), page_size)
+        ):
+            raise ValueError("WFS pagination did not advance")
+
+        features.extend(page)
+        start_index += len(page)
+
+        matched = collection.get("numberMatched", collection.get("totalFeatures"))
+        if matched not in (None, "unknown"):
+            matched = int(matched)
+            if matched < start_index:
+                raise ValueError("WFS numberMatched is smaller than returned offset")
+            if start_index >= matched:
+                return features
+
+        if len(page) < page_size:
+            return features
+        if len(features) >= WFS_MAX_FEATURES:
+            raise ValueError("WFS result exceeds the local feature limit")
+
+
+async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+    if bbox_deg and cql_filter:
+        raise ValueError("WFS bbox and CQL_FILTER are mutually exclusive")
+    cache_key = (
+        type_name,
+        tuple(bbox_deg) if bbox_deg else None,
+        max_features,
+        cql_filter,
+    )
+    hit, cached = _cache_get(_WFS_CACHE, cache_key, "wfs")
+    if hit:
+        return copy.deepcopy(cached)
     try:
-        while True:
-            params = {
-                "service": "WFS",
-                "version": "2.0.0",
-                "request": "GetFeature",
-                "typeNames": type_name,
-                "outputFormat": "application/json",
-                "srsName": "EPSG:4326",
-                "count": str(min(page_size, WFS_MAX_FEATURES - len(features))),
-                "startIndex": str(start_index),
-                "sortBy": "id A",
-            }
-            if bbox_deg:
-                params["bbox"] = f"{bbox_deg[0]},{bbox_deg[1]},{bbox_deg[2]},{bbox_deg[3]},EPSG:4326"
-            elif cql_filter:
-                params["CQL_FILTER"] = cql_filter
-
-            response = await client.get(WFS_BASE, params=params, timeout=WFS_TIMEOUT)
-            response.raise_for_status()
-            collection = response.json()
-            if not isinstance(collection, dict):
-                raise ValueError("Invalid WFS feature collection")
-            page = collection.get("features", [])
-            if not isinstance(page, list):
-                raise ValueError("Invalid WFS feature list")
-
-            returned = collection.get("numberReturned")
-            if returned is not None and int(returned) != len(page):
-                raise ValueError("Inconsistent WFS numberReturned")
-            if not page:
-                return features
-            if len(features) + len(page) > WFS_MAX_FEATURES:
-                raise ValueError("WFS result exceeds the local feature limit")
-
-            # A full page that repeats a previous page means paging was ignored.
-            if len(page) == page_size and any(
-                page == features[offset:offset + len(page)]
-                for offset in range(0, len(features), page_size)
-            ):
-                raise ValueError("WFS pagination did not advance")
-
-            features.extend(page)
-            start_index += len(page)
-
-            matched = collection.get("numberMatched", collection.get("totalFeatures"))
-            if matched not in (None, "unknown"):
-                matched = int(matched)
-                if matched < start_index:
-                    raise ValueError("WFS numberMatched is smaller than returned offset")
-                if start_index >= matched:
-                    return features
-
-            if len(page) < page_size:
-                return features
-            if len(features) >= WFS_MAX_FEATURES:
-                raise ValueError("WFS result exceeds the local feature limit")
+        features = await _fetch_wfs_pages(
+            client, type_name, bbox_deg=bbox_deg,
+            max_features=max_features, cql_filter=cql_filter,
+        )
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=502,
             detail="Не удалось получить полный список дорог из сервиса СКДФ",
         ) from exc
+    if _WFS_CACHE.ttl > 0:
+        _WFS_CACHE.set(cache_key, copy.deepcopy(features))
+    return features
 
 
 def _load_rostov_boundary_rings() -> list[list[tuple[float, float]]]:
@@ -880,7 +937,9 @@ def _build_overpass_candidates(
 async def _fetch_overpass_ways(code: str) -> list[dict]:
     cached = _OVERPASS_GEOMETRY_CACHE.get(code)
     if cached and time.monotonic() - cached[0] < OVERPASS_GEOMETRY_CACHE_TTL:
+        observability.record_cache("overpass", True)
         return cached[1]
+    observability.record_cache("overpass", False)
     escaped = code.replace("\\", "\\\\").replace('"', '\\"')
     query = (
         f'[out:json][timeout:{int(OVERPASS_TIMEOUT)}];'
@@ -889,8 +948,10 @@ async def _fetch_overpass_ways(code: str) -> list[dict]:
         "out tags geom;"
     )
     async with httpx.AsyncClient(headers={"User-Agent": "albion-locator/4.2.1"}) as client:
-        response = await client.post(
-            OVERPASS_URL, data={"data": query}, timeout=OVERPASS_TIMEOUT + 5.0
+        response = await upstream.request_with_retry(
+            client, "POST", OVERPASS_URL,
+            service="overpass", attempts=UPSTREAM_RETRY_ATTEMPTS,
+            data={"data": query}, timeout=OVERPASS_TIMEOUT + 5.0,
         )
         response.raise_for_status()
         payload = response.json()
@@ -1052,21 +1113,35 @@ async def format_road_names(props: dict) -> dict[str, str]:
 async def get_yandex_road_name(lat: float, lon: float) -> dict | None:
     if not YANDEX_API_KEY:
         return None
+    cache_key = (round(float(lat), 5), round(float(lon), 5))
+    hit, cached = _cache_get(_YANDEX_ROAD_NAME_CACHE, cache_key, "yandex_road_name")
+    if hit:
+        return copy.deepcopy(cached)
     url = "https://geocode-maps.yandex.ru/1.x/"
     params = {"apikey": YANDEX_API_KEY, "geocode": f"{lon},{lat}",
               "format": "json", "kind": "street", "results": 1}
+    result = None
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, timeout=5.0)
+            resp = await upstream.request_with_retry(
+                client, "GET", url, service="yandex_road_name",
+                attempts=UPSTREAM_RETRY_ATTEMPTS,
+                params=params, timeout=5.0,
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 fm = data["response"]["GeoObjectCollection"]["featureMember"]
-                if not fm: return None
-                props = fm[0]["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]
-                return {"name": props.get("text", ""), "kind": props.get("kind", "")}
-    except Exception as e:
-        print(f"[YANDEX] ❌ {e}")
-    return None
+                if fm:
+                    props = fm[0]["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]
+                    result = {"name": props.get("text", ""), "kind": props.get("kind", "")}
+    except Exception as exc:
+        observability.log_event(
+            logging.WARNING, "yandex_road_name_failed",
+            "Yandex road name failed", detail=type(exc).__name__,
+        )
+    if _YANDEX_ROAD_NAME_CACHE.ttl > 0:
+        _YANDEX_ROAD_NAME_CACHE.set(cache_key, copy.deepcopy(result))
+    return result
 
 # ========== МОДЕЛИ ==========
 class LocateRequest(BaseModel):
@@ -1297,24 +1372,67 @@ def cleanup_old_screenshots(save_dir: Path, days: int = 7):
             if f.stat().st_mtime < cutoff:
                 f.unlink()
                 deleted += 1
-                print(f"🗑 Удалён старый скриншот: {f.name}")
+                observability.log_event(logging.INFO, "screenshot_removed",
+                                        "old screenshot removed", detail=f.name)
         if deleted:
-            print(f"✅ Очистка: удалено {deleted} файлов старше {days} дней")
-    except Exception as e:
-        print(f"⚠️ Ошибка очистки: {e}")
+            observability.log_event(logging.INFO, "screenshots_cleaned",
+                                    "old screenshots removed",
+                                    detail=f"{deleted} files older than {days} days")
+    except Exception as exc:
+        observability.log_event(logging.WARNING, "screenshots_cleanup_failed",
+                                "screenshot cleanup failed", detail=str(exc))
     return deleted
 
 # ========== ЭНДПОИНТЫ ==========
+def _is_loopback(host: str) -> bool:
+    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
 
+
+@app.get("/metrics")
+async def metrics(request: Request):
+    """Prometheus exposition, restricted to loopback or an explicit token."""
+    token = os.getenv("ALBION_METRICS_TOKEN", "").strip()
+    supplied = request.headers.get("x-metrics-token", "")
+    if token:
+        if not secrets.compare_digest(supplied, token):
+            raise HTTPException(403, "Неверный токен метрик")
+    else:
+        host = request.client.host if request.client else ""
+        forwarded = request.headers.get("x-forwarded-for")
+        if not _is_loopback(host) or forwarded:
+            raise HTTPException(
+                403,
+                "Метрики доступны только с loopback; задайте ALBION_METRICS_TOKEN "
+                "для сбора через reverse proxy",
+            )
+    return Response(
+        observability.render_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.post("/api/auth/login")
-async def auth_login(payload: LoginPayload):
+async def auth_login(payload: LoginPayload, request: Request):
     user = auth.authenticate(payload.login, payload.password)
+    client_ip = request.client.host if request.client else ""
     if user is None:
+        auth.record_audit(
+            "login_failed",
+            target=payload.login,
+            details={"ip": client_ip},
+        )
         raise HTTPException(401, "Неверный логин или пароль")
 
+    auth.record_audit(
+        "login", user, target=f"user:{user['id']}",
+        details={"ip": client_ip},
+    )
     token = auth.create_session(user["id"])
     response = JSONResponse({"status": "ok", "user": user})
     response.set_cookie(
@@ -1329,6 +1447,8 @@ async def auth_login(payload: LoginPayload):
 
 @app.post("/api/auth/logout")
 async def auth_logout(request: Request):
+    user = _request_user(request)
+    auth.record_audit("logout", user, target=f"user:{user['id']}")
     auth.delete_session(_cookie_token(request.scope))
     response = JSONResponse({"status": "ok"})
     response.delete_cookie(auth.SESSION_COOKIE, path="/")
@@ -1352,6 +1472,11 @@ async def auth_change_credentials(payload: CredentialsPayload, request: Request)
         raise HTTPException(400, str(exc))
 
     auth.delete_user_sessions(user["id"], keep_token=_cookie_token(request.scope))
+    auth.record_audit(
+        "credentials_changed", updated, target=f"user:{updated['id']}",
+        details={"login_changed": payload.login is not None,
+                 "password_changed": bool(payload.password)},
+    )
     return {"status": "ok", "user": updated}
 
 @app.get("/api/users")
@@ -1361,16 +1486,18 @@ async def users_list(request: Request):
 
 @app.post("/api/users")
 async def users_create(payload: UserCreatePayload, request: Request):
-    _require_admin(request)
+    current = _require_admin(request)
     try:
         user = auth.create_user(payload.login, payload.password, payload.name, payload.role)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    auth.record_audit("user_created", current, target=f"user:{user['id']}",
+                      details={"login": user["login"], "role": user["role"]})
     return {"status": "ok", "user": user}
 
 @app.patch("/api/users/{user_id}")
 async def users_update(user_id: int, payload: UserUpdatePayload, request: Request):
-    _require_admin(request)
+    current = _require_admin(request)
     try:
         user = auth.update_user(
             user_id,
@@ -1381,6 +1508,13 @@ async def users_update(user_id: int, payload: UserUpdatePayload, request: Reques
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    auth.record_audit(
+        "user_updated", current, target=f"user:{user_id}",
+        details={key: value for key, value in {
+            "login": payload.login, "name": payload.name,
+            "role": payload.role, "is_active": payload.is_active,
+        }.items() if value is not None},
+    )
     return {"status": "ok", "user": user}
 
 @app.post("/api/users/{user_id}/password")
@@ -1395,7 +1529,20 @@ async def users_set_password(user_id: int, payload: UserPasswordPayload, request
         user_id,
         keep_token=_cookie_token(request.scope) if user_id == current["id"] else None,
     )
+    auth.record_audit("user_password_reset", current, target=f"user:{user_id}")
     return {"status": "ok"}
+
+
+@app.get("/api/audit")
+async def audit_list(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    action: str | None = Query(default=None, max_length=80),
+):
+    _require_admin(request)
+    return {"events": auth.list_audit(limit=limit, offset=offset, action=action)}
+
 
 @app.get("/api/screenshot-settings")
 async def get_screenshot_settings():
@@ -1718,6 +1865,10 @@ def _normalize_yandex_suggestions(payload: Any, limit: int) -> list[dict[str, st
 async def _fetch_yandex_suggestions(query: str, limit: int) -> list[dict[str, str]]:
     if not YANDEX_SUGGEST_API_KEY:
         raise HTTPException(503, "Не настроен YANDEX_SUGGEST_API_KEY для онлайн-подсказок адреса")
+    cache_key = (query.strip().casefold(), int(limit))
+    hit, cached = _cache_get(_YANDEX_SUGGEST_CACHE, cache_key, "yandex_suggest")
+    if hit:
+        return copy.deepcopy(cached)
     params = {
         "text": query,
         "apikey": YANDEX_SUGGEST_API_KEY,
@@ -1729,7 +1880,11 @@ async def _fetch_yandex_suggestions(query: str, limit: int) -> list[dict[str, st
     }
     try:
         async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
-            response = await client.get(YANDEX_SUGGEST_URL, params=params)
+            response = await upstream.request_with_retry(
+                client, "GET", YANDEX_SUGGEST_URL,
+                service="yandex_suggest", attempts=UPSTREAM_RETRY_ATTEMPTS,
+                params=params,
+            )
         if response.status_code == 429:
             raise HTTPException(429, "Превышен лимит онлайн-подсказок Яндекса; повторите позже")
         if response.status_code in {401, 403}:
@@ -1744,7 +1899,10 @@ async def _fetch_yandex_suggestions(query: str, limit: int) -> list[dict[str, st
         raise HTTPException(502, "Не удалось связаться с сервисом онлайн-подсказок Яндекса") from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(502, "Сервис адресных подсказок вернул некорректный ответ") from exc
-    return _normalize_yandex_suggestions(payload, limit)
+    suggestions = _normalize_yandex_suggestions(payload, limit)
+    if _YANDEX_SUGGEST_CACHE.ttl > 0:
+        _YANDEX_SUGGEST_CACHE.set(cache_key, copy.deepcopy(suggestions))
+    return suggestions
 
 
 @app.post("/api/address/online/suggest")
@@ -1774,6 +1932,10 @@ async def reverse_geocode(payload: ReverseGeocodePayload, request: Request):
     if not YANDEX_API_KEY:
         return {"address": None, "district": None, "source": None,
                 "detail": "YANDEX_API_KEY не настроен"}
+    cache_key = (round(float(payload.lat), 5), round(float(payload.lon), 5))
+    hit, cached = _cache_get(_YANDEX_REVERSE_CACHE, cache_key, "yandex_reverse")
+    if hit:
+        return copy.deepcopy(cached)
     params_base = {
         "apikey": YANDEX_API_KEY,
         "geocode": f"{payload.lon},{payload.lat}",
@@ -1788,7 +1950,11 @@ async def reverse_geocode(payload: ReverseGeocodePayload, request: Request):
             # Сначала ближайший дом: он даёт улицу и номер. Если дома рядом нет
             # (лес, поле, трасса), повторяем без kind и получаем более грубый адрес.
             for extra in ({"kind": "house"}, {}):
-                response = await client.get(YANDEX_GEOCODER_URL, params={**params_base, **extra})
+                response = await upstream.request_with_retry(
+                    client, "GET", YANDEX_GEOCODER_URL,
+                    service="yandex_reverse", attempts=UPSTREAM_RETRY_ATTEMPTS,
+                    params={**params_base, **extra},
+                )
                 if response.status_code == 429:
                     raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
                 if response.status_code in {401, 403}:
@@ -1806,7 +1972,10 @@ async def reverse_geocode(payload: ReverseGeocodePayload, request: Request):
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(502, "Сервис геокодирования Яндекса вернул некорректный ответ") from exc
     if not members:
-        return {"address": None, "district": None, "source": "Yandex Geocoder"}
+        result = {"address": None, "district": None, "source": "Yandex Geocoder"}
+        if _YANDEX_REVERSE_CACHE.ttl > 0:
+            _YANDEX_REVERSE_CACHE.set(cache_key, copy.deepcopy(result))
+        return result
     try:
         geo_object = members[0]["GeoObject"]
         metadata = geo_object["metaDataProperty"]["GeocoderMetaData"]
@@ -1815,7 +1984,10 @@ async def reverse_geocode(payload: ReverseGeocodePayload, request: Request):
         district = _component_by_kinds(metadata, {"district", "area"}) or None
     except (KeyError, TypeError) as exc:
         raise HTTPException(502, "Не удалось разобрать адрес выбранной точки") from exc
-    return {"address": address, "district": district, "source": "Yandex Geocoder"}
+    result = {"address": address, "district": district, "source": "Yandex Geocoder"}
+    if _YANDEX_REVERSE_CACHE.ttl > 0:
+        _YANDEX_REVERSE_CACHE.set(cache_key, copy.deepcopy(result))
+    return result
 
 
 @app.post("/api/address/online/geocode")
@@ -1831,6 +2003,10 @@ async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: 
         geocode_query += ", Ростовская область"
     if "россия" not in normalized_query:
         geocode_query += ", Россия"
+    cache_key = geocode_query.casefold()
+    hit, cached = _cache_get(_YANDEX_GEOCODER_CACHE, cache_key, "yandex_geocode")
+    if hit:
+        return copy.deepcopy(cached)
     params = {
         "apikey": YANDEX_API_KEY,
         "geocode": geocode_query,
@@ -1842,7 +2018,11 @@ async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: 
     }
     try:
         async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
-            response = await client.get(YANDEX_GEOCODER_URL, params=params)
+            response = await upstream.request_with_retry(
+                client, "GET", YANDEX_GEOCODER_URL,
+                service="yandex_geocode", attempts=UPSTREAM_RETRY_ATTEMPTS,
+                params=params,
+            )
         if response.status_code == 429:
             raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
         if response.status_code in {401, 403}:
@@ -1880,13 +2060,16 @@ async def online_address_geocode(payload: OnlineAddressGeocodePayload, request: 
             and ROSTOV_WEST <= lon <= ROSTOV_EAST
             and in_rostov_oblast):
         raise HTTPException(404, "Адрес не найден в Ростовской области; уточните адрес и регион")
-    return {
+    result = {
         "lat": lat,
         "lon": lon,
         "address": formatted_address,
         "precision": precision,
         "source": "Yandex Geocoder",
     }
+    if _YANDEX_GEOCODER_CACHE.ttl > 0:
+        _YANDEX_GEOCODER_CACHE.set(cache_key, copy.deepcopy(result))
+    return result
 
 
 _ROAD_NAME_RE = re.compile(
@@ -1932,6 +2115,10 @@ async def online_roads_search(payload: OnlineRoadSearchPayload, request: Request
         raise HTTPException(429, "Слишком частые запросы дорог; подождите немного")
     if not YANDEX_API_KEY:
         raise HTTPException(503, "Не настроен YANDEX_API_KEY для поиска дорог")
+    cache_key = payload.query.strip().casefold()
+    hit, cached = _cache_get(_YANDEX_GEOCODER_CACHE, ("road_search", cache_key), "yandex_road_search")
+    if hit:
+        return copy.deepcopy(cached)
     code = canonical_road_code(payload.query)
     params_base = {
         "apikey": YANDEX_API_KEY,
@@ -1949,7 +2136,11 @@ async def online_roads_search(payload: OnlineRoadSearchPayload, request: Request
     try:
         async with httpx.AsyncClient(timeout=ADDRESS_SUGGEST_TIMEOUT) as client:
             for query in _road_geocode_queries(payload.query):
-                response = await client.get(YANDEX_GEOCODER_URL, params={**params_base, "geocode": query})
+                response = await upstream.request_with_retry(
+                    client, "GET", YANDEX_GEOCODER_URL,
+                    service="yandex_road_search", attempts=UPSTREAM_RETRY_ATTEMPTS,
+                    params={**params_base, "geocode": query},
+                )
                 if response.status_code == 429:
                     raise HTTPException(429, "Превышен лимит геокодирования Яндекса; повторите позже")
                 if response.status_code in {401, 403}:
@@ -2016,7 +2207,10 @@ async def online_roads_search(payload: OnlineRoadSearchPayload, request: Request
         raise HTTPException(502, "Сервис поиска дорог Яндекса вернул некорректный ответ") from exc
     if not matches:
         raise HTTPException(404, "Дорога не найдена в Ростовской области; уточните название или код")
-    return {"roads": matches[:10], "source": "Yandex Geocoder"}
+    result = {"roads": matches[:10], "source": "Yandex Geocoder"}
+    if _YANDEX_GEOCODER_CACHE.ttl > 0:
+        _YANDEX_GEOCODER_CACHE.set(("road_search", cache_key), copy.deepcopy(result))
+    return result
 
 
 @app.post("/api/roads/online/sections")

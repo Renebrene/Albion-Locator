@@ -58,6 +58,17 @@ PYTHONPATH=packages/offline_geo/src python -m offline_geo import-osm-pbf \
 
 ## Обновление
 
+Для штатного обновления используйте проверяемый скрипт с откатом:
+
+```bash
+python3 deploy/update_offline_data.py --geo-dir "$ALBION_GEO_DATA_DIR"
+```
+
+Он скачивает PBF, собирает индекс и векторные тайлы в staging, проверяет
+`PRAGMA integrity_check` и наличие тайлов, сохраняет предыдущие файлы в
+`update-backups/<UTC-время>/` и атомарно заменяет рабочие. При ошибке старые
+файлы восстанавливаются. Ручной вариант:
+
 ```bash
 # Если PBF содержит replication metadata Geofabrik:
 python -m offline_geo update-osm-pbf --pbf /path/south-fed-district.osm.pbf

@@ -1,0 +1,17 @@
+[Unit]
+Description=Backup Albion Locator users and offline geodata
+Documentation=file:///opt/albion-locator/deploy/README.md
+
+[Service]
+Type=oneshot
+User=albion
+Group=albion
+# Adjust paths to the deployment.
+Environment=ALBION_USERS_DB=/var/lib/albion/users.db
+Environment=ALBION_GEO_DATA_DIR=/var/lib/albion/geo
+Environment=ALBION_BACKUP_DIR=/var/backups/albion-locator
+ExecStart=/usr/bin/python3 /opt/albion-locator/deploy/backup_data.py --keep 14
+ProtectSystem=strict
+ReadWritePaths=/var/backups/albion-locator
+PrivateTmp=true
+NoNewPrivileges=true

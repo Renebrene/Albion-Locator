@@ -1039,3 +1039,94 @@ def test_maplibre_assets_and_vector_style_are_served():
     font = client.get("/static/fonts/DejaVuSans/1024-1279.pbf")
     assert font.status_code == 200
     assert client.get("/static/fonts/../../main.py").status_code in {404, 400}
+
+
+def test_wfs_number_matched_completes_pagination_without_extra_request(monkeypatch):
+    monkeypatch.setattr(main, "WFS_PAGE_SIZE", 2)
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "features": [{"id": 1}, {"id": 2}],
+                "numberReturned": 2,
+                "numberMatched": 4,
+            }
+
+    class MatchedClient:
+        async def get(self, *args, **kwargs):
+            calls.append(kwargs)
+            return Response()
+
+    class SecondPage(MatchedClient):
+        def __init__(self):
+            self.count = 0
+
+        async def get(self, *args, **kwargs):
+            calls.append(kwargs)
+            self.count += 1
+            if self.count == 1:
+                return Response()
+            class Last:
+                def raise_for_status(self):
+                    pass
+                def json(self):
+                    return {"features": [{"id": 3}, {"id": 4}],
+                            "numberReturned": 2, "numberMatched": 4}
+            return Last()
+
+    result = asyncio.run(main._wfs_getfeature(
+        SecondPage(), main.ROAD_LAYER, bbox_deg=(39.6, 47.1, 39.8, 47.3)
+    ))
+    assert result == [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+    assert len(calls) == 2
+
+
+def test_wfs_rejects_number_matched_smaller_than_offset(monkeypatch):
+    monkeypatch.setattr(main, "WFS_PAGE_SIZE", 2)
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"features": [{"id": 1}, {"id": 2}],
+                    "numberReturned": 2, "numberMatched": 1}
+
+    class BadClient:
+        async def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(main._wfs_getfeature(
+            BadClient(), main.ROAD_LAYER, bbox_deg=(39.6, 47.1, 39.8, 47.3)
+        ))
+    assert exc.value.status_code == 502
+
+
+def test_wfs_cache_returns_isolated_copy(monkeypatch):
+    monkeypatch.setattr(main, "_WFS_CACHE", main.upstream.TTLCache(60))
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"features": [{"id": 1}], "numberReturned": 1,
+                    "numberMatched": 1}
+
+    class CachedClient:
+        async def get(self, *args, **kwargs):
+            calls.append(kwargs)
+            return Response()
+
+    first = asyncio.run(main._wfs_getfeature(CachedClient(), main.ROAD_LAYER))
+    first[0]["id"] = 999
+    second = asyncio.run(main._wfs_getfeature(CachedClient(), main.ROAD_LAYER))
+
+    assert second == [{"id": 1}]
+    assert len(calls) == 1

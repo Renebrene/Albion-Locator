@@ -42,6 +42,8 @@ def app_server(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     env.update({
         "ALBION_USERS_DB": str(data_dir / "users.db"),
         "ALBION_REQUIRE_PASSWORD_CHANGE": "0",
+        "ALBION_UPSTREAM_CACHE_TTL": "0",
+        "ALBION_UPSTREAM_RETRY_ATTEMPTS": "1",
         "ALBION_SETTINGS_FILE": str(data_dir / "user_settings.json"),
         "ALBION_GEO_DATA_DIR": str(data_dir / "geo"),
         "ALBION_BASEMAP_MBTILES": str(data_dir / "basemap.mbtiles"),

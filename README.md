@@ -60,6 +60,7 @@
 | Метод и путь | Вход | Назначение / ответ |
 |---|---|---|
 | `GET /api/health` | — | Минимальный статус `{status: "ok"}`; **не** проверяет доступность внешних зависимостей. |
+| `GET /metrics` | loopback или `X-Metrics-Token` | Prometheus-метрики HTTP, upstream-запросов, кэша, ретраев и аудита. Через reverse proxy задайте `ALBION_METRICS_TOKEN`. |
 | `POST /api/auth/login` | JSON `login`, `password` | Вход; устанавливает HttpOnly cookie `albion_session`. |
 | `POST /api/auth/logout` | cookie | Завершить сессию и очистить cookie. |
 | `GET /api/auth/me` | cookie | Текущий пользователь. |
@@ -68,12 +69,13 @@
 | `POST /api/users` | JSON `login`, `password`, `name`, `role` | Создать пользователя (`admin`/`editor`). |
 | `PATCH /api/users/{id}` | JSON `login?`, `name?`, `role?`, `is_active?` | Изменить пользователя. |
 | `POST /api/users/{id}/password` | JSON `password` | Сменить пароль пользователя. |
+| `GET /api/audit` | cookie администратора, `limit?`, `offset?`, `action?` | Журнал входов, смен данных и действий с пользователями (без паролей и токенов). |
 | `GET /api/screenshot-settings` | — | Прочитать настройки снимков из JSON (либо значения по умолчанию); `save_path` всегда возвращается как `screenshots`. |
 | `POST /api/screenshot-settings` | JSON `delay` (1–60), `save_path`, `auto_enabled`, `local_boundary` | Изменить настройки; сервер принудительно фиксирует `save_path` в `screenshots`. |
 | `POST /api/save-screenshot` | JSON `image` (PNG data URL/base64, ≤6 МБ), `filename` (имя `.png`) | Проверить и сохранить скриншот только в `src/screenshots`; удаляет старые PNG старше 7 дней. |
 | `POST /api/exif` | multipart поле `photo` | Вернуть `{lat, lon}` из GPS EXIF; 400 при пустом/нечитаемом файле или отсутствии GPS. |
 | `POST /api/locate` | JSON `lat`, `lon`, `radius`, `exclude_categories`, `use_local?` | Поиск ближайшей дороги. `use_local=true` требует установленный `offline_geo.sqlite3` и никогда не переключается на WFS. Внешний режим использует SKDF WFS; в нём `use_local=false`. |
-| `GET /api/data-sources` | — | Доступность локальной SQLite/MBTiles и boolean-статусы источников/ключей (секреты не возвращаются). `fully_offline_ready` пока всегда `false`, поскольку offline DB/assets не поставляются. |
+| `GET /api/data-sources` | — | Доступность локальной SQLite/MBTiles и boolean-статусы источников/ключей (секреты не возвращаются). `fully_offline_ready` равен `true`, когда найден локальный индекс и хотя бы одна локальная подложка (растровая или векторная); сами данные в репозиторий не входят. |
 | `GET /api/maps-config` | cookie | После входа возвращает browser-side Yandex JS API и Geosuggest keys с `Cache-Control: no-store`; **не** возвращает server-side `YANDEX_API_KEY`. Client keys следует ограничить доменом в кабинете Яндекса. |
 | `GET /api/address/suggest` | `q`, `settlement?`, `street?`, `limit?` | Иерархические подсказки по локальной SQLite-базе (не используются текущим UI онлайн-поиска). |
 | `POST /api/address/online/suggest` | JSON `query` (3–120 символов), `limit` (1–10) | Совместимый server-side REST Geosuggest endpoint; текущий UI не использует его (подсказки идут через SuggestView в браузере). |
@@ -103,6 +105,8 @@
 Вход в приложение обязателен: без действующей cookie-сессии показывается только форма входа, карта и ее данные скрыты. Форма подписана «АЛЬБИОН.Локатор / закрытый веб-сервис / вход по логину и паролю / их можно получить у Администратора». Гостевого входа нет, новые учётные записи создаёт только администратор. Все `/api/*`, кроме `/api/health` и `/api/auth/login`, требуют cookie-сессию. Логин по умолчанию: **`админ` / `альбион`**. При `ALBION_REQUIRE_PASSWORD_CHANGE=1` (по умолчанию) после первого входа, а также после сброса пароля администратором принудительно открывается окно смены пароля; закрыть его без смены нельзя. В обычном режиме собственный логин и пароль меняются по кнопке 👤 в нижней панели. Администратор в блоке «Пользователи» создает аккаунты с ролями `admin`/`editor`, меняет их логины и имена, отключает/включает пользователей и сбрасывает пароль. Редакторы не видят административное управление; проверка прав выполняется сервером.
 
 Пользователи и сессии хранятся в SQLite `src/users.db` (путь можно переопределить через `ALBION_USERS_DB`). Пароли — PBKDF2-HMAC-SHA256 с солью; в базе хранятся только хэши. Cookie `albion_session` — HttpOnly, SameSite=Lax, срок 30 дней. Администратор может создавать пользователей и менять им логин, пароль, роль и активность; роль `editor` не имеет доступа к управлению пользователями.
+
+Входы, неудачные попытки, смена своих данных и действия администратора с пользователями пишутся в таблицу `audit_log` (последние 5000 событий); пароли и токены туда не попадают. Администратор видит журнал в «Настройках → Журнал событий» или через `GET /api/audit`.
 
 При работе через reverse proxy (например, CloudPub) Origin сверяется с `Host`/`X-Forwarded-Host`; дополнительные разрешённые источники можно перечислить через запятую в `ALBION_ALLOWED_ORIGINS`.
 
@@ -172,6 +176,14 @@ journalctl --user -u albion-locator-autonom.service -f
 
 Для этой учётной записи systemd lingering включён (`loginctl show-user alexice -p Linger` → `Linger=yes`), поэтому включённый user unit запускается после загрузки системы, до интерактивного входа.
 
+## Логи, метрики и резервные копии
+
+- **Логи.** `src/observability.py` настраивает JSON-логи в stderr (journald): время, уровень, `request_id`, метод, путь, статус, длительность, пользователь, upstream-сервис, ретраи и cache hit. Уровень — `ALBION_LOG_LEVEL`, формат — `ALBION_LOG_FORMAT=json|plain`. Каждый ответ содержит `X-Request-ID` (входящий заголовок сохраняется).
+- **Метрики.** `GET /metrics` отдаёт Prometheus-текст. Без токена endpoint доступен только с loopback и отклоняет запросы с `X-Forwarded-For`; для сбора через nginx задайте `ALBION_METRICS_TOKEN` и передавайте его в `X-Metrics-Token`. В reverse proxy закройте `/metrics` от внешней сети.
+- **Внешние вызовы.** WFS, Overpass и Yandex используют общий retry с ограниченным exponential backoff (429/5xx/timeout), WFS-страницы и ответы геокодера кэшируются в памяти с TTL. Настройки: `ALBION_UPSTREAM_RETRY_ATTEMPTS`, `ALBION_UPSTREAM_CACHE_TTL` (0 отключает кэш).
+- **Резервные копии.** `python3 deploy/backup_data.py --dest /var/backups/albion-locator --keep 14` создаёт согласованный снимок `users.db` и офлайн-данных с `manifest.json`, SHA-256 и `PRAGMA integrity_check`; `--verify-latest` проверяет последний снимок. Шаблон daily timer — `deploy/systemd/albion-backup.{service,timer}`.
+- **Обновление офлайн-данных.** `python3 deploy/update_offline_data.py --geo-dir /var/lib/albion/geo` скачивает PBF, собирает индекс и vector MBTiles в staging, проверяет целостность, сохраняет rollback-копию и атомарно заменяет рабочие файлы. Подробности — `deploy/README.md`.
+
 ## Рекомендации по безопасности, качеству и производительности
 
 **Сначала устранить критичные риски до сетевой публикации:**
@@ -188,10 +200,10 @@ journalctl --user -u albion-locator-autonom.service -f
 - Fuzzy matching теперь защищён от пустого текста и использует нормализацию кодов, однако неоднозначные длинные названия следует проверять на размеченной выборке и не полагаться на один порог `SequenceMatcher`.
 - Официальные названия дорог формируются консервативным детерминированным сопоставлением; Ollama больше не используется для автоматической подстановки дорожного кода в ответы.
 - JSON состояния теперь пишется атомарно и критичные read-modify-write операции сериализованы в пределах одного процесса. Для запуска нескольких worker/processes или более надёжного хранения перейти на SQLite.
-- Добавить фиксированные версии/lockfile, структурированный `logging` вместо `print`, CI и браузерные end-to-end тесты. Текущие pytest-тесты покрывают геометрию, координаты/EXIF-проверку, request limits, Origin, сохранение скриншотов, allowlist ресурсов, WFS-ошибки и фильтрацию официальных участков трассы по контуру области; внешние WFS/Yandex/Ollama в тестах намеренно не дергаются.
+- Добавить фиксированные версии/lockfile и включить CI на каждом push/PR (workflow `qa.yml` уже содержит pytest, bun и Playwright). Структурированные логи и `/metrics` добавлены; тесты покрывают геометрию, координаты/EXIF, request limits, Origin, скриншоты, allowlist ресурсов, WFS paging/ошибки, audit log, backup manifest и офлайн-пакет; внешние WFS/Yandex/Ollama в тестах намеренно не дергаются.
 
 
 
 ## Ограничения и риски текущего состояния
 
-Это промежуточная версия локального поиска. Пакет предоставляет SQLite API и API/UI подключение, но клон не включает адресную/дорожную SQLite базу, OSM PBF или MBTiles; браузерные Leaflet/dom-to-image уже поставляются локально, но OSM-тайлы остаются сетевыми. PBF importer/clipping и месячный atomic data refresh ещё не реализованы. Поэтому выбор локального источника без установленного индекса/тайлов вернёт явную ошибку, а карта/внешний режим сохраняют сетевые зависимости. Для небольшого WFS bbox проверены `count/startIndex` совместно с `sortBy=id A`; без явного порядка WFS выдавал ошибку natural order. Полный областной экспорт, надёжность paging на объёме и право на bulk-кэш пока не подтверждены; официальный SKDF `geo_road_axis_lr` возвращает permission denied. МСК-61 конвертер предварительный и должен быть сверён с официальной методикой/контрольными точками. Пользовательская аутентификация включена, но перед LAN/Internet публикацией проверьте cookie `Secure`, proxy/origin и секреты.
+Это промежуточная версия локального поиска. Пакет предоставляет SQLite API и API/UI подключение, но клон не включает адресную/дорожную SQLite базу, OSM PBF или MBTiles; браузерные Leaflet/dom-to-image уже поставляются локально, но OSM-тайлы остаются сетевыми. PBF importer/clipping реализован в `packages/offline_geo`; штатное обновление с проверкой и откатом — `deploy/update_offline_data.py`. Поэтому выбор локального источника без установленного индекса/тайлов вернёт явную ошибку, а карта/внешний режим сохраняют сетевые зависимости. Для небольшого WFS bbox проверены `count/startIndex` совместно с `sortBy=id A`; без явного порядка WFS выдавал ошибку natural order. Полный областной экспорт, надёжность paging на объёме и право на bulk-кэш пока не подтверждены; официальный SKDF `geo_road_axis_lr` возвращает permission denied. МСК-61 конвертер предварительный: проекционная математика сверена с 48 независимыми векторами PROJ (`packages/offline_geo/tests/data/msk61_proj_control_points.json`), но официальная геодезическая аттестация и сверка с кадастровыми контрольными точками по-прежнему нужны. Границы проверки и порядок добавления официальных точек — `docs/msk61-control-points.md`. Пользовательская аутентификация включена, но перед LAN/Internet публикацией проверьте cookie `Secure`, proxy/origin и секреты.

@@ -136,3 +136,29 @@ def test_calculated_and_gost_are_explicit_distinct_profiles():
     assert abs(calculated.longitude - gost.longitude) > 0.001
     assert "not asserted to be WGS 84" in calculated.warning
     assert "zero ellipsoidal height" in gost.warning
+
+
+def test_independent_proj_control_points_cover_all_zones():
+    """48 independent PROJ vectors, not official cadastral control points."""
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "data" / "msk61_proj_control_points.json"
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    points = data["points"]
+    assert len(points) >= 20
+    assert {point["zone"] for point in points} == {1, 2, 3}
+
+    tolerance = float(data["tolerance_m"])
+    for point in points:
+        projected = latlon_to_msk61(
+            point["lat"], point["lon"], point["zone"], Profile.CALCULATED
+        )
+        offset = math.hypot(projected.x - point["x"], projected.y - point["y"])
+        assert offset <= tolerance, (point["id"], offset)
+
+        inverse = msk61_to_latlon(
+            point["x"], point["y"], point["zone"], Profile.CALCULATED
+        )
+        assert inverse.latitude == pytest.approx(point["lat"], abs=2e-8)
+        assert inverse.longitude == pytest.approx(point["lon"], abs=2e-8)

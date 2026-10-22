@@ -918,6 +918,8 @@
         }
         .user-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
         .user-row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+        .audit-row { padding: 5px 7px; border-bottom: 1px solid var(--border); font-size: 12px; line-height: 1.35; }
+        .audit-row:last-child { border-bottom: 0; }
         .user-row-actions button {
             padding: 4px 8px;
             border: 1px solid var(--border-strong);
@@ -1065,6 +1067,7 @@
                 </div>
                 <div class="geo-panel" id="mskSearchPanel">
                     <h2>📐 WGS84 ↔ МСК-61 — предварительный калькулятор</h2>
+                    <p class="hint" id="mskDisclaimer">Результат справочный. Параметры МСК-61 не прошли официальную геодезическую аттестацию; для кадастровых и геодезических работ используйте официальные координаты.</p>
                     <label class="hint" for="mskDirection">Направление преобразования</label>
                     <select id="mskDirection" aria-label="Направление преобразования координат">
                         <option value="to-geographic">МСК-61 → WGS84</option>
@@ -1457,6 +1460,11 @@
                 </select>
             </div>
             <button class="btn btn-small" onclick="createUser()">➕ Создать пользователя</button>
+        </div>
+        <div class="settings-block" id="auditSettingsBlock" style="display: none;">
+            <h2>📜 Журнал событий</h2>
+            <div id="auditList" class="hint">Загрузка...</div>
+            <button class="btn btn-secondary btn-small" type="button" onclick="loadAudit()">Обновить журнал</button>
         </div>
         <div class="folder-status" id="folderStatus">Загрузка...</div>
     </div>
@@ -5897,7 +5905,9 @@ function drawBoundaryFromGeoJSON(data) {
                 await initializeLocalGeo();
                 document.getElementById('usersSettingsBlock').style.display =
                     currentUser.role === 'admin' ? '' : 'none';
-                if (currentUser.role === 'admin') loadUsers();
+                document.getElementById('auditSettingsBlock').style.display =
+                    currentUser.role === 'admin' ? '' : 'none';
+                if (currentUser.role === 'admin') { loadUsers(); loadAudit(); }
                 await loadScreenshotSettings();
                 loadHistory();
                 loadBookmarks();
@@ -6115,6 +6125,41 @@ function drawBoundaryFromGeoJSON(data) {
                 row.append(head, actions);
                 list.appendChild(row);
             });
+        }
+
+        const AUDIT_ACTION_LABELS = {
+            login: 'Вход',
+            login_failed: 'Неудачный вход',
+            logout: 'Выход',
+            credentials_changed: 'Смена своих данных',
+            user_created: 'Создан пользователь',
+            user_updated: 'Изменён пользователь',
+            user_password_reset: 'Сброшен пароль'
+        };
+
+        async function loadAudit() {
+            const list = document.getElementById('auditList');
+            if (!list || currentUser?.role !== 'admin') return;
+            try {
+                const response = await fetch('/api/audit?limit=20');
+                if (!response.ok) return;
+                const data = await response.json();
+                const events = data.events || [];
+                list.replaceChildren();
+                if (!events.length) {
+                    list.textContent = 'Событий пока нет';
+                    return;
+                }
+                events.forEach(event => {
+                    const row = document.createElement('div');
+                    row.className = 'audit-row';
+                    const action = AUDIT_ACTION_LABELS[event.action] || event.action;
+                    const actor = event.actor_login ? ` · ${event.actor_login}` : '';
+                    const target = event.target ? ` · ${event.target}` : '';
+                    row.textContent = `${event.time} — ${action}${actor}${target}`;
+                    list.appendChild(row);
+                });
+            } catch (error) { /* журнал не должен ломать настройки */ }
         }
 
         async function loadUsers() {

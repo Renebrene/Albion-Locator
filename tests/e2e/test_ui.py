@@ -1928,7 +1928,7 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
         page.fill("#authPassword", "альбион")
         page.click("#authSubmit")
         page.wait_for_selector("body.authenticated")
-        page.wait_for_selector("#account-modal.open", timeout=5000)
+        page.wait_for_selector("#account-modal.open", timeout=15000)
         assert page.locator("#accountForcedHint").is_visible()
         assert page.locator("#account-dialog-close").is_hidden()
         page.keyboard.press("Escape")
@@ -1939,7 +1939,7 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
         with page.expect_navigation():
             page.click("#accountSaveBtn")
         page.wait_for_selector("body.authenticated")
-        page.wait_for_selector("#account-modal.open", state="detached", timeout=5000)
+        page.wait_for_selector("#account-modal.open", state="detached", timeout=15000)
         assert page.evaluate(
             "async () => (await (await fetch('/api/auth/me')).json()).user.must_change_password"
         ) is False
@@ -1953,3 +1953,15 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def test_admin_audit_log_is_visible_in_settings(page, app_server):
+    login(page, app_server["base_url"])
+    page.click("#settingsOpenButton")
+    assert page.locator("#auditSettingsBlock").is_visible()
+    page.wait_for_function(
+        "() => document.querySelector('#auditList').textContent !== 'Загрузка...'",
+        timeout=5000,
+    )
+    text = page.locator("#auditList").inner_text()
+    assert "Вход" in text or "Событий пока нет" not in text

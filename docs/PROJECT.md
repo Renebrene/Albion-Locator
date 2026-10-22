@@ -131,6 +131,8 @@ FastAPI / Uvicorn (src/main.py)
 | `GET /api/health` | health-check |
 | `POST /api/auth/login`, `/logout`; `GET /api/auth/me` | аутентификация |
 | `/api/users...` | управление пользователями (admin) |
+| `GET /api/audit` | журнал входов и действий (admin) |
+| `GET /metrics` | Prometheus-метрики (loopback/токен) |
 | `POST /api/locate` | ближайшая дорога (external/local) |
 | `POST /api/roads/online/search` | поиск трасс/дорог |
 | `POST /api/roads/online/sections` | официальные участки СКДФ |
@@ -157,6 +159,9 @@ FastAPI / Uvicorn (src/main.py)
 | `ALBION_BASEMAP_MBTILES` | явный путь растровых MBTiles |
 | `ALBION_VECTOR_MBTILES` | явный путь векторных MBTiles (MapLibre) |
 | `ALBION_ALLOWED_ORIGINS` | дополнительные Origin |
+| `ALBION_LOG_FORMAT` / `ALBION_LOG_LEVEL` | JSON/plain logs и уровень |
+| `ALBION_METRICS_TOKEN` | токен для `/metrics` через reverse proxy |
+| `ALBION_UPSTREAM_RETRY_ATTEMPTS` / `ALBION_UPSTREAM_CACHE_TTL` | retry и TTL-кэш внешних API |
 | `YANDEX_JS_API_KEY` | Yandex JS API |
 | `YANDEX_SUGGEST_API_KEY` | Yandex SuggestView |
 | `YANDEX_API_KEY` | server-side Geocoder/reverse |

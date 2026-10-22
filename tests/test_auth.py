@@ -254,3 +254,54 @@ def test_forced_password_change_flow(tmp_path, monkeypatch):
 
     auth.set_password(user["id"], "СброшенныйПароль1")
     assert auth.authenticate("админ", "СброшенныйПароль1")["must_change_password"] is True
+
+
+def test_audit_log_records_security_events_without_secrets():
+    client = admin_client()
+    login_name = unique_login("audit")
+    created = client.post(
+        "/api/users",
+        json={"login": login_name, "password": "secret-pass", "name": "Аудит", "role": "editor"},
+    )
+    assert created.status_code == 200, created.text
+    user_id = created.json()["user"]["id"]
+
+    # A failed login must be visible to the administrator, without the password.
+    failed = fresh_client().post(
+        "/api/auth/login",
+        json={"login": login_name, "password": "wrong-password"},
+    )
+    assert failed.status_code == 401
+
+    response = client.get("/api/audit", params={"limit": 50})
+    assert response.status_code == 200, response.text
+    events = response.json()["events"]
+    actions = [event["action"] for event in events]
+    assert "login" in actions
+    assert "user_created" in actions
+    assert "login_failed" in actions
+    created_event = next(event for event in events if event["action"] == "user_created")
+    assert created_event["target"] == f"user:{user_id}"
+    assert "secret-pass" not in response.text
+    assert "wrong-password" not in response.text
+
+
+def test_audit_log_is_admin_only_and_supports_action_filter():
+    editor = fresh_client()
+    login_name = unique_login("editor_audit")
+    password = "editor-pass"
+    admin = admin_client()
+    created = admin.post(
+        "/api/users",
+        json={"login": login_name, "password": password, "name": "Редактор", "role": "editor"},
+    )
+    assert created.status_code == 200, created.text
+    assert editor.post(
+        "/api/auth/login", json={"login": login_name, "password": password}
+    ).status_code == 200
+    assert editor.get("/api/audit").status_code == 403
+
+    filtered = admin.get("/api/audit", params={"action": "user_created", "limit": 5})
+    assert filtered.status_code == 200
+    assert filtered.json()["events"]
+    assert all(event["action"] == "user_created" for event in filtered.json()["events"])

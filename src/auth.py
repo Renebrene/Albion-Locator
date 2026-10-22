@@ -112,6 +112,23 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_user_history_user
                 ON user_history(user_id, created_at DESC);
+
+            -- Security-relevant actions. The payload is a JSON object and must
+            -- never contain passwords, session tokens or provider keys.
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at REAL NOT NULL,
+                actor_id INTEGER,
+                actor_login TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                target TEXT NOT NULL DEFAULT '',
+                details TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_audit_log_created
+                ON audit_log(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_audit_log_action
+                ON audit_log(action, created_at DESC);
             """
         )
         # Миграция существующих БД: колонка появилась вместе с принудительной
@@ -526,6 +543,90 @@ def set_password(user_id: int, password: str) -> None:
         if result.rowcount == 0:
             raise ValueError("Пользователь не найден.")
         conn.commit()
+
+
+# ========== ЖУРНАЛ АУДИТА ==========
+
+def record_audit(
+    action: str,
+    actor: dict[str, Any] | None = None,
+    target: str = "",
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Persist a security-relevant event; never break the caller on failure."""
+    action = (action or "").strip()[:80]
+    if not action:
+        return
+    actor = actor or {}
+    actor_id = actor.get("id") if isinstance(actor.get("id"), int) else None
+    actor_login = str(actor.get("login") or "")[:120]
+    target = str(target or "")[:240]
+    try:
+        encoded = json.dumps(details or {}, ensure_ascii=False, default=str)[:8000]
+    except (TypeError, ValueError):
+        encoded = "{}"
+    try:
+        with closing(_connect()) as conn:
+            conn.execute(
+                """
+                INSERT INTO audit_log
+                    (created_at, actor_id, actor_login, action, target, details)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (time.time(), actor_id, actor_login, action, target, encoded),
+            )
+            conn.execute(
+                "DELETE FROM audit_log WHERE id NOT IN "
+                "(SELECT id FROM audit_log ORDER BY created_at DESC LIMIT 5000)"
+            )
+            conn.commit()
+    except sqlite3.Error:
+        pass
+    try:
+        import observability
+        observability.record_audit_event(action)
+        observability.log_event(
+            observability.logging.INFO, "audit",
+            "audit event", action=action,
+            actor=actor_login or None, target=target or None,
+        )
+    except Exception:
+        pass
+
+
+def list_audit(limit: int = 100, offset: int = 0,
+               action: str | None = None) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    query = (
+        "SELECT id, created_at, actor_id, actor_login, action, target, details "
+        "FROM audit_log"
+    )
+    params: list[Any] = []
+    if action:
+        query += " WHERE action = ?"
+        params.append(action[:80])
+    query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    with closing(_connect()) as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    result = []
+    for row in rows:
+        try:
+            details = json.loads(row["details"])
+        except (TypeError, ValueError):
+            details = {}
+        result.append({
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row["created_at"])),
+            "actor_id": row["actor_id"],
+            "actor_login": row["actor_login"],
+            "action": row["action"],
+            "target": row["target"],
+            "details": details if isinstance(details, dict) else {},
+        })
+    return result
 
 
 # ========== ПЕРСОНАЛЬНОЕ СОСТОЯНИЕ ==========
