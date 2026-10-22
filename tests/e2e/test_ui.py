@@ -1985,6 +1985,53 @@ def test_auto_km_does_not_move_committed_point(page, app_server):
     assert state["km"]
 
 
+def test_street_geometry_from_locate_builds_axis_without_overpass(page, app_server):
+    """Геометрия из locate сразу даёт ось для улицы — Overpass не нужен."""
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        window.__overpassCalls = 0;
+        apiFetch = async (url) => {
+            if (url === '/api/locate') return ok({
+                point: {lat: 47.2, lon: 39.8, bearing: null},
+                road: {
+                    road_code: null, full_name: 'пр-кт Тестовый', skdf_name: 'пр-кт Тестовый',
+                    geometry: {type: 'MultiLineString', coordinates: [[
+                        [39.70, 47.19], [39.80, 47.20], [39.90, 47.19],
+                    ]]},
+                },
+                side: {side: 1, km_estimate: 3.2, perpendicular_m: 40,
+                       projected_lat: 47.2, projected_lon: 39.8},
+            });
+            if (url === '/api/roads/overpass/geometry') {
+                window.__overpassCalls += 1;
+                return new Response('{}', {status: 404});
+            }
+            if (url === '/api/msk61/from-geographic') return ok({
+                x: 422630.864, y: 2204440.047, zone: 2,
+                profile: 'gost_51794_2008', warning: '',
+            });
+            return ok({status: 'ok', entries: []});
+        };
+        commitPoint(47.2, 39.8, 'click');
+    }""")
+    page.wait_for_function("Boolean(roadKmState)", timeout=10000)
+    state = page.evaluate(
+        "({approximate: Boolean(roadKmState.approximate),"
+        " disabled: roadKmSlider.disabled, max: Number(roadKmSlider.max),"
+        " overpass: window.__overpassCalls, title: roadKmTitle.textContent,"
+        " range: roadKmRange.textContent})"
+    )
+    assert state["approximate"] is True
+    assert state["disabled"] is False
+    assert state["max"] > 0
+    assert state["overpass"] == 0
+    assert "приблизительно" in state["title"]
+    assert "геометрия дороги СКДФ" in state["range"]
+
+
 def test_road_without_code_falls_back_to_osm_name_axis(page, app_server):
     """Дорога без кода получает приблизительный километраж по названию из OSM."""
     login(page, app_server["base_url"])

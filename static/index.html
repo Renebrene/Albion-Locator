@@ -3154,8 +3154,15 @@ function drawBoundaryFromGeoJSON(data) {
                     }
                     return;
                 }
-                // Название есть — пробуем приблизительную ось OSM (относительные
-                // километры), чтобы ползунок всё равно работал.
+                // Сначала пробуем геометрию, которую вернул locate: это быстро
+                // и не зависит от доступности Overpass.
+                const geometryAxis = buildGeometryAxis(road);
+                if (geometryAxis) {
+                    applyApproximateAxis(geometryAxis.state, geometryAxis.candidate,
+                        road, roadName);
+                    return;
+                }
+                // Геометрии нет — строим приблизительную ось по названию в OSM.
                 const hintLat = activePoint && Number.isFinite(activePoint.lat)
                     ? activePoint.lat : Number(road.lat);
                 const hintLon = activePoint && Number.isFinite(activePoint.lon)
@@ -3178,6 +3185,7 @@ function drawBoundaryFromGeoJSON(data) {
                 title: road.full_name || road.skdf_name || code,
                 lat,
                 lon,
+                geometry: road.geometry,
             });
         }
 
@@ -3563,9 +3571,18 @@ function drawBoundaryFromGeoJSON(data) {
                 });
                 const data = await response.json();
                 if (sequence !== roadSectionsSequence) return;
+                // Геометрия, уже полученная от locate, — самый быстрый и
+                // независимый от Overpass источник приблизительной оси.
+                const geometryAxis = buildGeometryAxis(road);
                 if (!response.ok) {
                     // СКДФ может не содержать официального километража для
                     // региональной дороги. Пробуем приблизительную ось OSM.
+                    if (response.status === 404 && geometryAxis) {
+                        applyApproximateAxis(geometryAxis.state, geometryAxis.candidate,
+                            road, road.title || road.road_code,
+                            {lat: Number(road.lat), lon: Number(road.lon)});
+                        return;
+                    }
                     if (response.status === 404) {
                         const approximate = await loadApproximateRoadSections(road, sequence);
                         if (approximate) return;
@@ -3574,6 +3591,12 @@ function drawBoundaryFromGeoJSON(data) {
                 }
                 const state = buildRoadKmState(data);
                 if (!state.sections.length) {
+                    if (geometryAxis) {
+                        applyApproximateAxis(geometryAxis.state, geometryAxis.candidate,
+                            road, road.title || road.road_code,
+                            {lat: Number(road.lat), lon: Number(road.lon)});
+                        return;
+                    }
                     const approximate = await loadApproximateRoadSections(road, sequence);
                     if (approximate) return;
                     throw new Error('В ответе СКДФ нет пригодных участков трассы');
@@ -3664,7 +3687,7 @@ function drawBoundaryFromGeoJSON(data) {
                     dashArray: '8 6',
                     bubblingMouseEvents: false,
                 }).addTo(group);
-                line.bindTooltip('Приблизительная ось OSM · клик задаёт километр', {sticky: true});
+                line.bindTooltip('Приблизительная ось · клик задаёт километр', {sticky: true});
                 line.on('click', event => {
                     if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
                     selectApproximateKm(event.latlng);
@@ -3791,50 +3814,99 @@ function drawBoundaryFromGeoJSON(data) {
                     provenance: data.provenance || '',
                 });
                 if (!state.sections.length) return false;
-                state.approximate = true;
-                const firstCoord = candidate.sections[0].coordinates[0];
-                const anchor = activePoint && Number.isFinite(activePoint.lon) && Number.isFinite(activePoint.lat)
-                    ? {lon: activePoint.lon, lat: activePoint.lat}
-                    : (Number.isFinite(hintLon) && Number.isFinite(hintLat)
-                        ? {lon: hintLon, lat: hintLat}
-                        : {lon: firstCoord[0], lat: firstCoord[1]});
-                state.anchor = anchor;
-                roadKmState = state;
-                updateLocalRoadControls();
-                roadKmTitle.textContent =
-                    `${road.road_code || requestName || candidate.name || 'дорога'} — `
-                    + `${candidate.name || requestName || 'дорога'} · приблизительно`;
-                roadKmSlider.min = '0';
-                roadKmSlider.max = String(state.totalLengthKm);
-                roadKmSlider.step = String(roadKmStepKm());
-                drawApproximateRoad(state, candidate);
-                const nearest = nearestOfficialKm(state, anchor.lon, anchor.lat);
-                const initialKm = nearest ? nearest.officialKm : state.firstKm;
-                if (pendingUrlRoadKm) {
-                    roadKmEnabled = true;
-                    roadKmEnableCheckbox.checked = true;
-                }
-                state.rangeText =
-                    `Приблизительная ось OSM: ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · `
-                    + `${state.totalLengthKm.toFixed(1)} км. Официальных участков СКДФ нет; `
-                    + 'километры относительные, 0 — начало выбранного направления.';
-                if (!roadKmEnabled) {
-                    prepareRoadDraftPoint(state, initialKm, road);
-                    clearRoadKmDisplay();
-                    return true;
-                }
-                setRoadKmControlsEnabled(true);
-                roadKmRange.textContent = state.rangeText;
-                previewRoadKm(initialKm, false, false, false);
-                roadKmStatus.textContent =
-                    `Официальных участков СКДФ нет. Приблизительный км ${formatKm(initialKm)} по OSM.`
-                    + ' Клик по линии задаёт километр.';
-                renderRoadKmScale();
-                consumePendingUrlRoadKm(state);
-                return true;
+                return applyApproximateAxis(state, candidate, road, requestName,
+                    {lat: hintLat, lon: hintLon});
             } catch (error) {
                 return false;
             }
+        }
+
+        // Ось из геометрии, которую уже вернул locate (СКДФ WFS): не требует
+        // Overpass и работает даже когда публичный OSM недоступен.
+        function buildGeometryAxis(road) {
+            const geometry = road && road.geometry;
+            if (!geometry) return null;
+            const lines = geometry.type === 'LineString' ? [geometry.coordinates]
+                : geometry.type === 'MultiLineString' ? geometry.coordinates : [];
+            const sections = [];
+            let offsetKm = 0;
+            for (const line of lines || []) {
+                const coordinates = (line || [])
+                    .filter(point => Array.isArray(point) && point.length >= 2)
+                    .map(point => [Number(point[0]), Number(point[1])])
+                    .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
+                if (coordinates.length < 2) continue;
+                const { totalKm } = measureRoadLine(coordinates);
+                if (!(totalKm > 0)) continue;
+                sections.push({
+                    start_km: offsetKm,
+                    finish_km: offsetKm + totalKm,
+                    coordinates,
+                });
+                offsetKm += totalKm;
+            }
+            if (!sections.length) return null;
+            const name = road.full_name || road.skdf_name || 'Дорога';
+            const state = buildRoadKmState({
+                first_km: 0,
+                last_km: offsetKm,
+                sections,
+                code: road.road_code || null,
+                name,
+                source: 'геометрия дороги СКДФ',
+                approximate: true,
+                provenance: 'Приблизительная ось по геометрии дороги из СКДФ; километры относительные.',
+            });
+            if (!state.sections.length) return null;
+            return {
+                state,
+                candidate: { name, sections, total_length_km: offsetKm },
+            };
+        }
+
+        function applyApproximateAxis(state, candidate, road, requestName, anchorHint = null) {
+            state.approximate = true;
+            const firstCoord = candidate.sections[0].coordinates[0];
+            const anchor = activePoint && Number.isFinite(activePoint.lon) && Number.isFinite(activePoint.lat)
+                ? {lon: activePoint.lon, lat: activePoint.lat}
+                : (anchorHint && Number.isFinite(anchorHint.lon) && Number.isFinite(anchorHint.lat)
+                    ? {lon: anchorHint.lon, lat: anchorHint.lat}
+                    : {lon: firstCoord[0], lat: firstCoord[1]});
+            state.anchor = anchor;
+            roadKmState = state;
+            updateLocalRoadControls();
+            const axisLabel = requestName || candidate.name || 'дорога';
+            roadKmTitle.textContent =
+                `${road.road_code || axisLabel} — ${candidate.name || axisLabel} · приблизительно`;
+            roadKmSlider.min = '0';
+            roadKmSlider.max = String(state.totalLengthKm);
+            roadKmSlider.step = String(roadKmStepKm());
+            drawApproximateRoad(state, candidate);
+            const nearest = nearestOfficialKm(state, anchor.lon, anchor.lat);
+            const initialKm = nearest ? nearest.officialKm : state.firstKm;
+            if (pendingUrlRoadKm) {
+                roadKmEnabled = true;
+                roadKmEnableCheckbox.checked = true;
+            }
+            const sourceLabel = state.source || 'OSM';
+            state.rangeText =
+                `Приблизительная ось (${sourceLabel}): ${formatKm(state.firstKm)} — ${formatKm(state.lastKm)} · `
+                + `${state.totalLengthKm.toFixed(1)} км. Официальных участков СКДФ нет; `
+                + 'километры относительные, 0 — начало выбранного направления.';
+            if (!roadKmEnabled) {
+                prepareRoadDraftPoint(state, initialKm, road);
+                clearRoadKmDisplay();
+                return true;
+            }
+            setRoadKmControlsEnabled(true);
+            roadKmRange.textContent = state.rangeText;
+            previewRoadKm(initialKm, false, false, false);
+            roadKmStatus.textContent =
+                `Официальных участков СКДФ нет. Приблизительный км ${formatKm(initialKm)} по оси (${sourceLabel}).`
+                + ' Клик по линии задаёт километр.';
+            renderRoadKmScale();
+            consumePendingUrlRoadKm(state);
+            return true;
         }
 
         // Ползунок/поле километража двигают черновик, а не активную точку.
