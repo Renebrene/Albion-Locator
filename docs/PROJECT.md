@@ -158,7 +158,14 @@ FastAPI / Uvicorn (src/main.py)
 | `ALBION_GEO_DATA_DIR` | каталог offline index / MBTiles |
 | `ALBION_BASEMAP_MBTILES` | явный путь растровых MBTiles |
 | `ALBION_VECTOR_MBTILES` | явный путь векторных MBTiles (MapLibre) |
+| `ALBION_DEFAULT_MAP_SOURCE` | `vector`/`local`/`external`; по умолчанию предпочитается установленная локальная подложка |
 | `ALBION_ALLOWED_ORIGINS` | дополнительные Origin |
+| `ALBION_COOKIE_SECURE` | `auto`/`always`/`never` для session и CSRF cookie |
+| `ALBION_CSRF` | double-submit CSRF (по умолчанию `1`) |
+| `ALBION_ENABLE_DOCS` | открыть `/docs`, `/redoc`, `/openapi.json` (по умолчанию `0`) |
+| `ALBION_CSP_POLICY` | переопределить Content-Security-Policy (`off` отключает) |
+| `ALBION_API_RATE_LIMIT` / `ALBION_LOGIN_RATE_LIMIT` | лимиты запросов и входов |
+| `ALBION_LOGIN_MAX_FAILURES` / `ALBION_LOGIN_LOCKOUT_SECONDS` | lockout после неудачных входов |
 | `ALBION_LOG_FORMAT` / `ALBION_LOG_LEVEL` | JSON/plain logs и уровень |
 | `ALBION_METRICS_TOKEN` | токен для `/metrics` через reverse proxy |
 | `ALBION_UPSTREAM_RETRY_ATTEMPTS` / `ALBION_UPSTREAM_CACHE_TTL` | retry и TTL-кэш внешних API |
@@ -220,12 +227,15 @@ QA-документы:
 ## 11. Безопасность
 
 - Все `/api/*`, кроме health/login, требуют cookie-сессию.
-- Cookie HttpOnly, SameSite=Lax, TTL 30 дней; `Secure` не выставляется для loopback.
-- Mutating API проверяет Origin.
-- Пароли — PBKDF2-HMAC-SHA256 с солью; сессионные токены хранятся в БД хэшами.
+- Cookie HttpOnly, SameSite=Lax, TTL 30 дней; `Secure` включается по HTTPS/`X-Forwarded-Proto` (`ALBION_COOKIE_SECURE=auto|always|never`).
+- Mutating API проверяет Origin и double-submit CSRF: cookie `albion_csrf` + `X-CSRF-Token`; принудительная смена пароля не обходит проверку.
+- Rate-limit на все `/api/*` и отдельный лимит входов; после 5 неудач логин+IP блокируется на 15 минут (настраивается).
+- `/docs`, `/redoc`, `/openapi.json` закрыты по умолчанию (`ALBION_ENABLE_DOCS=1` для разработки).
+- Security headers: CSP, HSTS на HTTPS, X-Frame-Options DENY, nosniff, Referrer/Permissions Policy.
+- Пароли — PBKDF2-HMAC-SHA256 с солью; сессионные токены хранятся в БД хэшами; audit log фиксирует входы и действия с пользователями.
 - Загрузки ограничены по размеру/формату; PNG валидируется; путь сохранения фиксирован.
 - Статика отдаётся по allowlist, а не всем каталогом.
-- Перед публикацией в интернет: сменить стартовый пароль, включить HTTPS/Secure cookie, настроить proxy/origin, проверить rate limiting и отозвать старые ключи.
+- Перед публикацией: `.env` 0600, TLS/reverse proxy или туннель с `X-Forwarded-Proto`, ротация и доменные ограничения ключей Яндекса; шаблон nginx и preflight — `deploy/README.md`.
 
 ## 12. Известные ограничения
 

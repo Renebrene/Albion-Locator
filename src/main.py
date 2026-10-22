@@ -21,7 +21,6 @@ import sys
 import time
 import uuid
 from fractions import Fraction
-from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -43,6 +42,7 @@ from batch import router as batch_router
 
 import auth
 import observability
+import security
 import upstream
 
 observability.configure_logging()
@@ -206,7 +206,14 @@ CATEGORY_MAP = {1: "Автомагистраль", 2: "I категория", 3:
                 4: "III категория", 5: "IV категория", 6: "V категория"}
 COATING_MAP = {1: "Капитальный", 2: "Облегчённый", 3: "Переходный", 4: "Низший"}
 
-app = FastAPI(title="АЛЬБИОН: Локатор-Навигатор (Autonom)", version="4.2.1")
+_DOCS_ENABLED = security.docs_enabled()
+app = FastAPI(
+    title="АЛЬБИОН: Локатор-Навигатор (Autonom)",
+    version="4.2.1",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
 app.include_router(batch_router)
 
 @app.exception_handler(RequestValidationError)
@@ -318,17 +325,7 @@ PASSWORD_CHANGE_ALLOWED_PATHS = {
 
 
 def _cookie_token(scope) -> str | None:
-    headers = {key.lower(): value for key, value in scope.get("headers", [])}
-    raw_cookie = headers.get(b"cookie")
-    if not raw_cookie:
-        return None
-    cookie = SimpleCookie()
-    try:
-        cookie.load(raw_cookie.decode("latin-1"))
-    except Exception:
-        return None
-    morsel = cookie.get(auth.SESSION_COOKIE)
-    return morsel.value if morsel else None
+    return security.cookie_value(scope, auth.SESSION_COOKIE)
 
 
 async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
@@ -359,6 +356,13 @@ class SessionAuthMiddleware:
             if user is None:
                 await _send_json(send, 401, {"detail": "Требуется авторизация"})
                 return
+            if security.csrf_enabled() and scope.get("method", "GET").upper() not in security.SAFE_METHODS:
+                if not security.csrf_valid(
+                    security.cookie_value(scope, security.CSRF_COOKIE),
+                    security.header_value(scope, security.CSRF_HEADER),
+                ):
+                    await _send_json(send, 403, {"detail": "CSRF-токен отсутствует или неверен"})
+                    return
             if user.get("must_change_password") and path not in PASSWORD_CHANGE_ALLOWED_PATHS:
                 await _send_json(send, 403, {"detail": "Требуется сменить пароль"})
                 return
@@ -368,6 +372,8 @@ class SessionAuthMiddleware:
 
 
 app.add_middleware(SessionAuthMiddleware)
+app.add_middleware(security.ApiRateLimitMiddleware)
+app.add_middleware(security.SecurityHeadersMiddleware)
 # Outermost middleware: assigns a request id and records every HTTP call.
 app.add_middleware(observability.ObservabilityMiddleware)
 
@@ -1417,11 +1423,50 @@ async def metrics(request: Request):
     )
 
 
+def _set_csrf_cookie(response: JSONResponse, request: Request, token: str | None = None) -> str:
+    token = token or security.new_csrf_token()
+    response.set_cookie(
+        security.CSRF_COOKIE,
+        token,
+        max_age=auth.SESSION_TTL,
+        httponly=False,
+        samesite="lax",
+        secure=security.cookie_secure(request.scope),
+        path="/",
+    )
+    return token
+
+
+def _clear_csrf_cookie(response: JSONResponse, request: Request) -> None:
+    response.delete_cookie(
+        security.CSRF_COOKIE,
+        path="/",
+        secure=security.cookie_secure(request.scope),
+    )
+
+
+def _login_rate_error(retry_after: float) -> HTTPException:
+    return HTTPException(
+        429,
+        "Слишком много попыток входа; повторите позже",
+        headers={"Retry-After": str(max(1, int(retry_after)))},
+    )
+
+
 @app.post("/api/auth/login")
 async def auth_login(payload: LoginPayload, request: Request):
+    client_ip = security.client_ip(request.scope)
+    retry_after = security.LOGIN_RATE.check(client_ip)
+    if retry_after is not None:
+        raise _login_rate_error(retry_after)
+    login_key = f"{client_ip}|{payload.login.strip().casefold()}"
+    retry_after = security.LOGIN_GUARD.retry_after(login_key)
+    if retry_after is not None:
+        raise _login_rate_error(retry_after)
+
     user = auth.authenticate(payload.login, payload.password)
-    client_ip = request.client.host if request.client else ""
     if user is None:
+        security.LOGIN_GUARD.record_failure(login_key)
         auth.record_audit(
             "login_failed",
             target=payload.login,
@@ -1429,6 +1474,7 @@ async def auth_login(payload: LoginPayload, request: Request):
         )
         raise HTTPException(401, "Неверный логин или пароль")
 
+    security.LOGIN_GUARD.clear(login_key)
     auth.record_audit(
         "login", user, target=f"user:{user['id']}",
         details={"ip": client_ip},
@@ -1441,8 +1487,10 @@ async def auth_login(payload: LoginPayload, request: Request):
         max_age=auth.SESSION_TTL,
         httponly=True,
         samesite="lax",
+        secure=security.cookie_secure(request.scope),
         path="/",
     )
+    _set_csrf_cookie(response, request)
     return response
 
 @app.post("/api/auth/logout")
@@ -1451,12 +1499,22 @@ async def auth_logout(request: Request):
     auth.record_audit("logout", user, target=f"user:{user['id']}")
     auth.delete_session(_cookie_token(request.scope))
     response = JSONResponse({"status": "ok"})
-    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    response.delete_cookie(
+        auth.SESSION_COOKIE,
+        path="/",
+        secure=security.cookie_secure(request.scope),
+    )
+    _clear_csrf_cookie(response, request)
     return response
 
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
-    return {"user": _request_user(request)}
+    user = _request_user(request)
+    response = JSONResponse({"user": user})
+    token = security.cookie_value(request.scope, security.CSRF_COOKIE)
+    if not token or len(token) < 20:
+        _set_csrf_cookie(response, request)
+    return response
 
 @app.post("/api/auth/change-credentials")
 async def auth_change_credentials(payload: CredentialsPayload, request: Request):
@@ -1477,7 +1535,9 @@ async def auth_change_credentials(payload: CredentialsPayload, request: Request)
         details={"login_changed": payload.login is not None,
                  "password_changed": bool(payload.password)},
     )
-    return {"status": "ok", "user": updated}
+    response = JSONResponse({"status": "ok", "user": updated})
+    _set_csrf_cookie(response, request)
+    return response
 
 @app.get("/api/users")
 async def users_list(request: Request):
@@ -1760,9 +1820,12 @@ async def data_sources():
     tiles = _mbtiles_path()
     vector_tiles = _vector_mbtiles_path()
     offline = offline_mode_enabled()
-    if offline and vector_tiles.is_file():
+    configured_map = os.getenv("ALBION_DEFAULT_MAP_SOURCE", "").strip().lower()
+    if configured_map in {"vector", "local", "external"}:
+        default_map_source = configured_map
+    elif vector_tiles.is_file():
         default_map_source = "vector"
-    elif offline and tiles.is_file():
+    elif tiles.is_file():
         default_map_source = "local"
     else:
         default_map_source = "external"

@@ -975,24 +975,28 @@
                     <div id="currentPointEmpty" class="hint">Выберите точку на карте, в левом фрейме или в сохранённом.</div>
                     <div id="currentPointDetails" hidden>
                         <div class="point-row">
-                            <span class="point-label">WGS84</span>
                             <span class="point-value" id="cpWgs">—</span>
                             <button class="copy-icon" type="button" data-copy="cpWgs" title="Скопировать координаты WGS84">⧉</button>
                         </div>
                         <div class="point-row">
-                            <span class="point-label">МСК-61</span>
                             <span class="point-value" id="cpMsk">—</span>
                             <button class="copy-icon" type="button" data-copy="cpMsk" title="Скопировать координаты МСК-61">⧉</button>
                         </div>
                         <div class="point-row">
-                            <span class="point-label">Адрес</span>
                             <span class="point-value" id="cpAddress">не определено</span>
                             <button class="copy-icon" type="button" data-copy="cpAddress" title="Скопировать адрес">⧉</button>
                         </div>
                         <div class="point-row">
-                            <span class="point-label">Район</span>
                             <span class="point-value" id="cpDistrict">не определено</span>
                             <button class="copy-icon" type="button" data-copy="cpDistrict" title="Скопировать район">⧉</button>
+                        </div>
+                        <div class="point-row">
+                            <span class="point-value" id="cpRoad">—</span>
+                            <button class="copy-icon" type="button" data-copy="cpRoad" title="Скопировать название трассы">⧉</button>
+                        </div>
+                        <div class="point-row">
+                            <span class="point-value" id="cpKm">—</span>
+                            <button class="copy-icon" type="button" data-copy="cpKm" title="Скопировать километраж">⧉</button>
                         </div>
                         <div class="point-source hint" id="cpSource"></div>
                     </div>
@@ -1272,8 +1276,6 @@
                         <p class="no-select">Из справочника:</p>
                         <p id="resultRoadName" class="result-road-name"></p>
                         <p id="resultKmText"></p>
-                        <p id="resultSideText"></p>
-                        <p id="resultPerpendicular"></p>
                         <p id="resultProvenance" class="hint" hidden></p>
                         <p id="resultCategoryHint" class="hint" hidden></p>
                         <div class="action-btns">
@@ -1508,6 +1510,37 @@
     <div class="hotkey-hint" id="hotkeyHint"></div>
 
     <script>
+        // CSRF double-submit: unsafe same-origin requests carry the token from
+        // the readable albion_csrf cookie. The browser wrapper keeps every
+        // existing fetch() call covered, including those outside apiFetch().
+        (() => {
+            const nativeFetch = window.fetch.bind(window);
+            const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+            window.fetch = function(input, init) {
+                try {
+                    const url = typeof input === 'string' ? input : input.url;
+                    const method = String(
+                        (init && init.method) || (input instanceof Request ? input.method : 'GET')
+                    ).toUpperCase();
+                    if (url && url.startsWith('/') && unsafeMethods.has(method)) {
+                        const row = document.cookie.split('; ').find(item => item.startsWith('albion_csrf='));
+                        const token = row ? decodeURIComponent(row.split('=')[1]) : '';
+                        if (token) {
+                            const headers = new Headers(
+                                (init && init.headers) ||
+                                (input instanceof Request ? input.headers : undefined)
+                            );
+                            headers.set('X-CSRF-Token', token);
+                            init = Object.assign({}, init, { headers });
+                        }
+                    }
+                } catch (error) {
+                    // Never block the request because of a malformed cookie.
+                }
+                return nativeFetch(input, init);
+            };
+        })();
+
         // === ИНИЦИАЛИЗАЦИЯ КАРТЫ ===
         const DEFAULT_CENTER = [47.23, 39.72];
         const map = L.map('map', { attributionControl: true, doubleClickZoom: false, zoomControl: false }).setView(DEFAULT_CENTER, 7);
@@ -1604,9 +1637,40 @@
             const url = offline ? '/tiles/{z}/{x}/{y}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
             baseTileLayer = L.tileLayer(url, {
                 crossOrigin: 'anonymous',
+                // OSM's volunteer tile servers expect a referrer; no-referrer
+                // requests can be rejected by their usage-policy filter.
+                referrerPolicy: 'strict-origin-when-cross-origin',
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>',
                 maxZoom: offline ? 16 : 19
             }).addTo(map);
+            if (!offline) baseTileLayer.on('tileerror', handleOsmTileError);
+        }
+
+        function handleOsmTileError() {
+            if (useLocalTiles || useVectorTiles || osmTileFallbackActive) return;
+            const fallbackVector = vectorTilesAvailable;
+            const fallbackLocal = !fallbackVector && localTilesAvailable;
+            if (!fallbackVector && !fallbackLocal) {
+                showMapSourceNotice(
+                    'OSM-тайлы недоступны, а локальная подложка не установлена. Проверьте сеть или установите MBTiles.',
+                    false
+                );
+                return;
+            }
+            osmTileFallbackActive = true;
+            useVectorTiles = fallbackVector;
+            useLocalTiles = fallbackLocal;
+            mapSourceWasChosen = true;
+            const value = fallbackVector ? 'vector' : 'local';
+            localStorage.setItem('albion_map_source', value);
+            const mapSelect = document.getElementById('mapSourceSelect');
+            if (mapSelect) mapSelect.value = value;
+            updateDataSourceStatus();
+            void applyMapSourceSelection();
+            showToast(
+                'OSM-тайлы недоступны (403). Включена локальная подложка.',
+                'error', 7000
+            );
         }
         function showMapSourceNotice(message, offerOnline = true) {
             const box = document.getElementById('map-source-notice');
@@ -2453,6 +2517,9 @@ function drawBoundaryFromGeoJSON(data) {
         // Несколько источников (инициализация, preferences, ручной выбор)
         // могут применяться одновременно — выполняем их строго по очереди.
         let mapSourceApplyChain = Promise.resolve();
+        // После первого 403 от OSM переключаемся на локальную подложку один
+        // раз, чтобы поток tileerror не запускал повторные переключения.
+        let osmTileFallbackActive = false;
         function applyMapSourceSelection() {
             mapSourceApplyChain = mapSourceApplyChain
                 .catch(() => false)
@@ -2529,6 +2596,7 @@ function drawBoundaryFromGeoJSON(data) {
                     const value = mapSelect.value;
                     useVectorTiles = value === 'vector';
                     useLocalTiles = value === 'local';
+                    if (value === 'external') osmTileFallbackActive = false;
                     mapSourceWasChosen = true;
                     localStorage.setItem('albion_map_source', value);
                     void applyMapSourceSelection();
@@ -3121,8 +3189,7 @@ function drawBoundaryFromGeoJSON(data) {
             searchDraft.previewVersion += 1;
             updatePlacePointButton();
             roadKmStatus.textContent =
-                `Ползунок синхронизирован с точкой по ${roadKmState && roadKmState.approximate ? 'приблизительной шкале OSM' : 'СКДФ'}: ${formatKm(nearest.officialKm)} `
-                + `(${Math.round(nearest.distanceKm * 1000)} м до оси дороги).`;
+                `Ползунок синхронизирован с точкой по ${roadKmState && roadKmState.approximate ? 'приблизительной шкале OSM' : 'СКДФ'}: ${formatKm(nearest.officialKm)}.`;
             return nearest;
         }
 
@@ -3746,6 +3813,7 @@ function drawBoundaryFromGeoJSON(data) {
             const element = document.getElementById('resultKmText');
             if (element) element.textContent = text;
             window.currentRoadKmText = text;
+            renderCurrentPointRoad();
         }
 
         // В правом фрейме призрак показывается отдельной строкой; левая
@@ -4684,6 +4752,10 @@ function drawBoundaryFromGeoJSON(data) {
                 removeGhostMarker();
                 // До ответа locate старые участки не относятся к новой точке.
                 markRoadKmStale();
+                // Карточка не должна показывать трассу и километраж прошлой точки.
+                window.currentRoadName = '';
+                window.currentRoadKmText = '';
+                window.currentRoadCopyText = '';
             }
             pointRevision += 1;
             activeMsk = null;
@@ -4710,7 +4782,7 @@ function drawBoundaryFromGeoJSON(data) {
             if (!msk || !Number.isFinite(Number(msk.x)) || !Number.isFinite(Number(msk.y))) {
                 return '';
             }
-            return `X ${Number(msk.x).toFixed(2)}, Y ${Number(msk.y).toFixed(2)} (зона ${msk.zone}, предварительно)`;
+            return `X ${Number(msk.x).toFixed(2)}, Y ${Number(msk.y).toFixed(2)} (~МСК-61-${msk.zone})`;
         }
 
         // Значение координат может состоять из двух строк: оригинальная
@@ -4728,6 +4800,16 @@ function drawBoundaryFromGeoJSON(data) {
                 second.textContent = `👻 ${ghostLine}`;
                 element.appendChild(second);
             }
+        }
+
+        // Название трассы и километраж в карточке текущей точки: те же данные,
+        // что и в правом фрейме источника СКДФ.
+        function renderCurrentPointRoad() {
+            const road = document.getElementById('cpRoad');
+            const km = document.getElementById('cpKm');
+            if (!road || !km) return;
+            road.textContent = window.currentRoadName || '—';
+            km.textContent = window.currentRoadKmText || '—';
         }
 
         function renderCurrentPointCard() {
@@ -4758,6 +4840,7 @@ function drawBoundaryFromGeoJSON(data) {
                 activePoint.address || 'не определено';
             document.getElementById('cpDistrict').textContent =
                 activePoint.district || 'не определено';
+            renderCurrentPointRoad();
             document.getElementById('saveFavoriteBtn').disabled = false;
             document.getElementById('saveFavoriteBtn').title = '';
         }
@@ -6698,6 +6781,7 @@ function drawBoundaryFromGeoJSON(data) {
             window.currentRoadCopyText = '';
             window.currentRoadName = '';
             window.currentRoadKmText = '';
+            renderCurrentPointRoad();
             setStatusSkdfName('');
             updateStatusBar();
         }
@@ -6720,26 +6804,23 @@ function drawBoundaryFromGeoJSON(data) {
                 window.currentRoadCopyText = '';
                 window.currentRoadName = (road && road.full_name) || '';
                 window.currentRoadKmText = '';
+                renderCurrentPointRoad();
                 updateStatusBar();
                 return;
             }
-            const sideText = side.side === 1 ? 'справа по ходу движения'
-                : side.side === -1 ? 'слева по ходу движения'
-                    : side.side === 0 ? 'на оси дороги' : 'сторона не определена';
             const kmText = formatKm(side.km_estimate);
             document.getElementById('resultSourceValue').textContent = road.source || 'СКДФ WFS';
             document.getElementById('resultRoadName').textContent = road.full_name || '';
             document.getElementById('resultKmText').textContent = kmText;
-            document.getElementById('resultSideText').textContent = sideText;
-            document.getElementById('resultPerpendicular').textContent = `${side.perpendicular_m} м до оси дороги`;
             const provenance = document.getElementById('resultProvenance');
             provenance.hidden = !side.km_provenance;
             provenance.textContent = side.km_provenance ? `Километраж: ${side.km_provenance}` : '';
             const categoryHint = document.getElementById('resultCategoryHint');
             categoryHint.hidden = road.category_filter_applied !== false;
-            window.currentRoadCopyText = `${road.full_name}, ${kmText}, ${sideText}`;
+            window.currentRoadCopyText = `${road.full_name}, ${kmText}`;
             window.currentRoadName = road.full_name || '';
             window.currentRoadKmText = kmText;
+            renderCurrentPointRoad();
             updateStatusBar();
         }
 

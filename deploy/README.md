@@ -55,3 +55,57 @@ SKDF/OSM usage rights before distributing generated data.
 The index importer and tilemaker both read the clipped Rostov extract; the
 process normally takes about 15 minutes on the reference machine. Keep enough
 free space for the staging copy (roughly 350 MB for the current dataset).
+
+## Сеть: LAN, TLS и туннель
+
+Приложение остаётся на `127.0.0.1:8021`; наружу его публикует reverse proxy
+или туннель. Пример nginx с TLS для внутреннего имени — `deploy/nginx/albion-locator.conf`.
+Он передаёт `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto` и
+`X-Forwarded-For`, ограничивает тело запроса 110 МБ и закрывает `/metrics`.
+
+Для CloudPub (или другого туннеля) направьте туннель на
+`http://127.0.0.1:8021` и убедитесь, что он:
+
+- завершает TLS и передаёт `X-Forwarded-Proto: https`;
+- сохраняет исходный `Host`/`X-Forwarded-Host`;
+- передаёт `X-Forwarded-For` (иначе все клиенты будут выглядеть как один IP
+  для rate-limit);
+- не открывает `/metrics` и `/api/audit` наружу.
+
+Проверено на `albion-locator.cloudpub.ru` (2026-10-22): CloudPub передаёт
+публичные `Host`/`X-Forwarded-Host`, `X-Forwarded-Proto: https`, реальный
+`X-Forwarded-For`/`X-Real-IP` и перезаписывает подменённые клиентом
+forwarding-заголовки. Поэтому для этого туннеля достаточно
+`ALBION_COOKIE_SECURE=auto`, а `ALBION_ALLOWED_ORIGINS` не требуется.
+
+Если провайдер туннеля не передаёт `X-Forwarded-Proto`, включите
+`ALBION_COOKIE_SECURE=always` — иначе cookie не получат флаг `Secure`.
+При прямом HTTP-доступе к loopback оставьте `ALBION_COOKIE_SECURE=auto`.
+Если `Host` переписывается, добавьте публичный origin в
+`ALBION_ALLOWED_ORIGINS=https://<публичный-хост>`.
+
+## Security preflight
+
+```bash
+python3 deploy/security_check.py --env-file .env
+```
+
+Скрипт проверяет режим `0600`, что `.env` игнорируется Git, и печатает только
+факт наличия ключей (без значений). Он не ротирует ключи: это нужно сделать в
+кабинете Яндекса, ограничив каждый ключ доменом и разделив dev/prod.
+
+## Чек-лист перед публикацией
+
+1. Cookie: `ALBION_COOKIE_SECURE=auto` (TLS-прокси передаёт `X-Forwarded-Proto`)
+   или `always`; сессионная cookie — HttpOnly, CSRF-cookie — читаемая браузером.
+2. CSRF: включён по умолчанию (`ALBION_CSRF=1`); API-клиенты должны присылать
+   `X-CSRF-Token` из cookie `albion_csrf` для POST/PUT/PATCH/DELETE.
+3. `/docs`, `/redoc`, `/openapi.json` закрыты; для локальной разработки —
+   `ALBION_ENABLE_DOCS=1`.
+4. Rate-limit и lockout: `ALBION_API_RATE_LIMIT`,
+   `ALBION_LOGIN_RATE_LIMIT`, `ALBION_LOGIN_MAX_FAILURES`,
+   `ALBION_LOGIN_LOCKOUT_SECONDS`; после сбоя процесса счётчики сбрасываются.
+5. `.env` должен иметь режим `0600`; ключи Яндекса — отдельные для dev/prod,
+   ограничены доменом в кабинете и ротированы после любого раскрытия.
+6. `ALBION_METRICS_TOKEN` задан, если `/metrics` собирается через proxy;
+   сам endpoint не публикуйте в интернет.

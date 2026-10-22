@@ -1130,3 +1130,19 @@ def test_wfs_cache_returns_isolated_copy(monkeypatch):
 
     assert second == [{"id": 1}]
     assert len(calls) == 1
+
+
+def test_data_sources_prefers_installed_vector_map(tmp_path, monkeypatch):
+    (tmp_path / "vector.mbtiles").write_bytes(b"sqlite-placeholder")
+    monkeypatch.setenv("ALBION_GEO_DATA_DIR", str(tmp_path))
+    payload = client.get("/api/data-sources").json()
+    assert payload["vector_tiles_available"] is True
+    assert payload["default_map_source"] == "vector"
+
+
+def test_data_sources_can_force_external_map(tmp_path, monkeypatch):
+    (tmp_path / "vector.mbtiles").write_bytes(b"sqlite-placeholder")
+    monkeypatch.setenv("ALBION_GEO_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ALBION_DEFAULT_MAP_SOURCE", "external")
+    payload = client.get("/api/data-sources").json()
+    assert payload["default_map_source"] == "external"

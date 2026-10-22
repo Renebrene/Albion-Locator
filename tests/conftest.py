@@ -13,6 +13,10 @@ os.environ.setdefault("ALBION_REQUIRE_PASSWORD_CHANGE", "0")
 os.environ.setdefault("ALBION_UPSTREAM_RETRY_ATTEMPTS", "1")
 os.environ.setdefault("ALBION_UPSTREAM_CACHE_TTL", "0")
 os.environ.setdefault("ALBION_LOG_LEVEL", "CRITICAL")
+# Unit tests call APIs directly; CSRF and rate limits are covered explicitly.
+os.environ.setdefault("ALBION_CSRF", "0")
+os.environ.setdefault("ALBION_API_RATE_LIMIT", "0")
+os.environ.setdefault("ALBION_LOGIN_RATE_LIMIT", "0")
 
 # Prevent the ignored developer .env from enabling real provider calls in tests.
 for _name in ("YANDEX_API_KEY", "YANDEX_SUGGEST_API_KEY", "YANDEX_JS_API_KEY"):

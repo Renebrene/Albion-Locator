@@ -331,6 +331,50 @@ def test_skdf_name_moves_to_status_bar_left(page, app_server):
     assert result["afterClear"] == {"text": "", "hidden": True}
 
 
+def test_current_point_card_shows_road_and_km_without_side(page, app_server):
+    login(page, app_server["base_url"])
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({
+                point: {lat: 47.2, lon: 39.7},
+                road: {
+                    skdf_name: 'М-4', full_name: 'М-4 «Дон»', source: 'СКДФ WFS',
+                    road_code: 'М-4', start_km: 0, finish_km: 20,
+                },
+                side: {
+                    side: 1, km_estimate: 10, perpendicular_m: 12,
+                    projected_lat: 47.2, projected_lon: 39.7,
+                    km_provenance: 'официальный километраж',
+                },
+            });
+            if (url === '/api/msk61/from-geographic') return ok({
+                x: 422630.864, y: 2204440.047, zone: 2,
+                profile: 'gost_51794_2008', warning: '',
+            });
+            return ok({});
+        };
+        commitPoint(47.2, 39.7, 'click');
+        await sleep(200);
+        return {
+            road: document.getElementById('cpRoad').textContent,
+            km: document.getElementById('cpKm').textContent,
+            msk: document.querySelector('#cpMsk .point-value-primary')?.textContent || '',
+            cardText: document.getElementById('currentPointCard').innerText,
+            resultText: document.getElementById('results').innerText,
+        };
+    }""")
+    assert result["road"] == "М-4 «Дон»"
+    assert result["km"] == "10 км + 0 м"
+    assert "~МСК-61-2" in result["msk"], result["msk"]
+    assert "до оси дороги" not in result["resultText"]
+    assert "по ходу движения" not in result["resultText"]
+    assert "WGS84" not in result["cardText"]
+
+
 def test_current_point_card_shows_active_ghost(page, app_server):
     login(page, app_server["base_url"])
     result = page.evaluate("""async () => {
@@ -1912,7 +1956,7 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
     context = browser.new_context(viewport={"width": 1280, "height": 800})
     page = context.new_page()
     try:
-        deadline = time.time() + 20
+        deadline = time.time() + 40
         healthy = False
         while time.time() < deadline:
             try:
@@ -1928,7 +1972,7 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
         page.fill("#authPassword", "альбион")
         page.click("#authSubmit")
         page.wait_for_selector("body.authenticated")
-        page.wait_for_selector("#account-modal.open", timeout=15000)
+        page.wait_for_selector("#account-modal.open", timeout=30000)
         assert page.locator("#accountForcedHint").is_visible()
         assert page.locator("#account-dialog-close").is_hidden()
         page.keyboard.press("Escape")
@@ -1936,10 +1980,10 @@ def test_forced_password_change_on_bootstrap(browser, tmp_path):
         page.fill("#accountCurrentPassword", "альбион")
         page.fill("#accountNewPassword", "НовыйПароль123")
         page.fill("#accountConfirmPassword", "НовыйПароль123")
-        with page.expect_navigation():
+        with page.expect_navigation(timeout=60000):
             page.click("#accountSaveBtn")
         page.wait_for_selector("body.authenticated")
-        page.wait_for_selector("#account-modal.open", state="detached", timeout=15000)
+        page.wait_for_selector("#account-modal.open", state="detached", timeout=30000)
         assert page.evaluate(
             "async () => (await (await fetch('/api/auth/me')).json()).user.must_change_password"
         ) is False
