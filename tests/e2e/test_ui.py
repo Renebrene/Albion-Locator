@@ -31,7 +31,17 @@ def test_login_default_road_mode_and_statusbar_layout(page, app_server):
     assert page.locator("#searchDock").get_attribute("data-position") == "bottom"
     assert page.locator("#modeRoadBtn").get_attribute("aria-pressed") == "true"
     assert page.locator("#searchDockBottomHost").evaluate("el => getComputedStyle(el).display") == "contents"
-    assert page.locator("#statusPointText").is_hidden()
+    assert page.locator("#installedPointsToggle").is_visible()
+    assert page.locator("#installedPointsToggle .sb-label").inner_text() == "Установленные"
+    assert page.locator("#statusCopyBtn").count() == 0
+    assert page.locator("#statusPointText").count() == 0
+    labels = page.locator("#status-bar .sb-label").all_inner_texts()
+    for label in ("Установленные", "Призрак", "Слежение", "Подписи", "Шаг", "Центр", "Автоскриншот", "Справка", "Пользователь", "Настройки", "Сброс"):
+        assert label in labels, (label, labels)
+    assert page.locator("#status-bar .sb-divider").count() == 2
+    assert page.locator("#status-bar").evaluate("el => el.getBoundingClientRect().height") >= 44
+    for button in page.locator("#status-bar button").all():
+        assert button.get_attribute("title")
     # Ползунок километража активен сразу, но без точки данных ещё нет.
     assert page.locator("#roadKmEnableCheckbox").is_checked() is True
     assert page.locator("#roadKmSlider").is_disabled()
@@ -51,7 +61,6 @@ def test_top_position_restores_status_text_and_moves_zoom(page, app_server):
         select.dispatchEvent(new Event('change'));
     }""")
     assert page.locator("#searchDock").evaluate("el => el.parentElement.id") == "searchDockTopHost"
-    assert page.locator("#statusPointText").is_visible()
     geometry = _search_geometry(page)
     assert geometry["inputWidth"] > 400
     assert geometry["buttonLeft"] >= geometry["inputRight"] - 1
@@ -239,11 +248,11 @@ def test_km_step_ticks_keyboard_and_wheel_settings(page, app_server):
         commitPoint(47.2, 39.8, 'click');
         await new Promise(resolve => setTimeout(resolve, 80));
     }""")
-    assert page.locator("#roadKmStepButton").inner_text() == "50"
+    assert page.locator("#roadKmStepValue").inner_text() == "50"
     assert page.locator("#roadKmSlider").get_attribute("step") == "0.05"
     assert page.locator("#roadKmScale").evaluate("el => el.classList.contains('visible')") is True
     page.click("#roadKmStepButton")
-    assert page.locator("#roadKmStepButton").inner_text() == "100"
+    assert page.locator("#roadKmStepValue").inner_text() == "100"
     assert page.locator("#roadKmSlider").get_attribute("step") == "0.1"
     # Настройки используют тот же шаг.
     page.evaluate("""() => {
@@ -251,7 +260,7 @@ def test_km_step_ticks_keyboard_and_wheel_settings(page, app_server):
         select.value = '500';
         select.dispatchEvent(new Event('change', {bubbles: true}));
     }""")
-    assert page.locator("#roadKmStepButton").inner_text() == "500"
+    assert page.locator("#roadKmStepValue").inner_text() == "500"
     assert page.locator("#roadKmSlider").get_attribute("step") == "0.5"
     # Фокус на ползунке и Tab-доступ включают клавиатуру.
     page.focus("#roadKmSlider")
@@ -312,24 +321,19 @@ def test_skdf_name_moves_to_status_bar_left(page, app_server):
         };
         commitPoint(47.2, 39.7, 'click');
         await sleep(120);
-        const span = document.getElementById('statusSkdfName');
         const beforeClear = {
             oldElement: Boolean(document.getElementById('resultSkdfName')),
             directoryName: document.getElementById('resultRoadName').textContent,
-            statusName: span.textContent,
-            statusHidden: span.hidden,
         };
         clearSelectedPoint(false);
         return {
             beforeClear,
-            afterClear: {text: span.textContent, hidden: span.hidden},
+            afterClearStatus: currentStatusText(),
         };
     }""")
     assert result["beforeClear"]["oldElement"] is False
     assert result["beforeClear"]["directoryName"] == "М-4 «Дон»"
-    assert result["beforeClear"]["statusName"] == "М-4"
-    assert result["beforeClear"]["statusHidden"] is False
-    assert result["afterClear"] == {"text": "", "hidden": True}
+    assert result["afterClearStatus"] == "Точка не выбрана"
 
 
 def test_current_point_card_shows_road_and_km_with_copy_icons_first(page, app_server):
@@ -992,7 +996,7 @@ def test_batch_mode_uses_selected_point_and_blocks_new_search_points(page, app_s
     page.evaluate("map.fire('dblclick', {latlng: L.latLng(48.5, 41.5)})")
     after = page.evaluate("[activePoint.lat, activePoint.lon]")
     assert after == pytest.approx(before)
-    assert page.locator("#statusPointText").inner_text() != ""
+    assert page.evaluate("currentStatusText()") != ""
     page.click("#tabPointBtn")
     assert page.locator("#searchArmCheckbox").is_enabled()
 
@@ -1931,11 +1935,14 @@ def _install_slider_stub(page, road_code, overpass=None):
                 side: {side: 1, km_estimate: 10, perpendicular_m: 12,
                        projected_lat: 47.2, projected_lon: 39.8},
             });
-            if (url === '/api/roads/online/sections') return ok({
-                code: code, name: 'Тест', first_km: 0, last_km: 20,
-                sections: [{start_km: 0, finish_km: 20,
-                            coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
-            });
+            if (url === '/api/roads/online/sections') {
+                if (!code) return missing;
+                return ok({
+                    code: code, name: 'Тест', first_km: 0, last_km: 20,
+                    sections: [{start_km: 0, finish_km: 20,
+                                coordinates: [[39.70, 47.20], [39.90, 47.20]]}],
+                });
+            }
             if (url === '/api/roads/overpass/geometry') {
                 if (overpassMode !== 'ok') return missing;
                 return ok({
@@ -2005,6 +2012,9 @@ def test_street_geometry_from_locate_builds_axis_without_overpass(page, app_serv
                 side: {side: 1, km_estimate: 3.2, perpendicular_m: 40,
                        projected_lat: 47.2, projected_lon: 39.8},
             });
+            if (url === '/api/roads/online/sections') {
+                return new Response('{}', {status: 404});
+            }
             if (url === '/api/roads/overpass/geometry') {
                 window.__overpassCalls += 1;
                 return new Response('{}', {status: 404});
@@ -2032,6 +2042,61 @@ def test_street_geometry_from_locate_builds_axis_without_overpass(page, app_serv
     assert "геометрия дороги СКДФ" in state["range"]
 
 
+def test_road_without_code_uses_skdf_sections_by_name(page, app_server):
+    """У дороги без кода СКДФ всё равно отдаёт участки — ищем их по названию."""
+    login(page, app_server["base_url"])
+    page.evaluate("""() => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        window.__sectionsBody = null;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({
+                point: {lat: 47.2, lon: 39.8, bearing: null},
+                road: {
+                    road_code: null, full_name: 'г. Шахты - г. Белая Калитва',
+                    skdf_name: 'г. Шахты - г. Белая Калитва',
+                },
+                side: {side: -1, km_estimate: 2.73, perpendicular_m: 3,
+                       projected_lat: 47.2, projected_lon: 39.8},
+            });
+            if (url === '/api/roads/online/sections') {
+                window.__sectionsBody = JSON.parse(options.body);
+                return ok({
+                    code: 'г. Шахты - г. Белая Калитва', name: 'г. Шахты - г. Белая Калитва',
+                    first_km: 1.7, last_km: 3.5,
+                    sections: [
+                        {start_km: 1.7, finish_km: 2.6,
+                         coordinates: [[39.70, 47.20], [39.80, 47.20]]},
+                        {start_km: 2.7, finish_km: 3.5,
+                         coordinates: [[39.85, 47.20], [39.95, 47.20]]},
+                    ],
+                });
+            }
+            if (url === '/api/msk61/from-geographic') return ok({
+                x: 422630.864, y: 2204440.047, zone: 2,
+                profile: 'gost_51794_2008', warning: '',
+            });
+            return ok({status: 'ok', entries: []});
+        };
+        commitPoint(47.2, 39.8, 'click');
+    }""")
+    page.wait_for_function("Boolean(roadKmState)", timeout=10000)
+    state = page.evaluate(
+        "({approximate: Boolean(roadKmState.approximate),"
+        " key: roadKmState.roadKey, first: roadKmState.firstKm, last: roadKmState.lastKm,"
+        " disabled: roadKmSlider.disabled, body: window.__sectionsBody,"
+        " status: roadKmStatus.textContent})"
+    )
+    assert state["approximate"] is False
+    assert state["key"] == "г. Шахты - г. Белая Калитва"
+    assert state["first"] == pytest.approx(1.7)
+    assert state["last"] == pytest.approx(3.5)
+    assert state["disabled"] is False
+    assert state["body"] == {"name": "г. Шахты - г. Белая Калитва"}
+    assert "Ближайший километр" in state["status"]
+
+
 def test_road_without_code_falls_back_to_osm_name_axis(page, app_server):
     """Дорога без кода получает приблизительный километраж по названию из OSM."""
     login(page, app_server["base_url"])
@@ -2057,13 +2122,13 @@ def test_road_without_code_and_without_osm_axis_reports_reason(page, app_server)
     _install_slider_stub(page, None, overpass=None)
     page.evaluate("commitPoint(47.2, 39.8, 'click')")
     page.wait_for_function(
-        "roadKmStatus.textContent.includes('Приблизительную ось OSM')", timeout=10000
+        "roadKmStatus.textContent.includes('Километраж недоступен')", timeout=10000
     )
     state = page.evaluate(
         "({disabled: roadKmSlider.disabled, status: roadKmStatus.textContent})"
     )
     assert state["disabled"] is True
-    assert "официального километража нет" in state["status"]
+    assert "Километраж недоступен" in state["status"]
 
 
 def test_account_modal_opens_from_status_bar(page, app_server):
@@ -2167,3 +2232,44 @@ def test_admin_audit_log_is_visible_in_settings(page, app_server):
     )
     text = page.locator("#auditList").inner_text()
     assert "Вход" in text or "Событий пока нет" not in text
+
+
+def test_admin_imports_xls_and_toggles_installed_points(page, app_server):
+    import io
+
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Служебный заголовок"])
+    sheet.append(["Город", "Адрес", "Сторона", "Координаты"])
+    sheet.append(["Ростов-на-Дону", "ул. Ленина, 1", "А", "47.237201,39.816711"])
+    sheet.append(["Азов", "Петровская, 2", "A", "47,100000 39,400000"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    login(page, app_server["base_url"])
+    page.evaluate("fetch('/api/installed', {method: 'DELETE'})")
+    page.click("#settingsOpenButton")
+    assert page.locator("#installedSettingsBlock").is_visible()
+    page.set_input_files("#installedFileInput", {
+        "name": "installed.xlsx",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "buffer": buffer.getvalue(),
+    })
+    page.click("#installedImportButton")
+    page.wait_for_function(
+        "() => document.querySelector('#installedImportStatus').textContent.includes('Всего в базе: 2')",
+        timeout=10000,
+    )
+    page.click("#settings-dialog-close")
+    page.click("#installedPointsToggle")
+    page.wait_for_function("installedMarkers.length >= 1", timeout=10000)
+    assert page.evaluate("installedVisible") is True
+    assert page.evaluate("installedMarkers[0].options.fillColor") == "#27ae60"
+    assert page.evaluate("installedMarkers[0].options.radius") == 7
+    assert page.locator("#installedPointsToggle").get_attribute("aria-pressed") == "true"
+    assert page.locator("#installedPointsToggle .sb-label").inner_text() == "Установленные"
+    page.click("#installedPointsToggle")
+    assert page.evaluate("installedVisible") is False
+    page.evaluate("fetch('/api/installed', {method: 'DELETE'})")

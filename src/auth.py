@@ -113,6 +113,25 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_user_history_user
                 ON user_history(user_id, created_at DESC);
 
+            -- Точки, импортированные из XLS администратором. Список общий:
+            -- это рабочий справочник установленных конструкций.
+            CREATE TABLE IF NOT EXISTS installed_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                city TEXT NOT NULL DEFAULT '',
+                address TEXT NOT NULL DEFAULT '',
+                side TEXT NOT NULL DEFAULT '',
+                lat REAL NOT NULL,
+                lon REAL NOT NULL,
+                source_file TEXT NOT NULL DEFAULT '',
+                import_batch TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(lat, lon, address, side)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_installed_points_location
+                ON installed_points(lat, lon);
+
             -- Security-relevant actions. The payload is a JSON object and must
             -- never contain passwords, session tokens or provider keys.
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -792,6 +811,105 @@ def delete_bookmark(user_id: int, bookmark_id: str) -> None:
             (bookmark_id, user_id),
         )
         conn.commit()
+
+
+# ========== УСТАНОВЛЕННЫЕ ТОЧКИ (XLS) ==========
+
+def import_installed_points(
+    points: list[dict[str, Any]],
+    source_file: str = "",
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Insert or update points from a parsed spreadsheet.
+
+    The natural key is (lat, lon, address, side), so re-importing the same
+    workbook does not create duplicates. ``replace`` is available for an
+    explicit full refresh; the UI normally uses merge + a separate clear.
+    """
+    now = time.time()
+    batch = secrets.token_hex(8)
+    source_file = (source_file or "")[:200]
+    inserted = updated = 0
+    with closing(_connect()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if replace:
+            conn.execute("DELETE FROM installed_points")
+        for point in points:
+            city = str(point.get("city") or "").strip()[:200]
+            address = str(point.get("address") or "").strip()[:500]
+            side = str(point.get("side") or "").strip()[:100]
+            try:
+                lat = round(float(point["lat"]), 6)
+                lon = round(float(point["lon"]), 6)
+            except (KeyError, TypeError, ValueError):
+                continue
+            row = conn.execute(
+                "SELECT id FROM installed_points "
+                "WHERE lat = ? AND lon = ? AND address = ? AND side = ?",
+                (lat, lon, address, side),
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE installed_points SET city = ?, source_file = ?, "
+                    "import_batch = ?, updated_at = ? WHERE id = ?",
+                    (city, source_file, batch, now, row["id"]),
+                )
+                updated += 1
+            else:
+                conn.execute(
+                    "INSERT INTO installed_points "
+                    "(city, address, side, lat, lon, source_file, import_batch, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (city, address, side, lat, lon, source_file, batch, now, now),
+                )
+                inserted += 1
+        total = conn.execute("SELECT COUNT(*) FROM installed_points").fetchone()[0]
+        conn.commit()
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "total": total,
+        "batch": batch,
+        "source_file": source_file,
+    }
+
+
+def list_installed_points() -> list[dict[str, Any]]:
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, city, address, side, lat, lon, source_file,
+                   created_at, updated_at
+            FROM installed_points
+            ORDER BY city COLLATE NOCASE, address COLLATE NOCASE, side
+            """
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "city": row["city"],
+            "address": row["address"],
+            "side": row["side"],
+            "lat": row["lat"],
+            "lon": row["lon"],
+            "source_file": row["source_file"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def clear_installed_points() -> int:
+    with closing(_connect()) as conn:
+        deleted = conn.execute("DELETE FROM installed_points").rowcount
+        conn.commit()
+    return int(deleted)
+
+
+def count_installed_points() -> int:
+    with closing(_connect()) as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM installed_points").fetchone()[0])
 
 
 # ========== ИСТОРИЯ ТОЧЕК ==========

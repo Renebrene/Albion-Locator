@@ -702,6 +702,42 @@ def test_online_road_sections_404_when_no_rostov_chainage(monkeypatch):
     assert "А-280" in response.json()["detail"]
 
 
+def test_online_road_sections_by_name_without_code(monkeypatch):
+    monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
+    monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})
+    features = [
+        {"properties": {"road_name": "г. Шахты - г. Белая Калитва",
+                        "start_km": 1.7, "finish_km": 1.9},
+         "geometry": {"type": "LineString",
+                      "coordinates": [[39.70, 47.20], [39.75, 47.20]]}},
+        {"properties": {"road_name": "г. Шахты - г. Белая Калитва",
+                        "start_km": 2.7, "finish_km": 2.8},
+         "geometry": {"type": "LineString",
+                      "coordinates": [[39.80, 47.20], [39.82, 47.20]]}},
+    ]
+    captured = {}
+
+    async def fake_wfs(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+        captured["cql"] = cql_filter
+        return features
+
+    monkeypatch.setattr(main, "_wfs_getfeature", fake_wfs)
+    response = client.post("/api/roads/online/sections",
+                           json={"name": "г. Шахты - г. Белая Калитва"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["code"] == "г. Шахты - г. Белая Калитва"
+    assert data["first_km"] == 1.7
+    assert data["last_km"] == 2.8
+    assert len(data["sections"]) == 2
+    assert "road_name = 'г. Шахты - г. Белая Калитва'" in captured["cql"]
+
+
+def test_online_road_sections_requires_code_or_name():
+    response = client.post("/api/roads/online/sections", json={})
+    assert response.status_code == 422
+
+
 def test_overpass_geometry_builds_connected_approximate_axis(monkeypatch):
     monkeypatch.setattr(main, "ADDRESS_SUGGEST_MIN_INTERVAL", 0)
     monkeypatch.setattr(main, "_ADDRESS_SUGGEST_LAST_REQUEST", {})

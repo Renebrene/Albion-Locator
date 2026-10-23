@@ -44,11 +44,13 @@ import auth
 import observability
 import security
 import upstream
+import xls_import
 
 observability.configure_logging()
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 MAX_REQUEST_BODY_BYTES = 110 * 1024 * 1024
+MAX_XLS_BYTES = 20 * 1024 * 1024
 
 # --- СПРАВОЧНИК ДОРОГ ---
 try:
@@ -695,8 +697,13 @@ def _line_parts(geometry: dict | None) -> list[list[tuple[float, float]]]:
     return parts
 
 
-def _route_sections_from_features(features: list[dict], code: str) -> tuple[list[dict], str]:
-    """Convert SKDF road-value features into directional sections inside Rostov."""
+def _route_sections_from_features(features: list[dict],
+                                  code: str | None) -> tuple[list[dict], str]:
+    """Convert SKDF road-value features into directional sections inside Rostov.
+
+    ``code=None`` means the WFS query already filtered by exact road name, so
+    features are not filtered by their code (roads without a code have none).
+    """
     sections: list[dict] = []
     names: list[str] = []
     for feature in features:
@@ -704,7 +711,7 @@ def _route_sections_from_features(features: list[dict], code: str) -> tuple[list
             continue
         properties = feature.get("properties") or {}
         road_name = str(properties.get("road_name") or "").strip()
-        if canonical_road_code(road_name) != code:
+        if code is not None and canonical_road_code(road_name) != code:
             continue
         try:
             start_km = float(properties.get("start_km"))
@@ -731,7 +738,7 @@ def _route_sections_from_features(features: list[dict], code: str) -> tuple[list
             "coordinates": [[round(lon, 6), round(lat, 6)] for lon, lat in points],
         })
     sections.sort(key=lambda section: (section["start_km"], section["finish_km"]))
-    name = max(names, key=len) if names else code
+    name = max(names, key=len) if names else (code or "")
     return sections, name
 
 
@@ -1277,15 +1284,34 @@ class OnlineRoadSearchPayload(BaseModel):
 
 
 class OnlineRoadSectionsPayload(BaseModel):
-    code: str = Field(min_length=2, max_length=40)
+    """Chainage request: a road code or, for roads without a code, its name."""
+
+    code: str | None = Field(default=None, max_length=40)
+    name: str | None = Field(default=None, max_length=240)
 
     @field_validator("code")
     @classmethod
-    def normalize_code(cls, value: str) -> str:
+    def normalize_code(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
         code = canonical_road_code(value.strip())
         if not code:
-            raise ValueError("Укажите код дороги, например М-4 или Р-280")
+            raise ValueError("Некорректный код дороги, например М-4 или Р-280")
         return code
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        return name or None
+
+    @model_validator(mode="after")
+    def require_code_or_name(self):
+        if not self.code and not self.name:
+            raise ValueError("Укажите код или название дороги")
+        return self
 
 
 class RoadGeometryPayload(BaseModel):
@@ -2321,10 +2347,18 @@ async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Requ
     if not await _allow_address_suggest(user.get("id", "unknown"), "road-sections"):
         raise HTTPException(429, "Слишком частые запросы участков дороги; подождите немного")
     code = payload.code
-    escaped_code = code.replace("'", "''")
+    road_label = code or payload.name
+    if code:
+        escaped = code.replace("'", "''")
+        name_filter = f"road_name LIKE '{escaped}%'"
+    else:
+        # Roads without a code (e.g. "г. Шахты - г. Белая Калитва") still
+        # have start_km/finish_km in SKDF; match the exact road name.
+        escaped = payload.name.replace("'", "''")
+        name_filter = f"road_name = '{escaped}'"
     cql_filter = (
         f"BBOX(geom,{ROSTOV_WFS_BBOX},'EPSG:4326') "
-        f"AND road_name LIKE '{escaped_code}%'"
+        f"AND {name_filter}"
     )
     try:
         async with httpx.AsyncClient(headers={"User-Agent": "albion/4.2.1"}) as client:
@@ -2343,13 +2377,13 @@ async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Requ
     if not sections:
         raise HTTPException(
             404,
-            f"Для дороги {code} в СКДФ нет участков с официальным километражом "
+            f"Для дороги {road_label} в СКДФ нет участков с официальным километражом "
             "в Ростовской области",
         )
     first_km = sections[0]["start_km"]
     last_km = max(section["finish_km"] for section in sections)
     return {
-        "code": code,
+        "code": road_label,
         "name": name,
         "first_km": first_km,
         "last_km": last_km,
@@ -2616,6 +2650,73 @@ async def delete_history_entry(entry_id: int, request: Request):
     user = _request_user(request)
     auth.delete_history(user["id"], entry_id)
     return {"status": "ok"}
+
+
+# ========== УСТАНОВЛЕННЫЕ ТОЧКИ (XLS) ==========
+@app.get("/api/installed")
+async def installed_points(request: Request):
+    _request_user(request)
+    points = auth.list_installed_points()
+    return {"points": points, "count": len(points)}
+
+
+@app.get("/api/installed/status")
+async def installed_points_status(request: Request):
+    _request_user(request)
+    return {"count": auth.count_installed_points()}
+
+
+@app.post("/api/installed/import")
+async def import_installed_points(
+    request: Request,
+    file: UploadFile = File(...),
+    replace: bool = Query(default=False),
+):
+    current = _require_admin(request)
+    filename = Path(file.filename or "").name
+    try:
+        data = await _read_upload_limited(file, MAX_XLS_BYTES)
+    finally:
+        await file.close()
+    try:
+        parsed = await asyncio.to_thread(xls_import.parse_workbook, data, filename)
+    except xls_import.ExcelDependencyError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except xls_import.ExcelImportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    stats = auth.import_installed_points(
+        parsed.points, source_file=filename, replace=replace
+    )
+    auth.record_audit(
+        "installed_points_imported", current,
+        target=f"file:{filename}",
+        details={
+            "inserted": stats["inserted"],
+            "updated": stats["updated"],
+            "total": stats["total"],
+            "skipped": parsed.skipped,
+            "replace": replace,
+        },
+    )
+    return {
+        "status": "ok",
+        **stats,
+        "parsed": len(parsed.points),
+        "skipped": parsed.skipped,
+        "errors": parsed.errors,
+        "sheets": parsed.sheets,
+    }
+
+
+@app.delete("/api/installed")
+async def clear_installed_points(request: Request):
+    current = _require_admin(request)
+    deleted = auth.clear_installed_points()
+    auth.record_audit(
+        "installed_points_cleared", current, target="installed_points",
+        details={"deleted": deleted},
+    )
+    return {"status": "ok", "deleted": deleted}
 
 
 # ========== СТАТИКА ==========
