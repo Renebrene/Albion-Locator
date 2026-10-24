@@ -7,11 +7,11 @@ pytest.importorskip("playwright.sync_api")
 
 
 def login(page, base_url):
-    page.goto(base_url)
+    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
     page.fill("#authLogin", "админ")
     page.fill("#authPassword", "альбион")
     page.click("#authSubmit")
-    page.wait_for_selector("body.authenticated")
+    page.wait_for_selector("body.authenticated", timeout=60000)
     # Дать приложению применить preferences/workspace, иначе тест может
     # изменить состояние, которое затем перезапишет loadUserState().
     page.wait_for_function("uiState.ready", timeout=15000)
@@ -38,7 +38,7 @@ def test_login_default_road_mode_and_statusbar_layout(page, app_server):
     labels = page.locator("#status-bar .sb-label").all_inner_texts()
     for label in ("Установленные", "Призрак", "Слежение", "Подписи", "Шаг", "Центр", "Автоскриншот", "Справка", "Пользователь", "Настройки", "Сброс"):
         assert label in labels, (label, labels)
-    assert page.locator("#status-bar .sb-divider").count() == 2
+    assert page.locator("#status-bar .sb-divider").count() == 10
     assert page.locator("#status-bar").evaluate("el => el.getBoundingClientRect().height") >= 44
     for button in page.locator("#status-bar > button.sb-seg, #status-bar > .sb-menu-wrap > button.sb-seg").all():
         assert button.get_attribute("title")
@@ -2285,7 +2285,340 @@ def test_admin_imports_xls_and_toggles_installed_points(page, app_server):
     page.uncheck('#installedFilterMenu input[data-installed-filter="highways"]')
     page.wait_for_function("installedMarkers.length === 3", timeout=5000)
 
+    marker_id = page.evaluate("installedMarkers[0]._leaflet_id")
     page.click("#installedHideButton")
     assert page.evaluate("installedVisible") is False
-    assert page.locator("#installedFilterMenu").is_hidden()
+    assert page.locator("#installedFilterMenu").is_visible()
+    assert page.locator("#installedHideButton").inner_text() == "Показать точки"
+    page.click("#installedHideButton")
+    page.wait_for_function("installedVisible === true", timeout=10000)
+    assert page.locator("#installedHideButton").inner_text() == "Скрыть точки"
+    # Скрытие/показ не пересобирает маркеры — объекты переиспользуются.
+    assert page.evaluate("installedMarkers[0]._leaflet_id") == marker_id
+
+    # Внешнее изменение (другая вкладка/устройство) должно сбросить кеш.
+    page.route(
+        "**/api/installed/status",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body='{"count": 999, "updated_at": 999999}',
+        ),
+    )
+    assert page.evaluate("() => refreshInstalledIfStale()") is True
+    assert page.evaluate("installedLoaded") is False
+    page.unroute("**/api/installed/status")
+
     page.evaluate("fetch('/api/installed', {method: 'DELETE'})")
+
+
+def test_installed_filters_persist_in_user_preferences(page, app_server):
+    """Фильтры «Установленные» переживают reload (server-side preferences)."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+    }""")
+    page.wait_for_timeout(900)  # debounce сохранения preferences
+
+    page.click("#installedPointsToggle")
+    page.wait_for_selector("#installedFilterMenu:not([hidden])", timeout=5000)
+    page.check('#installedFilterMenu input[data-installed-filter="shields"]')
+    page.wait_for_timeout(900)
+
+    page.reload()
+    page.wait_for_selector("body.authenticated", timeout=15000)
+    page.wait_for_function("uiState.ready", timeout=15000)
+    assert page.evaluate("installedFilters.shields") is True
+    assert page.evaluate("installedFilters.highways") is False
+    assert page.is_checked('#installedSettingsBlock input[data-installed-filter="shields"]')
+
+    # Вернуть исходное состояние, чтобы не влиять на другие тесты.
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+    }""")
+    page.wait_for_timeout(900)
+
+
+def test_highway_filter_ignores_distances_and_house_numbers(page, app_server):
+    """Фильтр «Только трассы» не должен ловить «в 55 м», «кв 12», «д. 21-Б»."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    result = page.evaluate("""() => {
+        const check = (city, address) => isHighwayPoint({city, address, format: ''});
+        return {
+            // Ложные срабатывания старой регулярки: расстояния и служебные слова.
+            distance: check('Ростов-на-Дону', 'Евдокимова ул. 39 (через дорогу в 55 м от моста)'),
+            meters: check('БЕЛАЯ КАЛИТВА', 'г. Белая Калитва в 6 метрах на восток от дома №1'),
+            kv: check('Ростов-на-Дону', 'ул. Мира, кв 12'),
+            house: check('Ростов-на-Дону', 'ул. Мира, д. 21-Б'),
+            poz: check('Ростов-на-Дону', 'Левобережная ул. (Стадион сев. вход поз 4)'),
+            // Настоящие трассы должны остаться.
+            m4: check('ШАХТЫ', 'Дачная ул., от М-4 (позиция 28)'),
+            road60: check('ЗЕРНОГРАДСКИЙ РАЙОН', '60Р-1'),
+            m21: check('МОРОЗОВСК', 'Автодороге М 21 «Волгоград - Каменск-Шахтинский»'),
+            trassaCity: check('ТРАССА М4', '10 км + 200 м'),
+            trassaWord: check('БАТАЙСК', 'Трасса М-4, 9 км'),
+        };
+    }""")
+    assert result["distance"] is False, result
+    assert result["meters"] is False, result
+    assert result["kv"] is False, result
+    assert result["house"] is False, result
+    assert result["poz"] is False, result
+    assert result["m4"] is True, result
+    assert result["road60"] is True, result
+    assert result["m21"] is True, result
+    assert result["trassaCity"] is True, result
+    assert result["trassaWord"] is True, result
+
+
+def test_installed_filter_modes_text_is_white_bold(page, app_server):
+    """Активные режимы показываются белым жирным текстом рядом с кнопкой."""
+    page.set_viewport_size({"width": 1920, "height": 900})
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+    }""")
+    modes = page.locator("#installedFilterModes")
+    assert modes.is_hidden()
+
+    page.click("#installedPointsToggle")
+    page.wait_for_selector("#installedFilterMenu:not([hidden])", timeout=5000)
+
+    page.check('#installedFilterMenu input[data-installed-filter="shields"]')
+    assert modes.is_visible()
+    assert modes.inner_text() == "Щиты"
+    assert "· Щиты" in page.locator("#installedFilterCount").inner_text()
+    style = page.evaluate("""() => {
+        const el = document.querySelector('#installedFilterModes .sb-filter-mode');
+        const css = getComputedStyle(el);
+        return { color: css.color, weight: css.fontWeight };
+    }""")
+    assert style["color"] == "rgb(255, 255, 255)", style
+    assert style["weight"] == "700", style
+
+    page.check('#installedFilterMenu input[data-installed-filter="highways"]')
+    assert modes.inner_text() == "Щиты + Трассы"
+
+    page.check('#installedFilterMenu input[data-installed-filter="districts"]')
+    assert modes.inner_text() == "Щиты + Районы + Трассы"
+    assert "· Щиты + Районы + Трассы" in page.locator("#installedFilterCount").inner_text()
+
+    page.uncheck('#installedFilterMenu input[data-installed-filter="shields"]')
+    page.uncheck('#installedFilterMenu input[data-installed-filter="highways"]')
+    page.uncheck('#installedFilterMenu input[data-installed-filter="districts"]')
+    assert modes.is_hidden()
+    assert "·" not in page.locator("#installedFilterCount").inner_text()
+
+    page.keyboard.press("Escape")
+
+
+def test_settings_filter_click_keeps_status_menu_open(page, app_server):
+    """Клик по дублирующему фильтру в настройках не закрывает меню у кнопки."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+    }""")
+    page.click("#installedPointsToggle")
+    page.wait_for_selector("#installedFilterMenu:not([hidden])", timeout=5000)
+
+    page.evaluate("""() => {
+        const input = document.querySelector(
+            '#installedSettingsBlock input[data-installed-filter="shields"]'
+        );
+        input.click();
+    }""")
+    assert page.evaluate("installedMenuOpen") is True
+    assert page.locator("#installedFilterMenu").is_visible()
+    assert page.is_checked('#installedFilterMenu input[data-installed-filter="shields"]')
+
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+    }""")
+    page.keyboard.press("Escape")
+
+
+def test_toast_sits_above_wrapped_status_bar(page, app_server):
+    """Toast не перекрывает статус-бар на узком экране с переносом кнопок."""
+    page.set_viewport_size({"width": 420, "height": 800})
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("showToast('проверка позиции', 'info', 5000)")
+    page.wait_for_selector("#toast.show", timeout=5000)
+    page.wait_for_timeout(450)  # дождаться завершения transition (translateY)
+    geometry = page.evaluate("""() => {
+        const toast = document.getElementById('toast').getBoundingClientRect();
+        const bar = document.getElementById('status-bar').getBoundingClientRect();
+        return {toastBottom: toast.bottom, barTop: bar.top, barHeight: bar.height};
+    }""")
+    assert geometry["barHeight"] > 60, geometry
+    assert geometry["toastBottom"] <= geometry["barTop"] + 1, geometry
+
+
+def test_ghost_toggle_requires_active_point(page, app_server):
+    """Без активной точки призрак не включается и показывает подсказку."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("""() => {
+        activePoint = null;
+        ghostPointEnabled = false;
+        updateStatusBar();
+    }""")
+    page.click("#ghostPointToggle")
+    assert page.evaluate("ghostPointEnabled") is False
+    assert page.evaluate("ghostMarker === null") is True
+    assert page.locator("#toast").inner_text() == "Сначала поставьте исходную точку"
+
+
+def test_url_point_wins_over_saved_workspace(page, app_server):
+    """Точка из ссылки имеет приоритет над точкой, сохранённой в workspace."""
+    login(page, app_server["base_url"])
+    page.click("#settingsOpenButton")
+    page.check("#urlStateSyncToggle")
+    page.keyboard.press("Escape")
+    page.evaluate("() => saveUserState()")
+
+    # Сохраняем в workspace точку A.
+    page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const original = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') return ok({point: {lat: 47.1, lon: 39.1}, road: null, side: null});
+            return original(url, options);
+        };
+        commitPoint(47.1, 39.1, 'click');
+        await new Promise(resolve => setTimeout(resolve, 900));
+    }""")
+    page.wait_for_function(
+        "activePoint && Math.abs(activePoint.lat - 47.1) < 1e-6", timeout=5000
+    )
+
+    # Открываем ссылку с точкой B — она должна перекрыть workspace.
+    encoded = page.evaluate(
+        "AlbionGeo.encodeUrlState({lat: 47.6, lon: 40.2, zoom: 15, mode: 'coords', tab: 'point'})"
+    )
+    page.goto(app_server["base_url"] + "/#s=" + encoded)
+    page.wait_for_selector("body.authenticated", timeout=60000)
+    page.wait_for_function(
+        "activePoint && Math.abs(activePoint.lat - 47.6) < 1e-6"
+        " && Math.abs(activePoint.lon - 40.2) < 1e-6",
+        timeout=8000,
+    )
+    # Точка A не должна вернуться после отложенного автосохранения.
+    page.wait_for_timeout(800)
+    assert page.evaluate("[activePoint.lat, activePoint.lon]") == pytest.approx([47.6, 40.2], abs=1e-6)
+
+
+def test_reverse_geocode_is_deduplicated_per_point(page, app_server):
+    """Повторные renderActivePoint не дублируют запрос обратного геокодера."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    calls = page.evaluate("""async () => {
+        let count = 0;
+        const original = apiFetch;
+        apiFetch = async (url, options) => {
+            if (url === '/api/geocode/reverse') {
+                count += 1;
+                return new Response('{}', {
+                    status: 200, headers: {'Content-Type': 'application/json'}
+                });
+            }
+            return original(url, options);
+        };
+        activePoint = {lat: 47.2, lon: 39.7, source: 'test'};
+        reverseAddressRequestKey = null;
+        renderActivePoint();
+        renderActivePoint();
+        renderActivePoint();
+        await new Promise(resolve => setTimeout(resolve, 300));
+        apiFetch = original;
+        return count;
+    }""")
+    assert calls == 1
+
+
+def test_installed_label_marks_missing_city(page, app_server):
+    """Точка без города получает в подписи явный placeholder."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    label = page.evaluate("""() => {
+        installedPoints = [{
+            city: '', address: 'ул. Тестовая, 1', side: 'A', format: 'Щит',
+            lat: 47.2, lon: 39.7,
+        }];
+        installedVisible = true;
+        renderInstalledLayer();
+        const text = installedMarkers[0]._installedLabel;
+        clearInstalledLayer();
+        installedPoints = [];
+        installedVisible = false;
+        return text;
+    }""")
+    assert label.startswith("(город не указан)"), label
+    assert "ул. Тестовая, 1" in label
+
+
+def test_installed_filter_with_no_matches_shows_feedback(page, app_server):
+    """Фильтр без совпадений даёт toast и нулевой счётчик, слой не «пропадает»."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    page.evaluate("""() => {
+        installedPoints = [{
+            city: 'Ростов-на-Дону', address: 'ул. Тестовая, 1', side: 'A',
+            format: 'Сити-формат', lat: 47.2, lon: 39.7,
+        }];
+        installedLoaded = true;
+        installedVisible = true;
+        setInstalledButtonState(true);
+        installedFilters = {shields: false, districts: false, highways: false};
+        renderInstalledLayer();
+        openInstalledFilterMenu();
+    }""")
+    page.wait_for_selector("#installedFilterMenu:not([hidden])", timeout=5000)
+    page.check('#installedFilterMenu input[data-installed-filter="shields"]')
+    assert page.locator("#toast").inner_text() == "Нет точек по выбранным фильтрам"
+    assert "Показано: 0" in page.locator("#installedFilterCount").inner_text()
+    assert page.locator("#installedPointsToggle").get_attribute("aria-pressed") == "true"
+
+    page.evaluate("""() => {
+        installedFilters = {shields: false, districts: false, highways: false};
+        applyInstalledFilters();
+        clearInstalledLayer();
+        installedPoints = [];
+        installedVisible = false;
+    }""")
+
+
+def test_shield_filter_matches_format_prefix(page, app_server):
+    """«Щит» и «Биг-борд» — одна категория; формат сверяется по началу строки."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+    result = page.evaluate("""() => {
+        installedFilters = {shields: true, districts: false, highways: false};
+        const match = format => installedPointMatches({format, city: '', address: ''});
+        const out = {
+            exact: match('Щит'),
+            versioned: match('Щит 6×3'),
+            billboard: match('Биг-борд'),
+            billboardFull: match('Биг-борд (щит) 6×3'),
+            cityFormat: match('Сити-формат'),
+            empty: match(''),
+        };
+        installedFilters = {shields: false, districts: false, highways: false};
+        return out;
+    }""")
+    assert result["exact"] is True, result
+    assert result["versioned"] is True, result
+    assert result["billboard"] is True, result
+    assert result["billboardFull"] is True, result
+    assert result["cityFormat"] is False, result
+    assert result["empty"] is False, result

@@ -105,6 +105,11 @@ def test_import_is_idempotent_and_clearable():
     assert listed.status_code == 200
     assert listed.json()["count"] == 2
     assert listed.json()["points"][0]["side"] == "A"
+    assert listed.json()["updated_at"] > 0
+
+    status = client.get("/api/installed/status")
+    assert status.json()["count"] == 2
+    assert status.json()["updated_at"] == listed.json()["updated_at"]
 
     cleared = client.delete("/api/installed")
     assert cleared.status_code == 200
@@ -202,3 +207,56 @@ def test_imports_construction_format_for_shield_filter():
     ], header=("Город", "Адрес", "Сторона", "Координаты", "Формат конструкции"))
     parsed = xls_import.parse_workbook(data, "points.xlsx")
     assert parsed.points[0]["format"] == "Щит"
+
+
+def test_installed_parse_is_serialized(monkeypatch):
+    """Параллельные импорты не запускают несколько LibreOffice одновременно."""
+    import threading as _threading
+    import time as _time
+    from xls_import import ParsedWorkbook
+
+    counter = {"active": 0, "peak": 0}
+    guard = _threading.Lock()
+
+    def slow_parse(data, filename):
+        with guard:
+            counter["active"] += 1
+            counter["peak"] = max(counter["peak"], counter["active"])
+        _time.sleep(0.15)
+        with guard:
+            counter["active"] -= 1
+        return ParsedWorkbook(points=[{
+            "city": "Ростов-на-Дону", "address": "ул. Ленина, 1", "side": "A",
+            "format": "Щит", "lat": 47.237201, "lon": 39.816711,
+        }], skipped=0)
+
+    monkeypatch.setattr(main.xls_import, "parse_workbook", slow_parse)
+    threads = [
+        _threading.Thread(target=main._parse_installed_workbook, args=(b"x", "p.xlsx"))
+        for _ in range(3)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert counter["peak"] == 1
+
+
+def test_installed_import_timeout_returns_504(monkeypatch):
+    import time as _time
+    from xls_import import ParsedWorkbook
+
+    def slow_parse(data, filename):
+        _time.sleep(0.5)
+        return ParsedWorkbook(points=[])
+
+    monkeypatch.setattr(main.xls_import, "parse_workbook", slow_parse)
+    monkeypatch.setattr(main, "INSTALLED_IMPORT_TIMEOUT", 0.05)
+
+    client = _admin()
+    response = client.post(
+        "/api/installed/import",
+        files={"file": ("points.xlsx", b"not-really-xlsx", "application/octet-stream")},
+    )
+    assert response.status_code == 504, response.text

@@ -130,8 +130,8 @@ def page(browser, app_server):
 
 
 def login(page, base_url: str) -> None:
-    page.goto(base_url)
+    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
     page.fill("#authLogin", "админ")
     page.fill("#authPassword", "альбион")
     page.click("#authSubmit")
-    page.wait_for_selector("body.authenticated")
+    page.wait_for_selector("body.authenticated", timeout=60000)

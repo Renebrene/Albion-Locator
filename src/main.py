@@ -18,6 +18,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import threading
 import time
 import uuid
 from fractions import Fraction
@@ -51,6 +52,16 @@ observability.configure_logging()
 Image.MAX_IMAGE_PIXELS = 40_000_000
 MAX_REQUEST_BODY_BYTES = 110 * 1024 * 1024
 MAX_XLS_BYTES = 20 * 1024 * 1024
+INSTALLED_IMPORT_TIMEOUT = 150.0
+# LibreOffice-конвертация тяжёлая и не переносит параллельные запуски: разбор
+# таблиц выполняем строго по одному. Lock потоковый, потому что парсинг идёт
+# в отдельном потоке через asyncio.to_thread.
+_INSTALLED_PARSE_LOCK = threading.Lock()
+
+
+def _parse_installed_workbook(data: bytes, filename: str):
+    with _INSTALLED_PARSE_LOCK:
+        return xls_import.parse_workbook(data, filename)
 
 # --- СПРАВОЧНИК ДОРОГ ---
 try:
@@ -2657,13 +2668,20 @@ async def delete_history_entry(entry_id: int, request: Request):
 async def installed_points(request: Request):
     _request_user(request)
     points = auth.list_installed_points()
-    return {"points": points, "count": len(points)}
+    return {
+        "points": points,
+        "count": len(points),
+        "updated_at": auth.installed_points_version(),
+    }
 
 
 @app.get("/api/installed/status")
 async def installed_points_status(request: Request):
     _request_user(request)
-    return {"count": auth.count_installed_points()}
+    return {
+        "count": auth.count_installed_points(),
+        "updated_at": auth.installed_points_version(),
+    }
 
 
 @app.post("/api/installed/import")
@@ -2679,7 +2697,12 @@ async def import_installed_points(
     finally:
         await file.close()
     try:
-        parsed = await asyncio.to_thread(xls_import.parse_workbook, data, filename)
+        parsed = await asyncio.wait_for(
+            asyncio.to_thread(_parse_installed_workbook, data, filename),
+            timeout=INSTALLED_IMPORT_TIMEOUT,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(504, "Превышено время разбора таблицы") from exc
     except xls_import.ExcelDependencyError as exc:
         raise HTTPException(503, str(exc)) from exc
     except xls_import.ExcelImportError as exc:

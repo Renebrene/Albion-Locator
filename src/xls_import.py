@@ -214,101 +214,102 @@ def _read_xlsx_stdlib(data: bytes) -> list[tuple[str, list[list[Any]]]]:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
         raise ExcelImportError(f"Не удалось открыть XLSX: {exc}") from exc
+    try:
+        names = set(archive.namelist())
+        if "xl/workbook.xml" not in names:
+            raise ExcelImportError("В XLSX не найден xl/workbook.xml")
 
-    names = set(archive.namelist())
-    if "xl/workbook.xml" not in names:
-        raise ExcelImportError("В XLSX не найден xl/workbook.xml")
+        def read_xml(name: str) -> ET.Element:
+            info = archive.getinfo(name)
+            if info.file_size > 50 * 1024 * 1024:
+                raise ExcelImportError(f"Слишком большой XML внутри XLSX: {name}")
+            return _xml_root(archive.read(name))
 
-    def read_xml(name: str) -> ET.Element:
-        info = archive.getinfo(name)
-        if info.file_size > 50 * 1024 * 1024:
-            raise ExcelImportError(f"Слишком большой XML внутри XLSX: {name}")
-        return _xml_root(archive.read(name))
-
-    shared: list[str] = []
-    if "xl/sharedStrings.xml" in names:
-        root = read_xml("xl/sharedStrings.xml")
-        for item in root.iter():
-            if _local_name(item.tag) != "si":
-                continue
-            shared.append("".join(
-                text.text or "" for text in item.iter()
-                if _local_name(text.tag) == "t"
-            ))
-
-    rels: dict[str, str] = {}
-    if "xl/_rels/workbook.xml.rels" in names:
-        root = read_xml("xl/_rels/workbook.xml.rels")
-        for rel in root.iter():
-            if _local_name(rel.tag) != "Relationship":
-                continue
-            rel_id = rel.attrib.get("Id")
-            target = rel.attrib.get("Target")
-            if rel_id and target and rel.attrib.get("TargetMode") != "External":
-                rels[rel_id] = _xlsx_relationship_target("xl", target)
-
-    workbook = read_xml("xl/workbook.xml")
-    sheets: list[tuple[str, str]] = []
-    for sheet in workbook.iter():
-        if _local_name(sheet.tag) != "sheet":
-            continue
-        name = sheet.attrib.get("name") or f"Лист {len(sheets) + 1}"
-        rel_id = next(
-            (value for key, value in sheet.attrib.items()
-             if _local_name(key) == "id"),
-            None,
-        )
-        target = rels.get(rel_id or "")
-        if not target:
-            target = f"xl/worksheets/sheet{len(sheets) + 1}.xml"
-        if target in names:
-            sheets.append((name, target))
-        if len(sheets) >= MAX_SHEETS:
-            break
-
-    result: list[tuple[str, list[list[Any]]]] = []
-    for name, path in sheets:
-        root = read_xml(path)
-        rows: list[list[Any]] = []
-        for row in root.iter():
-            if _local_name(row.tag) != "row":
-                continue
-            values: list[Any] = []
-            for cell in row:
-                if _local_name(cell.tag) != "c":
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in names:
+            root = read_xml("xl/sharedStrings.xml")
+            for item in root.iter():
+                if _local_name(item.tag) != "si":
                     continue
-                column = _xlsx_column_index(cell.attrib.get("r", ""))
-                if column is None or column >= MAX_COLUMNS:
+                shared.append("".join(
+                    text.text or "" for text in item.iter()
+                    if _local_name(text.tag) == "t"
+                ))
+
+        rels: dict[str, str] = {}
+        if "xl/_rels/workbook.xml.rels" in names:
+            root = read_xml("xl/_rels/workbook.xml.rels")
+            for rel in root.iter():
+                if _local_name(rel.tag) != "Relationship":
                     continue
-                while len(values) <= column:
-                    values.append(None)
-                cell_type = cell.attrib.get("t", "")
-                value_node = next(
-                    (child for child in cell if _local_name(child.tag) == "v"),
-                    None,
-                )
-                raw = value_node.text if value_node is not None else None
-                if cell_type == "s":
-                    try:
-                        value = shared[int(raw)] if raw is not None else None
-                    except (ValueError, IndexError):
-                        value = None
-                elif cell_type == "inlineStr":
-                    value = "".join(
-                        text.text or "" for text in cell.iter()
-                        if _local_name(text.tag) == "t"
-                    )
-                elif cell_type == "b":
-                    value = "TRUE" if raw == "1" else "FALSE" if raw == "0" else raw
-                else:
-                    value = raw
-                values[column] = value
-            rows.append(values)
-            if len(rows) >= MAX_ROWS:
+                rel_id = rel.attrib.get("Id")
+                target = rel.attrib.get("Target")
+                if rel_id and target and rel.attrib.get("TargetMode") != "External":
+                    rels[rel_id] = _xlsx_relationship_target("xl", target)
+
+        workbook = read_xml("xl/workbook.xml")
+        sheets: list[tuple[str, str]] = []
+        for sheet in workbook.iter():
+            if _local_name(sheet.tag) != "sheet":
+                continue
+            name = sheet.attrib.get("name") or f"Лист {len(sheets) + 1}"
+            rel_id = next(
+                (value for key, value in sheet.attrib.items()
+                 if _local_name(key) == "id"),
+                None,
+            )
+            target = rels.get(rel_id or "")
+            if not target:
+                target = f"xl/worksheets/sheet{len(sheets) + 1}.xml"
+            if target in names:
+                sheets.append((name, target))
+            if len(sheets) >= MAX_SHEETS:
                 break
-        result.append((name, rows))
-    return result
 
+        result: list[tuple[str, list[list[Any]]]] = []
+        for name, path in sheets:
+            root = read_xml(path)
+            rows: list[list[Any]] = []
+            for row in root.iter():
+                if _local_name(row.tag) != "row":
+                    continue
+                values: list[Any] = []
+                for cell in row:
+                    if _local_name(cell.tag) != "c":
+                        continue
+                    column = _xlsx_column_index(cell.attrib.get("r", ""))
+                    if column is None or column >= MAX_COLUMNS:
+                        continue
+                    while len(values) <= column:
+                        values.append(None)
+                    cell_type = cell.attrib.get("t", "")
+                    value_node = next(
+                        (child for child in cell if _local_name(child.tag) == "v"),
+                        None,
+                    )
+                    raw = value_node.text if value_node is not None else None
+                    if cell_type == "s":
+                        try:
+                            value = shared[int(raw)] if raw is not None else None
+                        except (ValueError, IndexError):
+                            value = None
+                    elif cell_type == "inlineStr":
+                        value = "".join(
+                            text.text or "" for text in cell.iter()
+                            if _local_name(text.tag) == "t"
+                        )
+                    elif cell_type == "b":
+                        value = "TRUE" if raw == "1" else "FALSE" if raw == "0" else raw
+                    else:
+                        value = raw
+                    values[column] = value
+                rows.append(values)
+                if len(rows) >= MAX_ROWS:
+                    break
+            result.append((name, rows))
+        return result
+    finally:
+        archive.close()
 
 def _ods_cell_value(cell: ET.Element) -> Any:
     value_type = cell.attrib.get(
@@ -331,50 +332,53 @@ def _read_ods(data: bytes) -> list[tuple[str, list[list[Any]]]]:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
         raise ExcelImportError(f"Не удалось открыть ODS: {exc}") from exc
-    names = set(archive.namelist())
-    if "content.xml" not in names:
-        raise ExcelImportError("В ODS не найден content.xml")
-    info = archive.getinfo("content.xml")
-    if info.file_size > 80 * 1024 * 1024:
-        raise ExcelImportError("Слишком большой content.xml внутри ODS")
     try:
-        root = ET.fromstring(archive.read("content.xml"))
-    except ET.ParseError as exc:
-        raise ExcelImportError(f"Повреждён content.xml в ODS: {exc}") from exc
+        names = set(archive.namelist())
+        if "content.xml" not in names:
+            raise ExcelImportError("В ODS не найден content.xml")
+        info = archive.getinfo("content.xml")
+        if info.file_size > 80 * 1024 * 1024:
+            raise ExcelImportError("Слишком большой content.xml внутри ODS")
+        try:
+            root = ET.fromstring(archive.read("content.xml"))
+        except ET.ParseError as exc:
+            raise ExcelImportError(f"Повреждён content.xml в ODS: {exc}") from exc
 
-    result: list[tuple[str, list[list[Any]]]] = []
-    for table in root.iter(f"{ns_table}table"):
-        name = table.attrib.get(f"{ns_table}name") or f"Лист {len(result) + 1}"
-        rows: list[list[Any]] = []
-        for row in table.iter(f"{ns_table}table-row"):
-            values: list[Any] = []
-            for cell in row:
-                if _local_name(cell.tag) not in {"table-cell", "covered-table-cell"}:
-                    continue
+        result: list[tuple[str, list[list[Any]]]] = []
+        for table in root.iter(f"{ns_table}table"):
+            name = table.attrib.get(f"{ns_table}name") or f"Лист {len(result) + 1}"
+            rows: list[list[Any]] = []
+            for row in table.iter(f"{ns_table}table-row"):
+                values: list[Any] = []
+                for cell in row:
+                    if _local_name(cell.tag) not in {"table-cell", "covered-table-cell"}:
+                        continue
+                    try:
+                        repeat = int(cell.attrib.get(f"{ns_table}number-columns-repeated", "1"))
+                    except ValueError:
+                        repeat = 1
+                    repeat = max(1, min(repeat, MAX_COLUMNS))
+                    value = _ods_cell_value(cell)
+                    values.extend([value] * repeat)
+                    if len(values) >= MAX_COLUMNS:
+                        break
                 try:
-                    repeat = int(cell.attrib.get(f"{ns_table}number-columns-repeated", "1"))
+                    row_repeat = int(row.attrib.get(f"{ns_table}number-rows-repeated", "1"))
                 except ValueError:
-                    repeat = 1
-                repeat = max(1, min(repeat, MAX_COLUMNS))
-                value = _ods_cell_value(cell)
-                values.extend([value] * repeat)
-                if len(values) >= MAX_COLUMNS:
-                    break
-            try:
-                row_repeat = int(row.attrib.get(f"{ns_table}number-rows-repeated", "1"))
-            except ValueError:
-                row_repeat = 1
-            row_repeat = max(1, min(row_repeat, MAX_ROWS))
-            for _ in range(row_repeat):
-                rows.append(list(values[:MAX_COLUMNS]))
+                    row_repeat = 1
+                row_repeat = max(1, min(row_repeat, MAX_ROWS))
+                for _ in range(row_repeat):
+                    rows.append(list(values[:MAX_COLUMNS]))
+                    if len(rows) >= MAX_ROWS:
+                        break
                 if len(rows) >= MAX_ROWS:
                     break
-            if len(rows) >= MAX_ROWS:
+            result.append((name, rows))
+            if len(result) >= MAX_SHEETS:
                 break
-        result.append((name, rows))
-        if len(result) >= MAX_SHEETS:
-            break
-    return result
+        return result
+    finally:
+        archive.close()
 
 
 def _convert_to_ods(data: bytes, filename: str) -> bytes | None:

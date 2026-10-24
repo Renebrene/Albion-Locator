@@ -190,3 +190,18 @@ def test_state_mutations_reject_cross_origin(path):
         headers={"origin": "https://attacker.example"},
     )
     assert response.status_code == 403
+
+
+def test_preferences_round_trip_installed_filters():
+    """Фильтры установленных точек хранятся в персональных preferences."""
+    client = editor_client()
+    filters = {"shields": True, "districts": False, "highways": True}
+
+    saved = client.put(
+        "/api/user/preferences",
+        json={"payload": {"installedFilters": filters}, "version": 0},
+    )
+    assert saved.status_code == 200, saved.text
+
+    loaded = client.get("/api/user/preferences").json()["payload"]
+    assert loaded["installedFilters"] == filters

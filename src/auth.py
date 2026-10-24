@@ -924,6 +924,13 @@ def count_installed_points() -> int:
         return int(conn.execute("SELECT COUNT(*) FROM installed_points").fetchone()[0])
 
 
+def installed_points_version() -> float:
+    """Максимальный updated_at: дешёвый признак изменения набора."""
+    with closing(_connect()) as conn:
+        row = conn.execute("SELECT MAX(updated_at) FROM installed_points").fetchone()
+    return float(row[0] or 0.0)
+
+
 # ========== ИСТОРИЯ ТОЧЕК ==========
 
 def push_history(user_id: int, lat: float, lon: float,

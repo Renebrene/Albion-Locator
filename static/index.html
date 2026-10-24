@@ -438,9 +438,19 @@
             white-space: nowrap;
             border-radius: 5px;
             flex: 0 0 auto;
+            position: relative;
         }
         #status-bar .sb-icon { font-size: 13px; line-height: 1; }
         #status-bar .sb-label { font-size: 10px; font-weight: 500; letter-spacing: .1px; }
+        .sb-filter-modes {
+            font-size: 10px;
+            white-space: nowrap;
+            color: #fff;
+            padding: 0 1px;
+        }
+        .sb-filter-modes[hidden] { display: none; }
+        .sb-filter-mode { font-weight: 700; color: #fff; }
+        .sb-filter-sep { opacity: .8; margin: 0; font-weight: 700; color: #fff; }
         #status-bar .sb-divider {
             width: 1px;
             height: 20px;
@@ -478,7 +488,13 @@
         #status-bar .sb-seg[aria-pressed="true"] { background: #2f9e44; color: #fff; }
         .drop-zone.disabled, .batch-drop-zone.disabled { opacity: .45; pointer-events: none; }
         #status-bar .sb-spacer { flex: 1; }
-        .sb-menu-wrap { position: relative; flex: 0 0 auto; }
+        .sb-menu-wrap {
+            position: relative;
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
         .installed-filter-menu {
             position: absolute;
             right: 0;
@@ -548,6 +564,7 @@
         body.settings-modal-open { overflow: hidden; }
         @media (max-width: 1600px) {
             #status-bar .sb-seg { padding: 0 6px; gap: 4px; }
+            .sb-filter-modes { display: none; }
             #autoScreenshotToggle .sb-label,
             #goToRostovButton .sb-label,
             #helpButton .sb-label,
@@ -1391,6 +1408,7 @@
         <div class="sb-spacer"></div>
         <div class="sb-menu-wrap">
             <button class="sb-seg" type="button" id="installedPointsToggle" title="Показать зелёные точки из загруженной таблицы и фильтры" aria-label="Установленные точки и фильтры" aria-pressed="false" aria-expanded="false"><span class="sb-icon" aria-hidden="true">📍</span><span class="sb-label">Установленные</span></button>
+            <span id="installedFilterModes" class="sb-filter-modes" hidden></span>
             <div id="installedFilterMenu" class="installed-filter-menu" hidden>
                 <strong>Установленные точки</strong>
                 <label><input type="checkbox" data-installed-filter="shields"> Только щиты</label>
@@ -1402,17 +1420,25 @@
                 </div>
             </div>
         </div>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="ghostPointToggle" title="Режим призрака: сравнить точку до переноса" aria-label="Режим призрака" aria-pressed="false"><span class="sb-icon" aria-hidden="true">👻</span><span class="sb-label">Призрак</span></button>
-        <button class="sb-seg" type="button" id="trackPointToggle" title="Слежение за ползунком: карта следует за выбранным километром" aria-label="Слежение за ползунком" aria-pressed="false"><span class="sb-icon" aria-hidden="true">👁</span><span class="sb-label">Слежение</span></button>
-        <button class="sb-seg" type="button" id="pointLabelsToggle" title="Показывать подписи всех точек на карте" aria-label="Показывать подписи всех точек на карте" aria-pressed="false"><span class="sb-icon" aria-hidden="true">💬</span><span class="sb-label">Подписи</span></button>
         <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="roadKmStepButton" title="Шаг ползунка километража: 50 м" aria-label="Шаг ползунка километража: 50 м"><span class="sb-icon" aria-hidden="true">📏</span><span class="sb-label">Шаг</span> <span id="roadKmStepValue">50</span> м</button>
+        <span class="sb-divider" aria-hidden="true"></span>
+        <button class="sb-seg" type="button" id="trackPointToggle" title="Слежение за ползунком: карта следует за выбранным километром" aria-label="Слежение за ползунком" aria-pressed="false"><span class="sb-icon" aria-hidden="true">👁</span><span class="sb-label">Слежение</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
+        <button class="sb-seg" type="button" id="pointLabelsToggle" title="Показывать подписи всех точек на карте" aria-label="Показывать подписи всех точек на карте" aria-pressed="false"><span class="sb-icon" aria-hidden="true">💬</span><span class="sb-label">Подписи</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="goToRostovButton" onclick="centerMapOnData()" title="Центрировать по активной точке или всем точкам пакета" aria-label="Центрировать по активной точке или всем точкам пакета"><span class="sb-icon" aria-hidden="true">🎯</span><span class="sb-label">Центр</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="autoScreenshotToggle" title="Автоскриншот: таймер 3 с" aria-label="Автоскриншот" aria-pressed="false"><span class="sb-icon" aria-hidden="true">⏱</span><span class="sb-label">Автоскриншот</span> <span id="autoScreenshotSeconds">3</span>с</button>
         <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="helpButton" onclick="toggleHelpFrame()" title="Открыть справку по интерфейсу" aria-label="Открыть справку"><span class="sb-icon" aria-hidden="true">❓</span><span class="sb-label">Справка</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="accountOpenButton" title="Аккаунт: сменить логин или пароль" aria-label="Аккаунт" aria-haspopup="dialog"><span class="sb-icon" aria-hidden="true">👤</span><span class="sb-label">Пользователь</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="settingsOpenButton" title="Открыть настройки" aria-label="Настройки" aria-haspopup="dialog"><span class="sb-icon" aria-hidden="true">⚙️</span><span class="sb-label">Настройки</span></button>
+        <span class="sb-divider" aria-hidden="true"></span>
         <button class="sb-seg" type="button" id="resetWorkspaceBtn" title="Очистить рабочую сессию и сохранённые настройки карты" aria-label="Очистить рабочую сессию"><span class="sb-icon" aria-hidden="true">↺</span><span class="sb-label">Сброс</span></button>
     </footer>
 
@@ -1796,6 +1822,9 @@
         let installedVisible = false;
         let installedLoaded = false;
         let installedRequest = null;
+        let installedDataVersion = 0;
+        let installedDataEpoch = 0;
+        let installedLayerSignature = null;
         let installedMenuOpen = false;
         let installedFilters = { shields: false, districts: false, highways: false };
         try {
@@ -2332,6 +2361,12 @@ function drawBoundaryFromGeoJSON(data) {
         let toastHideTimer = null;
         function showToast(message, type = 'info', duration = 3000) {
             const toast = document.getElementById('toast');
+            // Статус-бар на узких экранах переносится и растёт: считаем
+            // отступ от toast динамически, чтобы он не перекрывал кнопки.
+            const statusBar = document.getElementById('status-bar');
+            if (statusBar) {
+                toast.style.bottom = `${Math.round(statusBar.getBoundingClientRect().height + 10)}px`;
+            }
             clearTimeout(toastHideTimer);
             toast.textContent = message;
             toast.className = 'toast show ' + type;
@@ -4553,6 +4588,9 @@ function drawBoundaryFromGeoJSON(data) {
         // и километража в карточке показывают «—».
         let currentRoadCardStale = false;
         let pointRevision = 0;
+        // Ключ "lat,lon" последнего запроса обратного геокодера: защищает от
+        // повторных вызовов для одной и той же точки (иначе throttle → 429).
+        let reverseAddressRequestKey = null;
 
         function normalizeQueryInput(input) {
             const result = window.AlbionGeo.normalizeSearchQuery(input.value);
@@ -5082,6 +5120,9 @@ function drawBoundaryFromGeoJSON(data) {
         // Обратный геокодер: координаты -> адрес/район. Ошибка не мешает точке —
         // поля просто остаются «не определено».
         async function resolveReverseAddress(lat, lon) {
+            const requestKey = `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}`;
+            if (reverseAddressRequestKey === requestKey) return;
+            reverseAddressRequestKey = requestKey;
             const revision = pointRevision;
             try {
                 const response = await apiFetch('/api/geocode/reverse', {
@@ -5441,6 +5482,7 @@ function drawBoundaryFromGeoJSON(data) {
                 roadHoverRadius: roadHoverRadius,
                 urlStateSync: urlStateSyncEnabled,
                 multiSelect: multiSelectEnabled,
+                installedFilters: { ...installedFilters },
             };
         }
 
@@ -5540,6 +5582,18 @@ function drawBoundaryFromGeoJSON(data) {
             if (preferences.mapSource && mapSelect.value !== preferences.mapSource) {
                 mapSelect.value = preferences.mapSource;
                 mapSelect.dispatchEvent(new Event('change'));
+            }
+            // Фильтры установленных точек — общее состояние для меню и настроек.
+            // Серверное значение является источником истины; localStorage
+            // используется только как быстрый кэш до ответа сервера.
+            if (preferences.installedFilters && typeof preferences.installedFilters === 'object') {
+                for (const key of Object.keys(installedFilters)) {
+                    if (typeof preferences.installedFilters[key] === 'boolean') {
+                        installedFilters[key] = preferences.installedFilters[key];
+                    }
+                }
+                syncInstalledFilterInputs();
+                applyInstalledFilters();
             }
             updateAutoScreenshotIndicator();
         }
@@ -7491,22 +7545,26 @@ function drawBoundaryFromGeoJSON(data) {
                 || value.startsWith('ростов-на-дону') || value.startsWith('ростов ');
         }
 
+        // Код дороги: М-4, Р-280, 60Р-1, М 21. Только заглавные буквы —
+        // иначе предлоги с расстоянием («в 500 м», «от 55 м») и служебные
+        // пометки («д. 21-Б», «кв 12», «поз 4») ошибочно считаются трассами.
+        const INSTALLED_ROAD_CODE = /(?:^|\s)(?:\d{1,3}[А-ЯA-Z]{1,2}|[А-ЯA-Z]{1,3})[-\s]\d{1,3}(?:\.\d+)?(?:\s|$)/;
+
         function isHighwayPoint(point) {
             const city = installedFilterText(point.city);
             const address = installedFilterText(point.address);
             const text = `${city} ${address}`;
             if (/^\s*трасса\b/.test(city) || /^\s*трасса\b/.test(address)) return true;
             if (/\b(?:автодорог|а\/д|дорога|шоссе|подъезд|объезд|магистраль)\b/.test(text)) return true;
-            // Road codes: М-4, М 21, Р-280, 60Р-1.
-            if (/(?:^|\s)\d{1,3}[а-яa-z][-\s]?\d{1,3}(?:\.\d+)?(?:\s|$)/.test(address)) return true;
-            if (/(?:^|\s)[а-яa-z]{1,3}[-\s]\d{1,3}(?:\.\d+)?(?:\s|$)/.test(address)) return true;
+            // Код дороги проверяем на оригинальном тексте (регистр важен).
+            if (INSTALLED_ROAD_CODE.test(String(point.address || ''))) return true;
             // A kilometre reference outside Rostov is a highway/road object.
             if ((/\bкм\b|\d+\s*км/.test(address)) && !isRostovCity(city)) return true;
             return false;
         }
 
         function installedPointMatches(point) {
-            if (installedFilters.shields && !installedFilterText(point.format).includes('щит')) return false;
+            if (installedFilters.shields && !isShieldFormat(point.format)) return false;
             if (installedFilters.districts && isRostovCity(point.city)) return false;
             if (installedFilters.highways && !isHighwayPoint(point)) return false;
             return true;
@@ -7519,19 +7577,54 @@ function drawBoundaryFromGeoJSON(data) {
         function clearInstalledLayer() {
             if (installedLayer) { map.removeLayer(installedLayer); installedLayer = null; }
             installedMarkers = [];
+            installedLayerSignature = null;
+        }
+
+        function installedFilterSignature() {
+            return [
+                installedFilters.shields ? 1 : 0,
+                installedFilters.districts ? 1 : 0,
+                installedFilters.highways ? 1 : 0,
+                installedDataVersion,
+                installedPoints.length,
+            ].join('|');
         }
 
         function setInstalledButtonState(active) {
             installedVisible = Boolean(active);
             const button = document.getElementById('installedPointsToggle');
-            if (!button) return;
-            button.setAttribute('aria-pressed', String(installedVisible));
-            button.classList.toggle('hl', installedVisible);
+            if (button) {
+                button.setAttribute('aria-pressed', String(installedVisible));
+                button.classList.toggle('hl', installedVisible);
+            }
+            const hideButton = document.getElementById('installedHideButton');
+            if (hideButton) {
+                hideButton.textContent = installedVisible ? 'Скрыть точки' : 'Показать точки';
+            }
         }
+
+        // «Щит» и «Биг-борд» — одна категория конструкции.
+        const SHIELD_FORMAT_PREFIXES = ['щит', 'биг-борд', 'бигборд', 'билборд', 'billboard'];
+
+        function isShieldFormat(format) {
+            const value = installedFilterText(format);
+            return SHIELD_FORMAT_PREFIXES.some(prefix => value.startsWith(prefix));
+        }
+
+        const INSTALLED_FILTER_META = [
+            { key: 'shields', label: 'Щиты' },
+            { key: 'districts', label: 'Районы' },
+            { key: 'highways', label: 'Трассы' },
+        ];
 
         function updateInstalledFilterCounts(groups, rows) {
             const total = installedPoints.length;
-            const text = `Показано: ${groups} (${rows} из ${total} строк)`;
+            const prefix = installedVisible ? 'Показано' : 'Подходит';
+            const active = INSTALLED_FILTER_META
+                .filter(item => installedFilters[item.key])
+                .map(item => item.label);
+            const suffix = active.length ? ` · ${active.join(' + ')}` : '';
+            const text = `${prefix}: ${groups} (${rows} из ${total} строк)${suffix}`;
             for (const id of ['installedFilterCount', 'installedFilterStatus']) {
                 const element = document.getElementById(id);
                 if (element) element.textContent = text;
@@ -7542,6 +7635,33 @@ function drawBoundaryFromGeoJSON(data) {
             document.querySelectorAll('input[data-installed-filter]').forEach(input => {
                 input.checked = Boolean(installedFilters[input.dataset.installedFilter]);
             });
+            updateInstalledFilterIndicator();
+        }
+
+        function updateInstalledFilterIndicator() {
+            const modes = document.getElementById('installedFilterModes');
+            if (!modes) return;
+            const active = INSTALLED_FILTER_META.filter(item => installedFilters[item.key]);
+            modes.replaceChildren();
+            if (!active.length) {
+                modes.hidden = true;
+                modes.removeAttribute('title');
+                return;
+            }
+            modes.hidden = false;
+            active.forEach((item, index) => {
+                if (index) {
+                    const separator = document.createElement('span');
+                    separator.className = 'sb-filter-sep';
+                    separator.textContent = ' + ';
+                    modes.appendChild(separator);
+                }
+                const label = document.createElement('span');
+                label.className = 'sb-filter-mode';
+                label.textContent = item.label;
+                modes.appendChild(label);
+            });
+            modes.title = active.map(item => item.label).join(' + ');
         }
 
         function saveInstalledFilters() {
@@ -7549,18 +7669,54 @@ function drawBoundaryFromGeoJSON(data) {
             catch (error) { /* ignore */ }
         }
 
+        function invalidateInstalledCache() {
+            installedDataEpoch += 1;
+            installedLoaded = false;
+        }
+
         async function fetchInstalledPoints() {
             if (installedLoaded) return installedPoints;
             if (installedRequest) return installedRequest;
             installedRequest = (async () => {
-                const response = await apiFetch('/api/installed');
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.detail || 'Не удалось загрузить установленные точки');
-                installedPoints = Array.isArray(data.points) ? data.points : [];
-                installedLoaded = true;
+                // Если данные изменились, пока запрос летел, не кешируем
+                // устаревший ответ — повторяем один раз.
+                for (let attempt = 0; attempt < 2; attempt += 1) {
+                    const epoch = installedDataEpoch;
+                    const response = await apiFetch('/api/installed');
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(data.detail || 'Не удалось загрузить установленные точки');
+                    if (epoch !== installedDataEpoch) continue;
+                    installedPoints = Array.isArray(data.points) ? data.points : [];
+                    installedDataVersion = Number(data.updated_at) || 0;
+                    installedLoaded = true;
+                    return installedPoints;
+                }
+                installedLoaded = false;
                 return installedPoints;
             })().finally(() => { installedRequest = null; });
             return installedRequest;
+        }
+
+        async function refreshInstalledIfStale() {
+            if (!installedLoaded) return false;
+            try {
+                const response = await apiFetch('/api/installed/status');
+                if (!response.ok) return false;
+                const data = await response.json();
+                const count = Number(data.count);
+                const version = Number(data.updated_at) || 0;
+                const changed = (Number.isFinite(count) && count !== installedPoints.length)
+                    || (version > 0 && version !== installedDataVersion);
+                if (changed) invalidateInstalledCache();
+                return changed;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function reloadInstalledLayer() {
+            await fetchInstalledPoints();
+            if (installedVisible) renderInstalledLayer();
         }
 
         function groupInstalledPoints(points) {
@@ -7597,7 +7753,10 @@ function drawBoundaryFromGeoJSON(data) {
                     weight: 2,
                     fillOpacity: 1,
                 });
-                const label = [group.city, group.address, group.sides.join(', '), group.formats.join(', ')]
+                // Пустой город показываем явно, чтобы подпись не выглядела
+                // «безымянной» (и объясняла попадание в фильтр «Только районы»).
+                const cityLabel = group.city || (group.address ? '(город не указан)' : '');
+                const label = [cityLabel, group.address, group.sides.join(', '), group.formats.join(', ')]
                     .filter(Boolean).join(' · ');
                 marker._installedLabel = label || `${group.lat.toFixed(6)}, ${group.lon.toFixed(6)}`;
                 marker.bindTooltip(makeMarkerLabelElement(marker._installedLabel), {
@@ -7616,6 +7775,7 @@ function drawBoundaryFromGeoJSON(data) {
                 installedLayer.addLayer(marker);
                 installedMarkers.push(marker);
             }
+            installedLayerSignature = installedFilterSignature();
             updateInstalledFilterCounts(groups.length, filtered.length);
             return groups.length;
         }
@@ -7637,20 +7797,46 @@ function drawBoundaryFromGeoJSON(data) {
             if (button) button.setAttribute('aria-expanded', 'false');
         }
 
+        function fitInstalledBounds(count) {
+            if (!installedLayer || !installedLayer.getBounds().isValid()) return;
+            if (count === 1) map.setView(installedLayer.getBounds().getCenter(), 15);
+            else map.fitBounds(installedLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
+        }
+
+        function showCachedInstalledLayer() {
+            const signature = installedFilterSignature();
+            let count;
+            if (installedLayer && installedLayerSignature === signature) {
+                // Данные и фильтры не менялись — просто возвращаем слой на карту.
+                if (!map.hasLayer(installedLayer)) map.addLayer(installedLayer);
+                const filtered = filteredInstalledPoints();
+                count = groupInstalledPoints(filtered).length;
+                updateInstalledFilterCounts(count, filtered.length);
+            } else {
+                count = renderInstalledLayer();
+            }
+            setInstalledButtonState(true);
+            fitInstalledBounds(count);
+            return count;
+        }
+
         async function showInstalledPoints() {
+            if (installedLoaded && installedPoints.length) {
+                // Показываем кэш мгновенно, актуальность сверяем фоном.
+                const count = showCachedInstalledLayer();
+                void refreshInstalledIfStale().then(changed => {
+                    if (changed) return reloadInstalledLayer();
+                }).catch(() => {});
+                return count;
+            }
+            await refreshInstalledIfStale();
             await fetchInstalledPoints();
             if (!installedPoints.length) {
                 updateInstalledFilterCounts(0, 0);
                 showToast('Нет установленных точек. Загрузите XLS в настройках.', 'error', 5000);
                 return 0;
             }
-            const count = renderInstalledLayer();
-            setInstalledButtonState(true);
-            if (installedLayer && installedLayer.getBounds().isValid()) {
-                if (count === 1) map.setView(installedLayer.getBounds().getCenter(), 15);
-                else map.fitBounds(installedLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
-            }
-            return count;
+            return showCachedInstalledLayer();
         }
 
         async function toggleInstalledPoints() {
@@ -7660,7 +7846,12 @@ function drawBoundaryFromGeoJSON(data) {
                 return;
             }
             openInstalledFilterMenu();
-            if (installedVisible) return;
+            if (installedVisible) {
+                void refreshInstalledIfStale().then(changed => {
+                    if (changed) return reloadInstalledLayer();
+                }).catch(() => {});
+                return;
+            }
             if (button) button.disabled = true;
             try {
                 await showInstalledPoints();
@@ -7672,21 +7863,30 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         function hideInstalledPoints() {
-            clearInstalledLayer();
+            // Маркеры не удаляем: при повторном показе слой вернётся без
+            // пересборки (см. installedLayerSignature).
+            if (installedLayer && map.hasLayer(installedLayer)) map.removeLayer(installedLayer);
             setInstalledButtonState(false);
-            closeInstalledFilterMenu();
-            updateInstalledFilterCounts(0, 0);
+            // Меню не закрываем: кнопка превращается в «Показать точки»,
+            // чтобы можно было вернуть слой, не открывая меню заново.
+            const filtered = filteredInstalledPoints();
+            updateInstalledFilterCounts(groupInstalledPoints(filtered).length, filtered.length);
         }
 
         function applyInstalledFilters() {
             saveInstalledFilters();
             syncInstalledFilterInputs();
             if (installedVisible) {
-                renderInstalledLayer();
+                const count = renderInstalledLayer();
+                if (count === 0 && installedPoints.length) {
+                    showToast('Нет точек по выбранным фильтрам', 'error', 4000);
+                }
             } else {
                 const filtered = filteredInstalledPoints();
                 updateInstalledFilterCounts(groupInstalledPoints(filtered).length, filtered.length);
             }
+            // Фильтры входят в персональные preferences и сохраняются на сервер.
+            scheduleStateSave();
         }
 
         async function refreshInstalledStatus() {
@@ -7726,7 +7926,7 @@ function drawBoundaryFromGeoJSON(data) {
                     status.textContent = `Добавлено: ${data.inserted}, обновлено: ${data.updated}, пропущено: ${data.skipped}. Всего в базе: ${data.total}.${errors}`;
                 }
                 input.value = '';
-                installedLoaded = false;
+                invalidateInstalledCache();
                 if (installedVisible) {
                     await fetchInstalledPoints();
                     renderInstalledLayer();
@@ -7751,8 +7951,13 @@ function drawBoundaryFromGeoJSON(data) {
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.detail || 'Ошибка очистки');
                 installedPoints = [];
+                installedDataVersion = 0;
+                invalidateInstalledCache();
                 installedLoaded = true;
-                hideInstalledPoints();
+                clearInstalledLayer();
+                setInstalledButtonState(false);
+                closeInstalledFilterMenu();
+                updateInstalledFilterCounts(0, 0);
                 if (status) status.textContent = `Список очищен. Удалено: ${data.deleted || 0}.`;
                 showToast('Установленные точки очищены', 'success');
             } catch (error) {
@@ -7768,7 +7973,15 @@ function drawBoundaryFromGeoJSON(data) {
                 void toggleInstalledPoints();
             });
             const hideButton = document.getElementById('installedHideButton');
-            if (hideButton) hideButton.addEventListener('click', hideInstalledPoints);
+            if (hideButton) hideButton.addEventListener('click', () => {
+                if (installedVisible) {
+                    hideInstalledPoints();
+                } else {
+                    void showInstalledPoints().catch(error => {
+                        showToast('❌ ' + error.message, 'error', 5000);
+                    });
+                }
+            });
             const importButton = document.getElementById('installedImportButton');
             if (importButton) importButton.addEventListener('click', () => { void importInstalledXls(); });
             const clearButton = document.getElementById('installedClearButton');
@@ -7790,10 +8003,19 @@ function drawBoundaryFromGeoJSON(data) {
             document.addEventListener('click', event => {
                 if (!installedMenuOpen) return;
                 if (event.target.closest('.sb-menu-wrap')) return;
+                // Фильтры в настройках — то же состояние; клик по ним не
+                // должен закрывать меню статус-бара за модалкой.
+                if (event.target.closest('#settings-modal')) return;
                 closeInstalledFilterMenu();
             });
             document.addEventListener('keydown', event => {
                 if (event.key === 'Escape' && installedMenuOpen) closeInstalledFilterMenu();
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible' || !installedVisible) return;
+                void refreshInstalledIfStale().then(changed => {
+                    if (changed) return reloadInstalledLayer();
+                }).catch(() => {});
             });
             applyInstalledFilters();
         }
