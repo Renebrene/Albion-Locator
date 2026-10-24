@@ -42,7 +42,11 @@
           │
           ▼
 FastAPI / Uvicorn (src/main.py)
-  ├─ auth.py          — пользователи, сессии, preferences/workspace, bookmarks, history
+  ├─ auth.py          — пользователи, сессии, preferences/workspace, bookmarks, history, installed_points, audit_log
+  ├─ security.py      — CSRF/Origin, rate-limit, lockout, security headers, CSP
+  ├─ observability.py — JSON-логи, X-Request-ID, /metrics
+  ├─ upstream.py      — retry/backoff и TTL-кэш WFS/Overpass/Yandex
+  ├─ xls_import.py    — XLS/XLSX/ODS → установленные точки
   ├─ batch.py         — пакетное чтение EXIF
   ├─ СКДФ WFS         — дорожная геометрия и официальные участки
   ├─ Yandex Geocoder  — адреса, дороги, reverse geocode
@@ -54,8 +58,13 @@ FastAPI / Uvicorn (src/main.py)
 
 - `src/main.py` — FastAPI app, API-маршруты, WFS/Yandex proxy, геометрия, EXIF, статика, security middleware.
 - `src/auth.py` — SQLite-схема, пользователи, сессии, PBKDF2, персональные настройки/workspace, закладки, история.
+- `src/security.py` — CSRF double-submit, Origin, rate-limit/lockout, security headers и CSP, `Secure` cookie.
+- `src/observability.py` — JSON-логи с `request_id`, доступ к `/metrics`, счётчики HTTP/upstream/кэша/аудита.
+- `src/upstream.py` — общие retry/backoff и TTL-кэш для WFS, Overpass и Yandex.
+- `src/xls_import.py` — разбор `.xls`/`.xlsx`/`.ods` (город, адрес, сторона, формат, координаты), конвертация через LibreOffice, устойчивость к битому `styles.xml`.
 - `src/batch.py` — ограничения и пакетное извлечение GPS EXIF.
 - `packages/offline_geo` — самостоятельный SQLite-индекс: адреса, улицы, дома, дороги, nearest road.
+- `deploy/` — шаблон nginx с TLS, backup с manifest/checksum, атомарное обновление офлайн-данных, security preflight.
 
 ### Frontend
 
@@ -64,7 +73,7 @@ FastAPI / Uvicorn (src/main.py)
 - левый фрейм: вкладки **Точка / Пакетный поиск / Сохранённое**, карточка текущей точки;
 - карта Leaflet;
 - правый фрейм: стабильный блок «Источник СКДФ», официальный километраж;
-- статус-бар: копирование, название из источника СКДФ (слева), поиск/положение, центрирование по точке/всем точкам пакета, точка призрака, автоскриншот, справка, настройки, сброс;
+- статус-бар: кнопки с подписями и разделителями — «Установленные» (меню фильтров и зелёный слой точек, активные режимы выводятся рядом), «Призрак», «Шаг», «Слежение», «Подписи», «Центр», «Автоскриншот», «Справка», «Пользователь», «Настройки», «Сброс»;
 - единый блок поиска: сверху карты или в статус-баре (переключается в настройках);
 - модальные настройки, справка, тосты.
 
@@ -214,7 +223,7 @@ uv pip install --python .venv/bin/python -r requirements-e2e.txt
 .venv/bin/pytest -q tests/e2e
 ```
 
-Текущие результаты (23.10.2026): Python **178 passed, 1 skipped** (+**53** offline-теста), Bun **30 passed**, Playwright **55 passed**, axe-core **0 violations**.
+Текущие результаты (24.10.2026): Python **140 passed** (+**53** теста офлайн-пакета), Bun **30 passed**, Playwright **71 passed**, axe-core **0 violations**.
 
 Подготовка E2E-сервера: `tests/e2e/conftest.py` создаёт изолированную SQLite и настройки, отключает rate limit и очищает пользовательскую сессию/`workspace` перед каждым тестом — иначе восстановление состояния из прошлого теста гоняется с его assert'ами.
 

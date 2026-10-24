@@ -5,7 +5,9 @@
 ## Документация
 
 - `docs/PROJECT.md` — общая документация проекта: архитектура, стек, API, запуск, тесты, ограничения.
-- `docs/CHANGES-2026-10-20.md` — последние изменения.
+- `docs/CHANGES-2026-10-24.md` — последние изменения.
+- `docs/CHANGES-2026-10-20.md` — предыдущий срез изменений.
+- `docs/UI-AUDIT-2026-10-24.md` — аудит UI и статусы находок.
 - `docs/qa-agent-improvement-plan.md` — QA-план и статус.
 - `docs/performance-nearest-road.md`, `docs/performance-runtime.md` — производительность.
 - `docs/accessibility-audit.md`, `docs/provider-live-check.md` — accessibility и live-проверки.
