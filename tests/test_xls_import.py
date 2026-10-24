@@ -3,6 +3,7 @@
 import io
 import sys
 import uuid
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -134,3 +135,70 @@ def test_import_requires_admin_and_excel_extension():
         files={"file": ("points.csv", b"a,b,c", "text/csv")},
     )
     assert invalid.status_code == 422
+
+
+def test_reads_xlsx_with_corrupt_stylesheet():
+    """Site exports can have invalid styles.xml; cell data must still import."""
+    original = _xlsx([
+        ("Ростов-на-Дону", "ул. Ленина, 1", "А", "47.237201,39.816711"),
+    ])
+    source = zipfile.ZipFile(io.BytesIO(original))
+    broken = io.BytesIO()
+    with zipfile.ZipFile(broken, "w") as target:
+        for item in source.infolist():
+            payload = source.read(item.filename)
+            if item.filename == "xl/styles.xml":
+                payload = b"<broken"
+            target.writestr(item, payload)
+    source.close()
+
+    parsed = xls_import.parse_workbook(broken.getvalue(), "broken.xlsx")
+
+    assert len(parsed.points) == 1
+    assert parsed.points[0]["lat"] == pytest.approx(47.237201)
+
+
+def _ods_bytes() -> bytes:
+    content = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+ xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+ <office:body><office:spreadsheet>
+  <table:table table:name="Точки">
+   <table:table-row>
+    <table:table-cell office:value-type="string"><text:p>Город</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>Адрес</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>Сторона</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>Координаты</text:p></table:table-cell>
+   </table:table-row>
+   <table:table-row>
+    <table:table-cell office:value-type="string"><text:p>Ростов-на-Дону</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>ул. Ленина, 1</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>А</text:p></table:table-cell>
+    <table:table-cell office:value-type="string"><text:p>47.237201,39.816711</text:p></table:table-cell>
+   </table:table-row>
+  </table:table>
+ </office:spreadsheet></office:body>
+</office:document-content>'''
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.spreadsheet")
+        archive.writestr("content.xml", content)
+    return output.getvalue()
+
+
+def test_parses_ods_directly():
+    parsed = xls_import.parse_workbook(_ods_bytes(), "points.ods")
+    assert len(parsed.points) == 1
+    assert parsed.points[0]["city"] == "Ростов-на-Дону"
+    assert parsed.points[0]["side"] == "A"
+    assert parsed.points[0]["lat"] == pytest.approx(47.237201)
+
+
+def test_imports_construction_format_for_shield_filter():
+    data = _xlsx([
+        ("Ростов-на-Дону", "ул. Ленина, 1", "А", "47.237201,39.816711", "Щит"),
+    ], header=("Город", "Адрес", "Сторона", "Координаты", "Формат конструкции"))
+    parsed = xls_import.parse_workbook(data, "points.xlsx")
+    assert parsed.points[0]["format"] == "Щит"

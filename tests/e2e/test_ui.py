@@ -40,7 +40,7 @@ def test_login_default_road_mode_and_statusbar_layout(page, app_server):
         assert label in labels, (label, labels)
     assert page.locator("#status-bar .sb-divider").count() == 2
     assert page.locator("#status-bar").evaluate("el => el.getBoundingClientRect().height") >= 44
-    for button in page.locator("#status-bar button").all():
+    for button in page.locator("#status-bar > button.sb-seg, #status-bar > .sb-menu-wrap > button.sb-seg").all():
         assert button.get_attribute("title")
     # Ползунок километража активен сразу, но без точки данных ещё нет.
     assert page.locator("#roadKmEnableCheckbox").is_checked() is True
@@ -2242,9 +2242,10 @@ def test_admin_imports_xls_and_toggles_installed_points(page, app_server):
     workbook = Workbook()
     sheet = workbook.active
     sheet.append(["Служебный заголовок"])
-    sheet.append(["Город", "Адрес", "Сторона", "Координаты"])
-    sheet.append(["Ростов-на-Дону", "ул. Ленина, 1", "А", "47.237201,39.816711"])
-    sheet.append(["Азов", "Петровская, 2", "A", "47,100000 39,400000"])
+    sheet.append(["Город", "Адрес", "Сторона", "Координаты", "Формат конструкции"])
+    sheet.append(["Ростов-на-Дону", "ул. Ленина, 1", "А", "47.237201,39.816711", "Щит"])
+    sheet.append(["Азов", "Петровская, 2", "A", "47,100000 39,400000", "Сити-формат"])
+    sheet.append(["ТРАССА М4", "10 км + 200 м", "A", "47.300000,39.700000", "Щит"])
     buffer = io.BytesIO()
     workbook.save(buffer)
 
@@ -2259,17 +2260,32 @@ def test_admin_imports_xls_and_toggles_installed_points(page, app_server):
     })
     page.click("#installedImportButton")
     page.wait_for_function(
-        "() => document.querySelector('#installedImportStatus').textContent.includes('Всего в базе: 2')",
+        "() => document.querySelector('#installedImportStatus').textContent.includes('Всего в базе: 3')",
         timeout=10000,
     )
     page.click("#settings-dialog-close")
     page.click("#installedPointsToggle")
-    page.wait_for_function("installedMarkers.length >= 1", timeout=10000)
+    page.wait_for_selector("#installedFilterMenu:not([hidden])")
+    page.wait_for_function("installedMarkers.length === 3", timeout=10000)
     assert page.evaluate("installedVisible") is True
     assert page.evaluate("installedMarkers[0].options.fillColor") == "#27ae60"
     assert page.evaluate("installedMarkers[0].options.radius") == 7
     assert page.locator("#installedPointsToggle").get_attribute("aria-pressed") == "true"
+    assert page.locator("#installedPointsToggle").get_attribute("aria-expanded") == "true"
     assert page.locator("#installedPointsToggle .sb-label").inner_text() == "Установленные"
-    page.click("#installedPointsToggle")
+
+    # Menu filters and their duplicates in settings share one state.
+    page.check('#installedFilterMenu input[data-installed-filter="shields"]')
+    page.wait_for_function("installedMarkers.length === 2", timeout=5000)
+    assert page.is_checked('#installedSettingsBlock input[data-installed-filter="shields"]')
+    page.check('#installedFilterMenu input[data-installed-filter="highways"]')
+    page.wait_for_function("installedMarkers.length === 1", timeout=5000)
+    page.uncheck('#installedFilterMenu input[data-installed-filter="shields"]')
+    page.wait_for_function("installedMarkers.length === 1", timeout=5000)
+    page.uncheck('#installedFilterMenu input[data-installed-filter="highways"]')
+    page.wait_for_function("installedMarkers.length === 3", timeout=5000)
+
+    page.click("#installedHideButton")
     assert page.evaluate("installedVisible") is False
+    assert page.locator("#installedFilterMenu").is_hidden()
     page.evaluate("fetch('/api/installed', {method: 'DELETE'})")

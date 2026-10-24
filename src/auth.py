@@ -120,6 +120,7 @@ def init_db() -> None:
                 city TEXT NOT NULL DEFAULT '',
                 address TEXT NOT NULL DEFAULT '',
                 side TEXT NOT NULL DEFAULT '',
+                format TEXT NOT NULL DEFAULT '',
                 lat REAL NOT NULL,
                 lon REAL NOT NULL,
                 source_file TEXT NOT NULL DEFAULT '',
@@ -152,6 +153,13 @@ def init_db() -> None:
         )
         # Миграция существующих БД: колонка появилась вместе с принудительной
         # сменой пароля и добавляется вперёд, без потери данных.
+        installed_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(installed_points)")
+        }
+        if installed_columns and "format" not in installed_columns:
+            conn.execute(
+                "ALTER TABLE installed_points ADD COLUMN format TEXT NOT NULL DEFAULT ''"
+            )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         if "must_change_password" not in columns:
             conn.execute(
@@ -838,6 +846,7 @@ def import_installed_points(
             city = str(point.get("city") or "").strip()[:200]
             address = str(point.get("address") or "").strip()[:500]
             side = str(point.get("side") or "").strip()[:100]
+            format_name = str(point.get("format") or "").strip()[:120]
             try:
                 lat = round(float(point["lat"]), 6)
                 lon = round(float(point["lon"]), 6)
@@ -850,17 +859,19 @@ def import_installed_points(
             ).fetchone()
             if row:
                 conn.execute(
-                    "UPDATE installed_points SET city = ?, source_file = ?, "
-                    "import_batch = ?, updated_at = ? WHERE id = ?",
-                    (city, source_file, batch, now, row["id"]),
+                    "UPDATE installed_points SET city = ?, format = ?, "
+                    "source_file = ?, import_batch = ?, updated_at = ? WHERE id = ?",
+                    (city, format_name, source_file, batch, now, row["id"]),
                 )
                 updated += 1
             else:
                 conn.execute(
                     "INSERT INTO installed_points "
-                    "(city, address, side, lat, lon, source_file, import_batch, "
-                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (city, address, side, lat, lon, source_file, batch, now, now),
+                    "(city, address, side, format, lat, lon, source_file, "
+                    "import_batch, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (city, address, side, format_name, lat, lon, source_file,
+                     batch, now, now),
                 )
                 inserted += 1
         total = conn.execute("SELECT COUNT(*) FROM installed_points").fetchone()[0]
@@ -878,7 +889,7 @@ def list_installed_points() -> list[dict[str, Any]]:
     with closing(_connect()) as conn:
         rows = conn.execute(
             """
-            SELECT id, city, address, side, lat, lon, source_file,
+            SELECT id, city, address, side, format, lat, lon, source_file,
                    created_at, updated_at
             FROM installed_points
             ORDER BY city COLLATE NOCASE, address COLLATE NOCASE, side
@@ -890,6 +901,7 @@ def list_installed_points() -> list[dict[str, Any]]:
             "city": row["city"],
             "address": row["address"],
             "side": row["side"],
+            "format": row["format"],
             "lat": row["lat"],
             "lon": row["lon"],
             "source_file": row["source_file"],

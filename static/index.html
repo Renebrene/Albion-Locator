@@ -273,7 +273,9 @@
             background: #152b45;
             color: #cfe0f2;
             font-size: 12px;
-            overflow: hidden;
+            overflow: visible;
+            position: relative;
+            z-index: 900;
         }
         /* Вариант 2: статус-бар выше в 1.5 раза, поиск занимает левую часть. */
         #status-bar.search-bottom { height: 60px; overflow: visible; position: relative; z-index: 950; }
@@ -476,6 +478,38 @@
         #status-bar .sb-seg[aria-pressed="true"] { background: #2f9e44; color: #fff; }
         .drop-zone.disabled, .batch-drop-zone.disabled { opacity: .45; pointer-events: none; }
         #status-bar .sb-spacer { flex: 1; }
+        .sb-menu-wrap { position: relative; flex: 0 0 auto; }
+        .installed-filter-menu {
+            position: absolute;
+            right: 0;
+            bottom: calc(100% + 8px);
+            width: 280px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            background: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border-strong);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+            z-index: 1200;
+            font-size: 12px;
+        }
+        .installed-filter-menu[hidden] { display: none; }
+        .installed-filter-menu label { display: flex; align-items: flex-start; gap: 6px; cursor: pointer; line-height: 1.35; }
+        .installed-filter-menu input { margin-top: 2px; }
+        .installed-filter-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 2px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        .installed-filter-footer .btn { width: auto; margin: 0; padding: 5px 8px; }
+
         
         /* === КАРТА === */
         #map {
@@ -736,7 +770,7 @@
         .settings-row input[type="text"] { flex: 1; padding: 4px; border: 1px solid var(--border-strong); border-radius: 3px; font-size: 12px; background: var(--bg-input); color: var(--text-main); }
         .folder-status { font-size: 11px; color: var(--success); margin-top: 4px; font-style: italic; }
         
-        .toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 3000; font-size: 13px; opacity: 0; transform: translateY(20px); transition: opacity 0.3s, transform 0.3s; pointer-events: none; }
+        .toast { position: fixed; bottom: 70px; right: 20px; background: var(--accent); color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 3000; font-size: 13px; opacity: 0; transform: translateY(20px); transition: opacity 0.3s, transform 0.3s; pointer-events: none; }
         .toast.show { opacity: 1; transform: translateY(0); }
         .toast.success { background: var(--success); }
         .toast.error { background: var(--danger); }
@@ -1221,11 +1255,14 @@
             </ul>
             <h2>🟢 Установленные точки из XLS</h2>
             <ul>
-                <li>Администратор в «Настройках» выбирает файл <b>.xls</b> или <b>.xlsx</b> и нажимает «Импортировать»</li>
+                <li>Администратор в «Настройках» выбирает файл <b>.xls</b>, <b>.xlsx</b> или <b>.ods</b> и нажимает «Импортировать»</li>
+                <li>XLS/XLSX переконвертируются в формат OpenDocument Spreadsheet (ODS) через LibreOffice, затем читаются без зависимости от стилей Excel</li>
                 <li>Из таблицы читаются только <b>город</b>, <b>адрес</b>, <b>сторона</b> и <b>координаты</b>; остальные колонки игнорируются</li>
                 <li>Поддерживается строка заголовков не с первой строки, несколько листов, координаты в одной ячейке или отдельными колонками «Широта»/«Долгота»</li>
                 <li>Повторный импорт не создаёт дубликаты: точки сопоставляются по координатам, адресу и стороне</li>
-                <li>Кнопка <b>«Установленные»</b> в нижней панели показывает/скрывает зелёные точки и подгоняет карту по ним</li>
+                <li>Кнопка <b>«Установленные»</b> в нижней панели открывает меню фильтров и показывает зелёные точки, подгоняя карту по ним</li>
+                <li>Фильтры: <b>только щиты</b> (по формату конструкции), <b>только районы</b> (все города/районы кроме Ростова-на-Дону), <b>только трассы</b> (по слову «трасса», коду дороги, километражу или положению вне Ростова). Фильтры можно комбинировать</li>
+                <li>Те же три фильтра продублированы в «Настройках → Установленные точки» и используют общее состояние</li>
                 <li>Кнопка «Очистить» в настройках удаляет весь импортированный список</li>
             </ul>
             <h2>🗺️ Подложка и локальные данные</h2>
@@ -1352,7 +1389,19 @@
     <footer id="status-bar" aria-label="Статус и быстрые действия">
         <div class="sb-search-host" id="searchDockBottomHost"></div>
         <div class="sb-spacer"></div>
-        <button class="sb-seg" type="button" id="installedPointsToggle" title="Показать или скрыть зелёные точки из загруженной таблицы" aria-label="Показать или скрыть установленные точки" aria-pressed="false"><span class="sb-icon" aria-hidden="true">📍</span><span class="sb-label">Установленные</span></button>
+        <div class="sb-menu-wrap">
+            <button class="sb-seg" type="button" id="installedPointsToggle" title="Показать зелёные точки из загруженной таблицы и фильтры" aria-label="Установленные точки и фильтры" aria-pressed="false" aria-expanded="false"><span class="sb-icon" aria-hidden="true">📍</span><span class="sb-label">Установленные</span></button>
+            <div id="installedFilterMenu" class="installed-filter-menu" hidden>
+                <strong>Установленные точки</strong>
+                <label><input type="checkbox" data-installed-filter="shields"> Только щиты</label>
+                <label><input type="checkbox" data-installed-filter="districts"> Только районы (все кроме Ростова)</label>
+                <label><input type="checkbox" data-installed-filter="highways"> Только трассы</label>
+                <div class="installed-filter-footer">
+                    <span id="installedFilterCount">0 из 0</span>
+                    <button type="button" id="installedHideButton" class="btn btn-secondary btn-small">Скрыть точки</button>
+                </div>
+            </div>
+        </div>
         <button class="sb-seg" type="button" id="ghostPointToggle" title="Режим призрака: сравнить точку до переноса" aria-label="Режим призрака" aria-pressed="false"><span class="sb-icon" aria-hidden="true">👻</span><span class="sb-label">Призрак</span></button>
         <button class="sb-seg" type="button" id="trackPointToggle" title="Слежение за ползунком: карта следует за выбранным километром" aria-label="Слежение за ползунком" aria-pressed="false"><span class="sb-icon" aria-hidden="true">👁</span><span class="sb-label">Слежение</span></button>
         <button class="sb-seg" type="button" id="pointLabelsToggle" title="Показывать подписи всех точек на карте" aria-label="Показывать подписи всех точек на карте" aria-pressed="false"><span class="sb-icon" aria-hidden="true">💬</span><span class="sb-label">Подписи</span></button>
@@ -1500,13 +1549,18 @@
         </div>
         <div class="settings-block" id="installedSettingsBlock" style="display: none;">
             <h2>📥 Установленные точки (XLS)</h2>
-            <div class="hint">Колонки: город, адрес, сторона, координаты. Поддерживаются .xls и .xlsx; повторный импорт обновляет существующие точки.</div>
-            <div class="settings-row"><input type="file" id="installedFileInput" accept=".xls,.xlsx" aria-label="Файл XLS с установленными точками"></div>
+            <div class="hint">Колонки: город, адрес, сторона, координаты. Поддерживаются .xls, .xlsx и .ods; XLS/XLSX автоматически конвертируются в OpenDocument Spreadsheet (ODS) через LibreOffice. Повторный импорт обновляет существующие точки.</div>
+            <div class="settings-row"><input type="file" id="installedFileInput" accept=".xls,.xlsx,.ods" aria-label="Файл XLS/XLSX/ODS с установленными точками"></div>
             <div class="settings-row">
                 <button class="btn btn-small" type="button" id="installedImportButton">Импортировать</button>
                 <button class="btn btn-secondary btn-small" type="button" id="installedClearButton">Очистить</button>
             </div>
             <div class="hint" id="installedImportStatus" role="status" aria-live="polite">Файл не выбран.</div>
+            <div class="settings-row" style="margin-top:12px"><b>Фильтры установленных точек</b></div>
+            <label class="settings-row" style="cursor:pointer"><input type="checkbox" data-installed-filter="shields"> Только щиты</label>
+            <label class="settings-row" style="cursor:pointer"><input type="checkbox" data-installed-filter="districts"> Только районы (все кроме Ростова)</label>
+            <label class="settings-row" style="cursor:pointer"><input type="checkbox" data-installed-filter="highways"> Только трассы</label>
+            <div class="hint" id="installedFilterStatus">0 из 0 точек</div>
         </div>
         <div class="settings-block" id="auditSettingsBlock" style="display: none;">
             <h2>📜 Журнал событий</h2>
@@ -1742,6 +1796,14 @@
         let installedVisible = false;
         let installedLoaded = false;
         let installedRequest = null;
+        let installedMenuOpen = false;
+        let installedFilters = { shields: false, districts: false, highways: false };
+        try {
+            const savedInstalledFilters = JSON.parse(localStorage.getItem('albion_installed_filters') || '{}');
+            for (const key of Object.keys(installedFilters)) {
+                if (typeof savedInstalledFilters[key] === 'boolean') installedFilters[key] = savedInstalledFilters[key];
+            }
+        } catch (error) { /* ignore malformed preferences */ }
         let screenshotSettings = { delay: 3, savePath: 'screenshots', autoScreenshotEnabled: false, localBoundary: true, detailedBoundary: false };
         let searchPosition = localStorage.getItem('albion_search_position') === 'top' ? 'top' : 'bottom';
         let pointHistory = [];
@@ -7419,6 +7481,41 @@ function drawBoundaryFromGeoJSON(data) {
             return parts.join(' · ') || `${Number(point.lat).toFixed(6)}, ${Number(point.lon).toFixed(6)}`;
         }
 
+        function installedFilterText(value) {
+            return String(value || '').toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+        }
+
+        function isRostovCity(city) {
+            const value = installedFilterText(city);
+            return value === 'ростов' || value === 'ростов-на-дону'
+                || value.startsWith('ростов-на-дону') || value.startsWith('ростов ');
+        }
+
+        function isHighwayPoint(point) {
+            const city = installedFilterText(point.city);
+            const address = installedFilterText(point.address);
+            const text = `${city} ${address}`;
+            if (/^\s*трасса\b/.test(city) || /^\s*трасса\b/.test(address)) return true;
+            if (/\b(?:автодорог|а\/д|дорога|шоссе|подъезд|объезд|магистраль)\b/.test(text)) return true;
+            // Road codes: М-4, М 21, Р-280, 60Р-1.
+            if (/(?:^|\s)\d{1,3}[а-яa-z][-\s]?\d{1,3}(?:\.\d+)?(?:\s|$)/.test(address)) return true;
+            if (/(?:^|\s)[а-яa-z]{1,3}[-\s]\d{1,3}(?:\.\d+)?(?:\s|$)/.test(address)) return true;
+            // A kilometre reference outside Rostov is a highway/road object.
+            if ((/\bкм\b|\d+\s*км/.test(address)) && !isRostovCity(city)) return true;
+            return false;
+        }
+
+        function installedPointMatches(point) {
+            if (installedFilters.shields && !installedFilterText(point.format).includes('щит')) return false;
+            if (installedFilters.districts && isRostovCity(point.city)) return false;
+            if (installedFilters.highways && !isHighwayPoint(point)) return false;
+            return true;
+        }
+
+        function filteredInstalledPoints() {
+            return installedPoints.filter(installedPointMatches);
+        }
+
         function clearInstalledLayer() {
             if (installedLayer) { map.removeLayer(installedLayer); installedLayer = null; }
             installedMarkers = [];
@@ -7430,6 +7527,26 @@ function drawBoundaryFromGeoJSON(data) {
             if (!button) return;
             button.setAttribute('aria-pressed', String(installedVisible));
             button.classList.toggle('hl', installedVisible);
+        }
+
+        function updateInstalledFilterCounts(groups, rows) {
+            const total = installedPoints.length;
+            const text = `Показано: ${groups} (${rows} из ${total} строк)`;
+            for (const id of ['installedFilterCount', 'installedFilterStatus']) {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            }
+        }
+
+        function syncInstalledFilterInputs() {
+            document.querySelectorAll('input[data-installed-filter]').forEach(input => {
+                input.checked = Boolean(installedFilters[input.dataset.installedFilter]);
+            });
+        }
+
+        function saveInstalledFilters() {
+            try { localStorage.setItem('albion_installed_filters', JSON.stringify(installedFilters)); }
+            catch (error) { /* ignore */ }
         }
 
         async function fetchInstalledPoints() {
@@ -7453,14 +7570,16 @@ function drawBoundaryFromGeoJSON(data) {
                 const lon = Number(point.lon);
                 if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
                 const address = String(point.address || '');
-                const key = `${lat.toFixed(6)}|${lon.toFixed(6)}|${address.toLocaleLowerCase('ru')}`;
+                const key = `${lat.toFixed(6)}|${lon.toFixed(6)}|${installedFilterText(address)}`;
                 let group = groups.get(key);
                 if (!group) {
-                    group = { lat, lon, city: point.city || '', address, sides: [] };
+                    group = { lat, lon, city: point.city || '', address, sides: [], formats: [] };
                     groups.set(key, group);
                 }
                 const side = String(point.side || '').trim();
                 if (side && !group.sides.includes(side)) group.sides.push(side);
+                const formatName = String(point.format || '').trim();
+                if (formatName && !group.formats.includes(formatName)) group.formats.push(formatName);
             }
             return Array.from(groups.values());
         }
@@ -7468,7 +7587,8 @@ function drawBoundaryFromGeoJSON(data) {
         function renderInstalledLayer() {
             clearInstalledLayer();
             installedLayer = L.featureGroup().addTo(map);
-            const groups = groupInstalledPoints(installedPoints);
+            const filtered = filteredInstalledPoints();
+            const groups = groupInstalledPoints(filtered);
             for (const group of groups) {
                 const marker = L.circleMarker([group.lat, group.lon], {
                     radius: 7,
@@ -7477,7 +7597,7 @@ function drawBoundaryFromGeoJSON(data) {
                     weight: 2,
                     fillOpacity: 1,
                 });
-                const label = [group.city, group.address, group.sides.join(', ')]
+                const label = [group.city, group.address, group.sides.join(', '), group.formats.join(', ')]
                     .filter(Boolean).join(' · ');
                 marker._installedLabel = label || `${group.lat.toFixed(6)}, ${group.lon.toFixed(6)}`;
                 marker.bindTooltip(makeMarkerLabelElement(marker._installedLabel), {
@@ -7496,34 +7616,76 @@ function drawBoundaryFromGeoJSON(data) {
                 installedLayer.addLayer(marker);
                 installedMarkers.push(marker);
             }
+            updateInstalledFilterCounts(groups.length, filtered.length);
             return groups.length;
+        }
+
+        function openInstalledFilterMenu() {
+            const menu = document.getElementById('installedFilterMenu');
+            const button = document.getElementById('installedPointsToggle');
+            if (!menu || !button) return;
+            installedMenuOpen = true;
+            menu.hidden = false;
+            button.setAttribute('aria-expanded', 'true');
+        }
+
+        function closeInstalledFilterMenu() {
+            const menu = document.getElementById('installedFilterMenu');
+            const button = document.getElementById('installedPointsToggle');
+            installedMenuOpen = false;
+            if (menu) menu.hidden = true;
+            if (button) button.setAttribute('aria-expanded', 'false');
+        }
+
+        async function showInstalledPoints() {
+            await fetchInstalledPoints();
+            if (!installedPoints.length) {
+                updateInstalledFilterCounts(0, 0);
+                showToast('Нет установленных точек. Загрузите XLS в настройках.', 'error', 5000);
+                return 0;
+            }
+            const count = renderInstalledLayer();
+            setInstalledButtonState(true);
+            if (installedLayer && installedLayer.getBounds().isValid()) {
+                if (count === 1) map.setView(installedLayer.getBounds().getCenter(), 15);
+                else map.fitBounds(installedLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
+            }
+            return count;
         }
 
         async function toggleInstalledPoints() {
             const button = document.getElementById('installedPointsToggle');
-            if (installedVisible) {
-                clearInstalledLayer();
-                setInstalledButtonState(false);
+            if (installedMenuOpen) {
+                closeInstalledFilterMenu();
                 return;
             }
+            openInstalledFilterMenu();
+            if (installedVisible) return;
             if (button) button.disabled = true;
             try {
-                await fetchInstalledPoints();
-                if (!installedPoints.length) {
-                    showToast('Нет установленных точек. Загрузите XLS в настройках.', 'error', 5000);
-                    return;
-                }
-                const count = renderInstalledLayer();
-                setInstalledButtonState(true);
-                if (installedLayer && installedLayer.getBounds().isValid()) {
-                    if (count === 1) map.setView(installedLayer.getBounds().getCenter(), 15);
-                    else map.fitBounds(installedLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
-                }
-                showToast(`Показано точек: ${count}`, 'success');
+                await showInstalledPoints();
             } catch (error) {
                 showToast('❌ ' + error.message, 'error', 5000);
             } finally {
                 if (button) button.disabled = false;
+            }
+        }
+
+        function hideInstalledPoints() {
+            clearInstalledLayer();
+            setInstalledButtonState(false);
+            closeInstalledFilterMenu();
+            updateInstalledFilterCounts(0, 0);
+        }
+
+        function applyInstalledFilters() {
+            saveInstalledFilters();
+            syncInstalledFilterInputs();
+            if (installedVisible) {
+                renderInstalledLayer();
+            } else {
+                const filtered = filteredInstalledPoints();
+                updateInstalledFilterCounts(groupInstalledPoints(filtered).length, filtered.length);
             }
         }
 
@@ -7536,7 +7698,7 @@ function drawBoundaryFromGeoJSON(data) {
                 const data = await response.json();
                 status.textContent = data.count
                     ? `В базе: ${data.count} точек. Выберите файл для обновления.`
-                    : 'В базе пока нет точек. Выберите файл .xls или .xlsx.';
+                    : 'В базе пока нет точек. Выберите файл .xls, .xlsx или .ods.';
             } catch (error) { /* статус не должен ломать настройки */ }
         }
 
@@ -7545,9 +7707,9 @@ function drawBoundaryFromGeoJSON(data) {
             const status = document.getElementById('installedImportStatus');
             const button = document.getElementById('installedImportButton');
             const file = input && input.files ? input.files[0] : null;
-            if (!file) { showToast('Выберите файл .xls или .xlsx', 'error'); return; }
-            if (!/\.(xls|xlsx)$/i.test(file.name)) {
-                showToast('Поддерживаются только .xls и .xlsx', 'error');
+            if (!file) { showToast('Выберите файл .xls, .xlsx или .ods', 'error'); return; }
+            if (!/\.(xls|xlsx|ods)$/i.test(file.name)) {
+                showToast('Поддерживаются .xls, .xlsx и .ods', 'error');
                 return;
             }
             if (button) button.disabled = true;
@@ -7566,9 +7728,11 @@ function drawBoundaryFromGeoJSON(data) {
                 input.value = '';
                 installedLoaded = false;
                 if (installedVisible) {
-                    clearInstalledLayer();
-                    setInstalledButtonState(false);
-                    await toggleInstalledPoints();
+                    await fetchInstalledPoints();
+                    renderInstalledLayer();
+                } else {
+                    const filtered = filteredInstalledPoints();
+                    updateInstalledFilterCounts(groupInstalledPoints(filtered).length, filtered.length);
                 }
                 showToast(`Импорт завершён: ${data.total} точек в базе`, 'success', 5000);
             } catch (error) {
@@ -7588,8 +7752,7 @@ function drawBoundaryFromGeoJSON(data) {
                 if (!response.ok) throw new Error(data.detail || 'Ошибка очистки');
                 installedPoints = [];
                 installedLoaded = true;
-                clearInstalledLayer();
-                setInstalledButtonState(false);
+                hideInstalledPoints();
                 if (status) status.textContent = `Список очищен. Удалено: ${data.deleted || 0}.`;
                 showToast('Установленные точки очищены', 'success');
             } catch (error) {
@@ -7600,7 +7763,12 @@ function drawBoundaryFromGeoJSON(data) {
 
         function setupInstalledPointsUi() {
             const toggle = document.getElementById('installedPointsToggle');
-            if (toggle) toggle.addEventListener('click', () => { void toggleInstalledPoints(); });
+            if (toggle) toggle.addEventListener('click', event => {
+                event.stopPropagation();
+                void toggleInstalledPoints();
+            });
+            const hideButton = document.getElementById('installedHideButton');
+            if (hideButton) hideButton.addEventListener('click', hideInstalledPoints);
             const importButton = document.getElementById('installedImportButton');
             if (importButton) importButton.addEventListener('click', () => { void importInstalledXls(); });
             const clearButton = document.getElementById('installedClearButton');
@@ -7612,6 +7780,22 @@ function drawBoundaryFromGeoJSON(data) {
                     ? `Выбран файл: ${input.files[0].name}`
                     : 'Файл не выбран.';
             });
+            document.querySelectorAll('input[data-installed-filter]').forEach(filter => {
+                filter.addEventListener('change', () => {
+                    installedFilters[filter.dataset.installedFilter] = filter.checked;
+                    applyInstalledFilters();
+                });
+            });
+            syncInstalledFilterInputs();
+            document.addEventListener('click', event => {
+                if (!installedMenuOpen) return;
+                if (event.target.closest('.sb-menu-wrap')) return;
+                closeInstalledFilterMenu();
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && installedMenuOpen) closeInstalledFilterMenu();
+            });
+            applyInstalledFilters();
         }
 
         setupFrameTabs();
