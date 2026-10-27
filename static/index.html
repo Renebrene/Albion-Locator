@@ -1282,6 +1282,14 @@
                 <li>Те же три фильтра продублированы в «Настройках → Установленные точки» и используют общее состояние</li>
                 <li>Кнопка «Очистить» в настройках удаляет весь импортированный список</li>
             </ul>
+            <h2>📏 Километраж трассы</h2>
+            <ul>
+                <li>Поле км и ползунок двигают точку вдоль участка; Enter или «Перейти» фиксируют результат</li>
+                <li>Серия быстрых изменений (удержание стрелки, колесо, перетаскивание) фиксируется <b>один раз</b> после короткой паузы; повтор того же километра не фиксируется</li>
+                <li>Клавиатура и колесо включаются в «Настройках → Блок поиска»</li>
+                <li>Шаг ползунка — кнопка «📏 Шаг» в статус-баре или селектор в настройках</li>
+                <li>Если СКДФ недоступен, правый фрейм предложит посмотреть дорогу по локальной базе (без километража и стороны)</li>
+            </ul>
             <h2>🗺️ Подложка и локальные данные</h2>
             <ul>
                 <li>Если установлены локальные тайлы, карта предпочитает их OSM онлайн</li>
@@ -3538,6 +3546,27 @@ function drawBoundaryFromGeoJSON(data) {
             map.setView([lat, lon], Math.max(map.getZoom(), 16), {animate: false});
         }
 
+        // Единая точка отложенной фиксации километража. Километр берётся из
+        // ползунка на момент срабатывания, поэтому серия событий (удержание
+        // стрелки, колесо, быстрое перетаскивание) даёт одну фиксацию, а не
+        // десятки: каждая стоит 4 запросов к API (история POST+GET, МСК,
+        // обратный геокодер).
+        function scheduleRoadKmCommit(delay = 450) {
+            clearTimeout(roadKmCommitTimer);
+            roadKmCommitTimer = setTimeout(() => {
+                if (!roadKmEnabled || !roadKmState || roadKmSlider.disabled) return;
+                if (ghostPointEnabled) return;  // призрак фиксируется кнопкой «Перейти»
+                const value = roadKmNumber.value.trim();
+                if (value && value === lastRoadKmCommittedValue) return;  // тот же километр
+                const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
+                if (!Number.isFinite(officialKm)) return;
+                const point = previewRoadKm(officialKm, true, false);
+                if (!point) return;
+                commitRoadKmPoint(officialKm, point);
+                lastRoadKmCommittedValue = roadKmNumber.value.trim();
+            }, delay);
+        }
+
         function nudgeRoadKmSlider(direction) {
             if (!roadKmEnabled || !roadKmState || roadKmSlider.disabled) return false;
             const step = Number(roadKmSlider.step) || roadKmStepKm();
@@ -3549,18 +3578,7 @@ function drawBoundaryFromGeoJSON(data) {
             roadKmSlider.dispatchEvent(new Event('input', {bubbles: true}));
             // Клавиатура/колесо не генерируют change, поэтому фиксируем
             // километр после паузы — иначе точка двигалась бы без commit.
-            clearTimeout(roadKmCommitTimer);
-            roadKmCommitTimer = setTimeout(() => {
-                if (!roadKmEnabled || !roadKmState || roadKmSlider.disabled) return;
-                if (ghostPointEnabled) return;
-                const officialKm = officialKmAtRelativeKm(roadKmState, Number(roadKmSlider.value));
-                if (!Number.isFinite(officialKm)) return;
-                const point = previewRoadKm(officialKm, true, false);
-                if (point) {
-                    commitRoadKmPoint(officialKm, point);
-                    lastRoadKmCommittedValue = roadKmNumber.value.trim();
-                }
-            }, 500);
+            scheduleRoadKmCommit(500);
             return true;
         }
 
@@ -4379,14 +4397,14 @@ function drawBoundaryFromGeoJSON(data) {
             if (!Number.isFinite(officialKm)) return;
             const point = previewRoadKm(officialKm, true, true);
             renderRoadKmScale();
-            if (point) {
-                if (ghostPointEnabled) {
-                    roadKmStatus.textContent = `Призрак: ${formatKm(officialKm)}. Нажмите «Перейти», чтобы зафиксировать.`;
-                } else {
-                    commitRoadKmPoint(officialKm, point);
-                    lastRoadKmCommittedValue = roadKmNumber.value.trim();
-                }
+            if (!point) return;
+            if (ghostPointEnabled) {
+                roadKmStatus.textContent = `Призрак: ${formatKm(officialKm)}. Нажмите «Перейти», чтобы зафиксировать.`;
+                return;
             }
+            // Фиксация коалесцируется: серия change-событий (удержание стрелки,
+            // быстрое перетаскивание) должна стоить одного обращения к API.
+            scheduleRoadKmCommit();
         });
 
         function setupRoadSuggestView(ymaps) {
@@ -6821,12 +6839,15 @@ function drawBoundaryFromGeoJSON(data) {
         }
 
         // Стрелки двигают ползунок только после «взведения» фокуса/маркера.
+        // Ползунок тоже обрабатывается здесь, а не браузером: нативное поведение
+        // шлёт change на каждое нажатие, то есть отдельную фиксацию точки
+        // (4 запроса к API), и удержание стрелки превращалось в поток запросов.
         document.addEventListener('keydown', function(e) {
             if (!roadKmKeyboardEnabled || !roadKmKeyboardArmed
                 || !roadKmEnabled || !roadKmState || roadKmSlider.disabled) return;
-            if (e.target === roadKmSlider) return;
             const tag = e.target && e.target.tagName;
-            if ((tag === 'INPUT' && e.target.id !== 'roadKmNumber')
+            const kmTarget = e.target === roadKmNumber || e.target === roadKmSlider;
+            if ((tag === 'INPUT' && !kmTarget)
                 || tag === 'SELECT' || tag === 'TEXTAREA') return;
             if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
             const direction = (e.key === 'ArrowRight' || e.key === 'ArrowUp') ? 1 : -1;

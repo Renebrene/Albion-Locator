@@ -2671,3 +2671,86 @@ def test_road_service_failure_offers_local_source(page, app_server):
     retry = page.evaluate("() => window.__locateCalls[1]")
     assert retry["use_local"] is True, retry
     assert page.evaluate("() => localStorage.getItem('albion_data_source')") == "local"
+
+
+def test_keyboard_slider_coalesces_point_commits(page, app_server):
+    """Серия изменений километража (нажатия стрелкой) фиксируется один раз.
+
+    Каждая фиксация стоит четырёх запросов к API, поэтому удержание стрелки
+    раньше превращалось в поток запросов и упиралось в лимит.
+    """
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        let historyPosts = 0;
+        apiFetch = async (url, options) => {
+            if (url === '/api/history' && options && options.method === 'POST') {
+                historyPosts += 1;
+                return ok({});
+            }
+            if (url === '/api/history') return ok({entries: []});
+            return ok({});
+        };
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        commitPoint(47.2, 39.7, 'click');
+        await sleep(150);
+
+        // Состояние километража, как после загрузки участков СКДФ.
+        roadKmEnabled = true;
+        roadKmState = buildRoadKmState({
+            first_km: 0,
+            last_km: 2,
+            sections: [{
+                start_km: 0, finish_km: 2,
+                coordinates: [[39.70, 47.20], [39.74, 47.20]],
+            }],
+        });
+        roadKmPanel.hidden = false;
+        roadKmSlider.min = '0';
+        roadKmSlider.max = '2';
+        roadKmSlider.step = '0.05';
+        setRoadKmControlsEnabled(true);
+        showRoadKmControls(roadKmState, 1);
+        lastRoadKmCommittedValue = null;
+        historyPosts = 0;
+
+        // Три быстрых нажатия стрелки: нативные change-события подряд.
+        for (let step = 1; step <= 3; step += 1) {
+            roadKmSlider.value = String(1 + step * 0.05);
+            roadKmSlider.dispatchEvent(new Event('input', {bubbles: true}));
+            roadKmSlider.dispatchEvent(new Event('change', {bubbles: true}));
+            await sleep(60);
+        }
+        await sleep(1500);
+        return {historyPosts, km: roadKmNumber.value};
+    }""")
+    assert result["historyPosts"] == 1, result
+    assert result["km"], "километр должен остаться заполненным"
+
+    # Одиночное изменение тоже фиксируется ровно один раз.
+    again = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        let historyPosts = 0;
+        apiFetch = async (url, options) => {
+            if (url === '/api/history' && options && options.method === 'POST') historyPosts += 1;
+            if (url === '/api/history') return ok({entries: []});
+            return ok({});
+        };
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        roadKmSlider.value = '1.5';
+        roadKmSlider.dispatchEvent(new Event('input', {bubbles: true}));
+        roadKmSlider.dispatchEvent(new Event('change', {bubbles: true}));
+        await sleep(1500);
+        // Повтор того же значения не должен повторять фиксацию.
+        roadKmSlider.dispatchEvent(new Event('change', {bubbles: true}));
+        await sleep(1200);
+        return historyPosts;
+    }""")
+    assert again == 1, f"ожидалась одна фиксация, получено {again}"
