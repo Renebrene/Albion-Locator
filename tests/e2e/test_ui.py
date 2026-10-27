@@ -2754,3 +2754,93 @@ def test_keyboard_slider_coalesces_point_commits(page, app_server):
         return historyPosts;
     }""")
     assert again == 1, f"ожидалась одна фиксация, получено {again}"
+
+
+def test_keyboard_step_and_wheel_speed_settings(page, app_server):
+    """Настройки «один шаг за нажатие» и «скорость колеса» управляют движением."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+
+    result = page.evaluate("""async () => {
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        apiFetch = async (url, options) => {
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            if (url === '/api/history') return ok({entries: []});
+            return ok({});
+        };
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const sliderValue = () => Number(roadKmSlider.value);
+        const press = (repeat = false) => document.dispatchEvent(new KeyboardEvent(
+            'keydown', {key: 'ArrowRight', repeat, bubbles: true, cancelable: true}));
+        const wheel = () => document.dispatchEvent(new WheelEvent(
+            'wheel', {deltaY: -120, bubbles: true, cancelable: true}));
+
+        commitPoint(47.2, 39.7, 'click');
+        await sleep(150);
+        roadKmEnabled = true;
+        roadKmState = buildRoadKmState({
+            first_km: 0, last_km: 2,
+            sections: [{start_km: 0, finish_km: 2,
+                        coordinates: [[39.70, 47.20], [39.74, 47.20]]}],
+        });
+        roadKmPanel.hidden = false;
+        roadKmSlider.min = '0';
+        roadKmSlider.max = '2';
+        roadKmSlider.step = '0.05';
+        setRoadKmControlsEnabled(true);
+        showRoadKmControls(roadKmState, 1);
+        roadKmSlider.value = '1';
+        armRoadKmKeyboard();
+
+        const out = {};
+        out.stepKm = Number(roadKmSlider.step);
+
+        // 1. Обычное нажатие — один шаг.
+        const start = sliderValue();
+        press(false);
+        out.singlePress = sliderValue() - start;
+
+        // 2. Автоповтор при удержании игнорируется (настройка включена).
+        const beforeRepeat = sliderValue();
+        for (let i = 0; i < 3; i += 1) press(true);
+        out.repeatIgnored = sliderValue() - beforeRepeat;
+        out.stepPerPressDefault = roadKmStepPerPress;
+
+        // 3. Настройка выключена — удержание снова двигает.
+        applyRoadKmInputExtras(false, roadKmWheelSteps);
+        const beforeHold = sliderValue();
+        for (let i = 0; i < 3; i += 1) press(true);
+        out.repeatWithSettingOff = sliderValue() - beforeHold;
+
+        // 4. Скорость колеса: 5 шагов за один оборот.
+        roadKmSlider.focus();
+        applyRoadKmInputExtras(false, 5);
+        const beforeWheel = sliderValue();
+        wheel();
+        out.wheelDelta = sliderValue() - beforeWheel;
+        out.wheelSteps = roadKmWheelSteps;
+
+        // Значения должны попадать в персональные настройки и восстанавливаться.
+        const collected = collectPreferences();
+        out.collected = {
+            stepPerPress: collected.roadKmStepPerPress,
+            wheelSteps: collected.roadKmWheelSteps,
+        };
+        applyRoadKmInputExtras(true, 1, false);   // сбрасываем и восстанавливаем
+        applyPreferences({roadKmStepPerPress: false, roadKmWheelSteps: 10});
+        out.restored = {stepPerPress: roadKmStepPerPress, wheelSteps: roadKmWheelSteps};
+        await sleep(200);
+        return out;
+    }""")
+
+    step = result["stepKm"]
+    assert result["singlePress"] == pytest.approx(step), result
+    assert result["repeatIgnored"] == 0, result
+    assert result["stepPerPressDefault"] is True, result
+    assert result["repeatWithSettingOff"] == pytest.approx(3 * step), result
+    assert result["wheelSteps"] == 5, result
+    assert result["wheelDelta"] == pytest.approx(5 * step), result
+    assert result["collected"] == {"stepPerPress": False, "wheelSteps": 5}, result
+    assert result["restored"] == {"stepPerPress": False, "wheelSteps": 10}, result

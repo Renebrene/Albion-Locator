@@ -1286,7 +1286,7 @@
             <ul>
                 <li>Поле км и ползунок двигают точку вдоль участка; Enter или «Перейти» фиксируют результат</li>
                 <li>Серия быстрых изменений (удержание стрелки, колесо, перетаскивание) фиксируется <b>один раз</b> после короткой паузы; повтор того же километра не фиксируется</li>
-                <li>Клавиатура и колесо включаются в «Настройках → Блок поиска»</li>
+                <li>Клавиатура и колесо включаются в «Настройках → Блок поиска»; там же — «Стрелка двигает ровно на один шаг» (без автоповтора при удержании) и «Скорость колеса» (сколько шагов за один оборот)</li>
                 <li>Шаг ползунка — кнопка «📏 Шаг» в статус-баре или селектор в настройках</li>
                 <li>Если СКДФ недоступен, правый фрейм предложит посмотреть дорогу по локальной базе (без километража и стороны)</li>
             </ul>
@@ -1482,6 +1482,21 @@
                     <input type="checkbox" id="roadKmWheelToggle" checked>
                     <span>Колесо мыши (фокус в поле км или на ползунке)</span>
                 </label>
+            </div>
+            <div class="settings-row">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                    <input type="checkbox" id="roadKmStepPerPressToggle" checked>
+                    <span>Стрелка двигает ровно на один шаг (без автоповтора при удержании)</span>
+                </label>
+            </div>
+            <div class="settings-row">
+                <label for="roadKmWheelSpeedSelect">Скорость колеса:</label>
+                <select id="roadKmWheelSpeedSelect">
+                    <option value="1" selected>1 шаг за оборот</option>
+                    <option value="2">2 шага за оборот</option>
+                    <option value="5">5 шагов за оборот</option>
+                    <option value="10">10 шагов за оборот</option>
+                </select>
             </div>
             <div class="settings-row">
                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
@@ -2599,6 +2614,14 @@ function drawBoundaryFromGeoJSON(data) {
             : 50;
         let roadKmKeyboardEnabled = localStorage.getItem('albion_road_km_keyboard') !== '0';
         let roadKmWheelEnabled = localStorage.getItem('albion_road_km_wheel') !== '0';
+        // Одно нажатие стрелки = ровно один шаг: автоповтор при удержании
+        // игнорируется, иначе километр «уезжает» и точка фиксируется серией.
+        let roadKmStepPerPress = localStorage.getItem('albion_road_km_step_per_press') !== '0';
+        // Сколько шагов делает один оборот колеса мыши.
+        const ROAD_KM_WHEEL_STEPS = [1, 2, 5, 10];
+        let roadKmWheelSteps = ROAD_KM_WHEEL_STEPS.includes(Number(localStorage.getItem('albion_road_km_wheel_steps')))
+            ? Number(localStorage.getItem('albion_road_km_wheel_steps'))
+            : 1;
         let trackPointEnabled = localStorage.getItem('albion_track_point') === '1';
         let trackPointFrame = null;
         let ghostMarker = null;
@@ -2786,6 +2809,8 @@ function drawBoundaryFromGeoJSON(data) {
         const roadKmStepSelect = document.getElementById('roadKmStepSelect');
         const roadKmKeyboardToggle = document.getElementById('roadKmKeyboardToggle');
         const roadKmWheelToggle = document.getElementById('roadKmWheelToggle');
+        const roadKmStepPerPressToggle = document.getElementById('roadKmStepPerPressToggle');
+        const roadKmWheelSpeedSelect = document.getElementById('roadKmWheelSpeedSelect');
         const roadKmScale = document.getElementById('roadKmScale');
         const roadKmScaleCanvas = document.getElementById('roadKmScaleCanvas');
         const roadKmSlider = document.getElementById('roadKmSlider');
@@ -3491,6 +3516,26 @@ function drawBoundaryFromGeoJSON(data) {
             }
         }
 
+        // Пошаговое нажатие и скорость колеса: отдельные настройки, потому что
+        // автоповтор при удержании стрелки и «резкое» колесо по-разному мешают
+        // точной работе вдоль трассы.
+        function applyRoadKmInputExtras(stepPerPress, wheelSteps, persist = true) {
+            roadKmStepPerPress = Boolean(stepPerPress);
+            const parsed = Number(wheelSteps);
+            roadKmWheelSteps = ROAD_KM_WHEEL_STEPS.includes(parsed) ? parsed : 1;
+            const stepToggle = document.getElementById('roadKmStepPerPressToggle');
+            if (stepToggle) stepToggle.checked = roadKmStepPerPress;
+            const wheelSelect = document.getElementById('roadKmWheelSpeedSelect');
+            if (wheelSelect) wheelSelect.value = String(roadKmWheelSteps);
+            if (persist) {
+                try {
+                    localStorage.setItem('albion_road_km_step_per_press', roadKmStepPerPress ? '1' : '0');
+                    localStorage.setItem('albion_road_km_wheel_steps', String(roadKmWheelSteps));
+                } catch (e) { /* ignore */ }
+                scheduleStateSave();
+            }
+        }
+
         function trackPointActive() {
             return trackPointEnabled && roadKmEnabled && Boolean(roadKmState) && !roadKmSlider.disabled;
         }
@@ -3567,13 +3612,14 @@ function drawBoundaryFromGeoJSON(data) {
             }, delay);
         }
 
-        function nudgeRoadKmSlider(direction) {
+        function nudgeRoadKmSlider(direction, steps = 1) {
             if (!roadKmEnabled || !roadKmState || roadKmSlider.disabled) return false;
             const step = Number(roadKmSlider.step) || roadKmStepKm();
+            const multiplier = Math.max(1, Math.round(Number(steps) || 1));
             const minimum = Number(roadKmSlider.min) || 0;
             const maximum = Number(roadKmSlider.max) || 0;
             const next = Math.max(minimum, Math.min(maximum,
-                Number(roadKmSlider.value) + direction * step));
+                Number(roadKmSlider.value) + direction * step * multiplier));
             roadKmSlider.value = String(next);
             roadKmSlider.dispatchEvent(new Event('input', {bubbles: true}));
             // Клавиатура/колесо не генерируют change, поэтому фиксируем
@@ -4335,8 +4381,15 @@ function drawBoundaryFromGeoJSON(data) {
         roadKmWheelToggle.addEventListener('change', () => {
             applyRoadKmInputSettings(roadKmKeyboardEnabled, roadKmWheelToggle.checked);
         });
+        roadKmStepPerPressToggle.addEventListener('change', () => {
+            applyRoadKmInputExtras(roadKmStepPerPressToggle.checked, roadKmWheelSteps);
+        });
+        roadKmWheelSpeedSelect.addEventListener('change', () => {
+            applyRoadKmInputExtras(roadKmStepPerPress, Number(roadKmWheelSpeedSelect.value));
+        });
         applyRoadKmStep(roadKmStepMeters, false);
         applyRoadKmInputSettings(roadKmKeyboardEnabled, roadKmWheelEnabled, false);
+        applyRoadKmInputExtras(roadKmStepPerPress, roadKmWheelSteps, false);
         window.addEventListener('resize', () => {
             clearTimeout(roadKmScaleResizeTimer);
             roadKmScaleResizeTimer = setTimeout(renderRoadKmScale, 150);
@@ -5495,6 +5548,8 @@ function drawBoundaryFromGeoJSON(data) {
                 roadKmStep: roadKmStepMeters,
                 roadKmKeyboard: roadKmKeyboardEnabled,
                 roadKmWheel: roadKmWheelEnabled,
+                roadKmStepPerPress: roadKmStepPerPress,
+                roadKmWheelSteps: roadKmWheelSteps,
                 trackPoint: trackPointEnabled,
                 pointLabels: pointLabelsEnabled,
                 roadHoverRadius: roadHoverRadius,
@@ -5569,6 +5624,16 @@ function drawBoundaryFromGeoJSON(data) {
                     typeof preferences.roadKmKeyboard === 'boolean' ? preferences.roadKmKeyboard : roadKmKeyboardEnabled,
                     typeof preferences.roadKmWheel === 'boolean' ? preferences.roadKmWheel : roadKmWheelEnabled,
                     false
+                );
+            }
+            if (typeof preferences.roadKmStepPerPress === 'boolean'
+                || Number.isFinite(preferences.roadKmWheelSteps)) {
+                applyRoadKmInputExtras(
+                    typeof preferences.roadKmStepPerPress === 'boolean'
+                        ? preferences.roadKmStepPerPress : roadKmStepPerPress,
+                    Number.isFinite(preferences.roadKmWheelSteps)
+                        ? preferences.roadKmWheelSteps : roadKmWheelSteps,
+                    false,
                 );
             }
             if (typeof preferences.trackPoint === 'boolean') {
@@ -6850,6 +6915,13 @@ function drawBoundaryFromGeoJSON(data) {
             if ((tag === 'INPUT' && !kmTarget)
                 || tag === 'SELECT' || tag === 'TEXTAREA') return;
             if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+            // Автоповтор при удержании: либо ровно один шаг (по умолчанию),
+            // либо движение продолжается, как в браузере.
+            if (roadKmStepPerPress && e.repeat) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             const direction = (e.key === 'ArrowRight' || e.key === 'ArrowUp') ? 1 : -1;
             if (nudgeRoadKmSlider(direction)) {
                 e.preventDefault();
@@ -6863,7 +6935,7 @@ function drawBoundaryFromGeoJSON(data) {
             const active = document.activeElement;
             if (active !== roadKmNumber && active !== roadKmSlider) return;
             const direction = e.deltaY < 0 ? 1 : -1;
-            if (nudgeRoadKmSlider(direction)) {
+            if (nudgeRoadKmSlider(direction, roadKmWheelSteps)) {
                 e.preventDefault();
                 e.stopPropagation();
             }
