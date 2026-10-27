@@ -66,7 +66,7 @@ FastAPI / Uvicorn (src/main.py)
 - `src/xls_import.py` — разбор `.xls`/`.xlsx`/`.ods` (город, адрес, сторона, формат, координаты), конвертация через LibreOffice, устойчивость к битому `styles.xml`.
 - `src/batch.py` — ограничения и пакетное извлечение GPS EXIF.
 - `packages/offline_geo` — самостоятельный SQLite-индекс: адреса, улицы, дома, дороги, nearest road.
-- `deploy/` — шаблон nginx с TLS, backup с manifest/checksum, атомарное обновление офлайн-данных, security preflight.
+- `deploy/` — шаблон nginx с TLS, backup с manifest/checksum, атомарное обновление офлайн-данных, security preflight, создание администраторов (`create_default_admins.py`).
 
 ### Frontend
 
@@ -249,6 +249,7 @@ QA-документы:
 - `/docs`, `/redoc`, `/openapi.json` закрыты по умолчанию (`ALBION_ENABLE_DOCS=1` для разработки).
 - Security headers: CSP, HSTS на HTTPS, X-Frame-Options DENY, nosniff, Referrer/Permissions Policy.
 - Пароли — PBKDF2-HMAC-SHA256 с солью; сессионные токены хранятся в БД хэшами; audit log фиксирует входы и действия с пользователями.
+- Учётные записи по умолчанию: `init_db()` создаёт `админ` / `альбион`; `deploy/create_default_admins.py` добавляет равноправных администраторов (`техотдел`, `админ`, `администратор`, `альбион`) и идемпотентно переопределяет пароли. Пароли по умолчанию меняются до публикации сервиса.
 - Загрузки ограничены по размеру/формату; PNG валидируется; путь сохранения фиксирован.
 - Статика отдаётся по allowlist, а не всем каталогом.
 - Перед публикацией: `.env` 0600, TLS/reverse proxy или туннель с `X-Forwarded-Proto`, ротация и доменные ограничения ключей Яндекса; шаблон nginx и preflight — `deploy/README.md`.

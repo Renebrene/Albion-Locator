@@ -56,6 +56,33 @@ The index importer and tilemaker both read the clipped Rostov extract; the
 process normally takes about 15 minutes on the reference machine. Keep enough
 free space for the staging copy (roughly 350 MB for the current dataset).
 
+## Учётные записи администратора (`create_default_admins.py`)
+
+`init_db()` создаёт единственную bootstrap-учётку `админ` / `альбион`. Скрипт
+дополняет её равноправными администраторами и идемпотентно переопределяет им
+пароли:
+
+```bash
+python3 deploy/create_default_admins.py                 # техотдел, админ, администратор, альбион
+python3 deploy/create_default_admins.py --logins админ --password 'новый-пароль'
+ALBION_USERS_DB=/var/lib/albion/users.db python3 deploy/create_default_admins.py
+```
+
+Что делает:
+
+- отсутствующие логины создаёт с ролью `admin`, существующим — меняет пароль,
+  снимает блокировку и возвращает роль администратора, если её сняли;
+- оставляет `must_change_password=0`, поэтому пароль работает с первого входа;
+  ключ `--require-password-change` включает принудительную смену;
+- пишет события `user_created` / `user_password_reset` в журнал аудита
+  (актор `deploy-cli`);
+- не даёт разжаловать последнего активного администратора (защита в `auth.py`).
+
+Пароль по умолчанию короткий и общеизвестный, а сервис выходит наружу через
+туннель: запускайте скрипт только на закрытом контуре и меняйте пароли до
+публикации. Список логинов по умолчанию — `техотдел`, `админ`, `администратор`,
+`альбион`.
+
 ## Сеть: LAN, TLS и туннель
 
 Приложение остаётся на `127.0.0.1:8021`; наружу его публикует reverse proxy
@@ -107,5 +134,7 @@ python3 deploy/security_check.py --env-file .env
    `ALBION_LOGIN_LOCKOUT_SECONDS`; после сбоя процесса счётчики сбрасываются.
 5. `.env` должен иметь режим `0600`; ключи Яндекса — отдельные для dev/prod,
    ограничены доменом в кабинете и ротированы после любого раскрытия.
-6. `ALBION_METRICS_TOKEN` задан, если `/metrics` собирается через proxy;
+6. Пароли администраторов сменены со значений по умолчанию (`альбион`) — см.
+   `create_default_admins.py`; лишние и отключённые учётки удалены.
+7. `ALBION_METRICS_TOKEN` задан, если `/metrics` собирается через proxy;
    сам endpoint не публикуйте в интернет.
