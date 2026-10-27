@@ -139,7 +139,13 @@ _YANDEX_REVERSE_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
 _YANDEX_ROAD_NAME_CACHE = upstream.TTLCache(_UPSTREAM_CACHE_TTL, max_entries=512)
 PROJECT_DIR = Path(__file__).parent
 GEO_PACKAGE_SRC = PROJECT_DIR.parent / "packages" / "offline_geo" / "src"
-ROAD_LAYER = "skdf_open:lyr_road_by_value_line"
+# Слой СКДФ с дорогами и официальным километражом. Поставщик переименовывает
+# слои без предупреждения (27.10.2026 `lyr_road_by_value_line` перестал
+# существовать, остался `lyr_road_by_value`), поэтому имена перебираются по
+# списку, а рабочее запоминается до перезапуска.
+ROAD_LAYER = "skdf_open:lyr_road_by_value"
+ROAD_LAYER_FALLBACKS = ("skdf_open:lyr_road_by_value_line",)
+_ACTIVE_ROAD_LAYER: str | None = None
 ROSTOV_BOUNDARY_PATH = PROJECT_DIR.parent / "static" / "rostov_boundary.geojson"
 _ROSTOV_BOUNDARY_RINGS: list[list[tuple[float, float]]] | None = None
 
@@ -622,6 +628,78 @@ async def _wfs_getfeature(client, type_name, bbox_deg=None, max_features=None, c
     if _WFS_CACHE.ttl > 0:
         _WFS_CACHE.set(cache_key, copy.deepcopy(features))
     return features
+
+
+def _road_layer_candidates() -> tuple[str, ...]:
+    """Layer names to try in order: env override, current name, legacy aliases."""
+    configured = (os.getenv("ALBION_WFS_ROAD_LAYER") or "").strip()
+    names = ([configured] if configured else []) + [ROAD_LAYER, *ROAD_LAYER_FALLBACKS]
+    unique: list[str] = []
+    for name in names:
+        if name and name not in unique:
+            unique.append(name)
+    return tuple(unique)
+
+
+def _wfs_layer_is_unknown(exc: BaseException) -> bool:
+    """True when СКДФ answers 400 «Feature type ... unknown» for a layer name."""
+    cause = exc.__cause__ if exc.__cause__ is not None else exc
+    response = getattr(cause, "response", None)
+    if response is None or response.status_code not in {400, 404}:
+        return False
+    text = (getattr(response, "text", "") or "").lower()
+    return "feature type" in text and "unknown" in text
+
+
+async def _wfs_road_features(client, *, bbox_deg=None, max_features=None,
+                             cql_filter=None) -> tuple[list[dict], str]:
+    """Fetch road features from the first СКДФ layer that still exists.
+
+    Without this, a provider-side rename turns every point placement into an
+    opaque 502: the app asked for a layer that no longer exists.
+    """
+    global _ACTIVE_ROAD_LAYER
+    candidates = _road_layer_candidates()
+    order = [name for name in candidates if name == _ACTIVE_ROAD_LAYER]
+    order += [name for name in candidates if name != _ACTIVE_ROAD_LAYER]
+    for index, layer in enumerate(order):
+        try:
+            features = await _wfs_getfeature(
+                client, layer, bbox_deg=bbox_deg,
+                max_features=max_features, cql_filter=cql_filter,
+            )
+        except HTTPException as exc:
+            if not _wfs_layer_is_unknown(exc):
+                raise
+            if index == len(order) - 1:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Слой СКДФ с дорогами не найден (проверены: "
+                        + ", ".join(order)
+                        + "). Похоже, поставщик переименовал слой — укажите "
+                        "актуальное имя в ALBION_WFS_ROAD_LAYER."
+                    ),
+                ) from exc
+            observability.log_event(
+                logging.WARNING, "wfs_layer_missing",
+                f"Слой СКДФ {layer} больше не существует, пробуем {order[index + 1]}",
+                layer=layer,
+            )
+            continue
+        if layer != _ACTIVE_ROAD_LAYER:
+            if _ACTIVE_ROAD_LAYER is not None:
+                observability.log_event(
+                    logging.WARNING, "wfs_layer_switched",
+                    f"Рабочий слой СКДФ переключён на {layer}",
+                    layer=layer,
+                )
+            _ACTIVE_ROAD_LAYER = layer
+        return features, layer
+    raise HTTPException(
+        status_code=502,
+        detail="Не удалось получить список дорог из сервиса СКДФ: нет доступного слоя",
+    )
 
 
 def _load_rostov_boundary_rings() -> list[list[tuple[float, float]]]:
@@ -1764,7 +1842,7 @@ async def api_locate(req: LocateRequest):
 
     bbox = _bbox_from_radius(lat, lon, max(radius, 150))
     async with httpx.AsyncClient(headers={"User-Agent": "albion/4.2.1"}) as client:
-        results = await _wfs_getfeature(client, ROAD_LAYER, bbox_deg=bbox, max_features=50)
+        results, _ = await _wfs_road_features(client, bbox_deg=bbox, max_features=50)
 
     all_candidates = []
     for feature in results:
@@ -2373,9 +2451,8 @@ async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Requ
     )
     try:
         async with httpx.AsyncClient(headers={"User-Agent": "albion/4.2.1"}) as client:
-            features = await _wfs_getfeature(
+            features, road_layer = await _wfs_road_features(
                 client,
-                ROAD_LAYER,
                 max_features=5_000,
                 cql_filter=cql_filter,
             )
@@ -2400,7 +2477,7 @@ async def online_road_sections(payload: OnlineRoadSectionsPayload, request: Requ
         "last_km": last_km,
         "total_length_km": round(last_km - first_km, 3),
         "sections": sections,
-        "source": "СКДФ WFS: lyr_road_by_value_line",
+        "source": f"СКДФ WFS: {road_layer}",
         "provenance": (
             "Официальные start_km/finish_km СКДФ; участки вне контура Ростовской "
             "области исключены. Точка внутри участка интерполируется по его геометрии."

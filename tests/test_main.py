@@ -231,6 +231,93 @@ def test_wfs_errors_are_gateway_errors():
     assert exc.value.status_code == 502
 
 
+def _wfs_unknown_layer_cause(layer: str) -> main.httpx.HTTPStatusError:
+    """Build the GeoServer 400 that СКДФ returns for a renamed/removed layer."""
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?><ows:ExceptionReport>'
+        '<ows:Exception exceptionCode="InvalidParameterValue" locator="typeName">'
+        f'<ows:ExceptionText>Feature type {layer} unknown</ows:ExceptionText>'
+        "</ows:Exception></ows:ExceptionReport>"
+    )
+    request = main.httpx.Request("GET", "https://скдф.рф/api-geoserver/skdf_open/wfs")
+    response = main.httpx.Response(400, text=body, request=request)
+    return main.httpx.HTTPStatusError("400 Bad Request", request=request, response=response)
+
+
+def _as_gateway_error(cause: BaseException) -> HTTPException:
+    """Mimic _wfs_getfeature, which re-raises upstream failures as 502."""
+    error = HTTPException(502, "Не удалось получить полный список дорог из сервиса СКДФ")
+    error.__cause__ = cause
+    return error
+
+
+def test_wfs_detects_unknown_layer_only():
+    assert main._wfs_layer_is_unknown(
+        _as_gateway_error(_wfs_unknown_layer_cause(main.ROAD_LAYER))
+    )
+    assert not main._wfs_layer_is_unknown(
+        _as_gateway_error(main.httpx.ConnectError("offline"))
+    )
+    request = main.httpx.Request("GET", "https://скдф.рф/api-geoserver/skdf_open/wfs")
+    server_error = main.httpx.Response(500, text="Internal error", request=request)
+    assert not main._wfs_layer_is_unknown(
+        _as_gateway_error(main.httpx.HTTPStatusError("500", request=request, response=server_error))
+    )
+
+
+def test_wfs_road_features_switch_to_renamed_layer(monkeypatch):
+    monkeypatch.setattr(main, "_ACTIVE_ROAD_LAYER", None)
+    roads = [{"id": 1, "properties": {"road_name": "ул Детства"}}]
+    attempted: list[str] = []
+
+    async def fake_wfs(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+        attempted.append(type_name)
+        if type_name == main.ROAD_LAYER:
+            raise _as_gateway_error(_wfs_unknown_layer_cause(type_name))
+        return roads
+
+    monkeypatch.setattr(main, "_wfs_getfeature", fake_wfs)
+    features, layer = asyncio.run(
+        main._wfs_road_features(object(), bbox_deg=(39.6, 47.1, 39.8, 47.3))
+    )
+    assert features == roads
+    assert layer == main.ROAD_LAYER_FALLBACKS[0]
+    assert attempted == [main.ROAD_LAYER, main.ROAD_LAYER_FALLBACKS[0]]
+    assert main._ACTIVE_ROAD_LAYER == main.ROAD_LAYER_FALLBACKS[0]
+
+
+def test_wfs_road_features_reports_when_no_layer_exists(monkeypatch):
+    monkeypatch.setattr(main, "_ACTIVE_ROAD_LAYER", None)
+
+    async def fake_wfs(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+        raise _as_gateway_error(_wfs_unknown_layer_cause(type_name))
+
+    monkeypatch.setattr(main, "_wfs_getfeature", fake_wfs)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(main._wfs_road_features(object(), max_features=10))
+    assert exc.value.status_code == 502
+    for candidate in main._road_layer_candidates():
+        assert candidate in exc.value.detail
+    assert "ALBION_WFS_ROAD_LAYER" in exc.value.detail
+
+
+def test_wfs_road_layer_env_override_is_tried_first(monkeypatch):
+    monkeypatch.setattr(main, "_ACTIVE_ROAD_LAYER", None)
+    monkeypatch.setenv("ALBION_WFS_ROAD_LAYER", "skdf_open:road_custom")
+    attempted: list[str] = []
+
+    async def fake_wfs(client, type_name, bbox_deg=None, max_features=None, cql_filter=None):
+        attempted.append(type_name)
+        return []
+
+    monkeypatch.setattr(main, "_wfs_getfeature", fake_wfs)
+    _, layer = asyncio.run(main._wfs_road_features(object(), max_features=10))
+    assert layer == "skdf_open:road_custom"
+    assert attempted == ["skdf_open:road_custom"]
+    assert main._road_layer_candidates()[0] == "skdf_open:road_custom"
+    assert len(main._road_layer_candidates()) == len(set(main._road_layer_candidates()))
+
+
 def test_wfs_paginates_bbox_and_collects_all_features(monkeypatch):
     monkeypatch.setattr(main, "WFS_PAGE_SIZE", 2)
     pages = [

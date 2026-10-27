@@ -126,7 +126,7 @@ FastAPI / Uvicorn (src/main.py)
 
 ## 6. Внешние интеграции
 
-- **СКДФ WFS** `skdf_open:lyr_road_by_value_line` — ближайшая дорога и официальные участки.
+- **СКДФ WFS** `skdf_open:lyr_road_by_value` — ближайшая дорога и официальные участки. Имя слоя перебирается по списку кандидатов (`ALBION_WFS_ROAD_LAYER`, затем текущее и прежнее имя): поставщик переименовывает слои без предупреждения, и жёстко зашитое имя превращало установку точки в 502.
 - **Yandex Geocoder** — адрес → координаты, reverse geocode, поиск дорог.
 - **Yandex SuggestView** — подсказки адресов (JS API/Geosuggest keys).
 - **OSM tiles** — подложка карты.
@@ -171,6 +171,7 @@ FastAPI / Uvicorn (src/main.py)
 | `ALBION_BASEMAP_MBTILES` | явный путь растровых MBTiles |
 | `ALBION_VECTOR_MBTILES` | явный путь векторных MBTiles (MapLibre) |
 | `ALBION_DEFAULT_MAP_SOURCE` | `vector`/`local`/`external`; по умолчанию предпочитается установленная локальная подложка |
+| `ALBION_WFS_ROAD_LAYER` | имя слоя СКДФ с дорогами; по умолчанию `skdf_open:lyr_road_by_value`, при переименовании у поставщика задаётся вручную |
 | `ALBION_ALLOWED_ORIGINS` | дополнительные Origin |
 | `ALBION_COOKIE_SECURE` | `auto`/`always`/`never` для session и CSRF cookie |
 | `ALBION_CSRF` | double-submit CSRF (по умолчанию `1`) |
@@ -236,7 +237,8 @@ QA-документы:
 - `docs/performance-runtime.md` — память/CPU;
 - `docs/accessibility-audit.md` — axe;
 - `docs/provider-live-check.md` — live Yandex/WFS;
-- `docs/CHANGES-2026-10-20.md` — последние изменения.
+- `docs/CHANGES-2026-10-27.md` — последние изменения: исправление 502 при установке точки;
+- `docs/CHANGES-2026-10-24.md`, `docs/CHANGES-2026-10-20.md` — предыдущие срезы.
 
 ## 11. Безопасность
 

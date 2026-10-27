@@ -7019,6 +7019,19 @@ function drawBoundaryFromGeoJSON(data) {
         
         function formatKm(km) { if (km === null || km === undefined || isNaN(km)) return '—'; return `${Math.floor(km)} км + ${Math.round((km - Math.floor(km)) * 1000)} м`; }
         let errorSequence = 0;
+        // Серверные detail-сообщения конкретнее кода: 502 от СКДФ объясняет
+        // причину (недоступный слой, таймаут), поэтому показываем их рядом с кодом.
+        async function describeHttpError(response) {
+            let detail = '';
+            try {
+                const payload = await response.clone().json();
+                if (typeof payload?.detail === 'string') detail = payload.detail.trim();
+            } catch (error) {
+                // Тело не JSON (или уже прочитано) — остаётся только код.
+            }
+            return detail ? `Ошибка сервера ${response.status}: ${detail}` : `Ошибка сервера ${response.status}`;
+        }
+
         function showError(msg) {
             const container = document.getElementById('errorContainer');
             const sequence = ++errorSequence;
@@ -7055,10 +7068,24 @@ function drawBoundaryFromGeoJSON(data) {
             return `${safeName}.png`;
         }
 
+        const DEFAULT_EMPTY_RESULT_TEXT = 'Точка не выбрана. Выберите её на карте или в левом фрейме.';
+
+        // Точка стоит, но дорога не определена из-за сбоя сервиса: пустая
+        // заглушка «точка не выбрана» вводила в заблуждение.
+        function showRoadServiceFailure() {
+            document.getElementById('resultCard').hidden = true;
+            document.getElementById('resultNotFound').hidden = true;
+            const empty = document.getElementById('resultEmpty');
+            empty.hidden = false;
+            empty.textContent = 'Точка выбрана, но дорога не определена: сервис СКДФ недоступен. '
+                + 'Проверьте соединение или сообщите администратору.';
+        }
+
         function resetResultBlock() {
             document.getElementById('resultCard').hidden = true;
             document.getElementById('resultNotFound').hidden = true;
             document.getElementById('resultEmpty').hidden = false;
+            document.getElementById('resultEmpty').textContent = DEFAULT_EMPTY_RESULT_TEXT;
             document.getElementById('resultKmText').textContent = '';
             window.currentRoadCopyText = '';
             window.currentRoadName = '';
@@ -7083,6 +7110,7 @@ function drawBoundaryFromGeoJSON(data) {
             card.hidden = !hasResult;
             notFound.hidden = hasResult;
             empty.hidden = hasResult || Boolean(road);
+            empty.textContent = DEFAULT_EMPTY_RESULT_TEXT;
             if (!hasResult) {
                 window.currentRoadCopyText = '';
                 window.currentRoadName = (road && road.full_name) || '';
@@ -7321,7 +7349,7 @@ function drawBoundaryFromGeoJSON(data) {
                 const excludeMinor = document.getElementById('excludeMinor').checked;
                 const excludeCategories = excludeMinor ? [6] : [];
                 const res = await apiFetch('/api/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: parseFloat(lat), lon: parseFloat(lon), radius: radius, exclude_categories: excludeCategories, use_local: useLocalRoadData }) });
-                if (!res.ok) throw new Error(`Ошибка сервера ${res.status}`);
+                if (!res.ok) throw new Error(await describeHttpError(res));
                 const data = await res.json();
                 if (revision !== pointRevision) return;
                 document.getElementById('loader').style.display = 'none';
@@ -7390,6 +7418,7 @@ function drawBoundaryFromGeoJSON(data) {
                         : '');
                 }
                 showError(e.message);
+                showRoadServiceFailure();
                 document.getElementById('loader').style.display = 'none';
                 if (marker) marker.setPopupContent('❌ Ошибка загрузки данных');
             }
