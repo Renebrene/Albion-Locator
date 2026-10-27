@@ -115,6 +115,26 @@ def test_login_rate_limit(monkeypatch):
     assert "Retry-After" in limited.headers
 
 
+def test_api_rate_limit_is_off_by_default(monkeypatch):
+    """Локальный/VPN-контур: общий лимит /api/* не должен мешать работе."""
+    assert security.API_RATE.limit == 0
+    monkeypatch.setattr(security, "API_RATE", security.SlidingWindowLimiter(0, 60))
+    client = _client()
+    for _ in range(12):
+        assert client.get("/api/data-sources").status_code in {200, 401}
+
+
+def test_api_rate_limit_blocks_when_configured(monkeypatch):
+    monkeypatch.setattr(security, "API_RATE", security.SlidingWindowLimiter(2, 60))
+    client = _client()
+    assert client.get("/api/health").status_code == 200  # health вне лимита
+    assert client.get("/api/data-sources").status_code != 429
+    assert client.get("/api/data-sources").status_code != 429
+    limited = client.get("/api/data-sources")
+    assert limited.status_code == 429
+    assert "Retry-After" in limited.headers
+
+
 def test_cross_origin_post_is_rejected():
     client = _client()
     response = client.post(

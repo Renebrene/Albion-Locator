@@ -184,8 +184,14 @@ LOGIN_RATE = SlidingWindowLimiter(
     _env_int("ALBION_LOGIN_RATE_LIMIT", 20),
     _env_int("ALBION_LOGIN_RATE_WINDOW", 60, minimum=1),
 )
+# Общий лимит на /api/* выключен по умолчанию: сервис работает локально или
+# через VPN, а один сеанс работы с ползунком километража даёт десятки запросов
+# (история, МСК, обратный геокодер). Лимит включается осознанно для публичного
+# контура: ALBION_API_RATE_LIMIT=300 (0 = выключен).
+# Отдельный лимит входов LOGIN_RATE и lockout ниже остаются включёнными: они
+# защищают от подбора пароля, а не от всплесков нагрузки.
 API_RATE = SlidingWindowLimiter(
-    _env_int("ALBION_API_RATE_LIMIT", 300),
+    _env_int("ALBION_API_RATE_LIMIT", 0),
     _env_int("ALBION_API_RATE_WINDOW", 60, minimum=1),
 )
 

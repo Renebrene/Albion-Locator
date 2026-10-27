@@ -129,9 +129,11 @@ python3 deploy/security_check.py --env-file .env
    `X-CSRF-Token` из cookie `albion_csrf` для POST/PUT/PATCH/DELETE.
 3. `/docs`, `/redoc`, `/openapi.json` закрыты; для локальной разработки —
    `ALBION_ENABLE_DOCS=1`.
-4. Rate-limit и lockout: `ALBION_API_RATE_LIMIT`,
-   `ALBION_LOGIN_RATE_LIMIT`, `ALBION_LOGIN_MAX_FAILURES`,
-   `ALBION_LOGIN_LOCKOUT_SECONDS`; после сбоя процесса счётчики сбрасываются.
+4. Общий лимит `/api/*` по умолчанию выключен (`ALBION_API_RATE_LIMIT=0`) —
+   для публичного контура задайте, например, `300`. Лимит входов и lockout
+   (`ALBION_LOGIN_RATE_LIMIT`, `ALBION_LOGIN_MAX_FAILURES`,
+   `ALBION_LOGIN_LOCKOUT_SECONDS`) работают всегда; после сбоя процесса
+   счётчики сбрасываются.
 5. `.env` должен иметь режим `0600`; ключи Яндекса — отдельные для dev/prod,
    ограничены доменом в кабинете и ротированы после любого раскрытия.
 6. Пароли администраторов сменены со значений по умолчанию (`альбион`) — см.

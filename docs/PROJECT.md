@@ -177,7 +177,8 @@ FastAPI / Uvicorn (src/main.py)
 | `ALBION_CSRF` | double-submit CSRF (по умолчанию `1`) |
 | `ALBION_ENABLE_DOCS` | открыть `/docs`, `/redoc`, `/openapi.json` (по умолчанию `0`) |
 | `ALBION_CSP_POLICY` | переопределить Content-Security-Policy (`off` отключает) |
-| `ALBION_API_RATE_LIMIT` / `ALBION_LOGIN_RATE_LIMIT` | лимиты запросов и входов |
+| `ALBION_API_RATE_LIMIT` | общий лимит `/api/*`; по умолчанию **0 (выключен)** — сервис работает локально/через VPN, а активная работа с ползунком даёт десятки запросов в минуту |
+| `ALBION_LOGIN_RATE_LIMIT` | лимит попыток входа; остаётся включённым независимо от общего лимита |
 | `ALBION_LOGIN_MAX_FAILURES` / `ALBION_LOGIN_LOCKOUT_SECONDS` | lockout после неудачных входов |
 | `ALBION_LOG_FORMAT` / `ALBION_LOG_LEVEL` | JSON/plain logs и уровень |
 | `ALBION_METRICS_TOKEN` | токен для `/metrics` через reverse proxy |
@@ -245,7 +246,7 @@ QA-документы:
 - Все `/api/*`, кроме health/login, требуют cookie-сессию.
 - Cookie HttpOnly, SameSite=Lax, TTL 30 дней; `Secure` включается по HTTPS/`X-Forwarded-Proto` (`ALBION_COOKIE_SECURE=auto|always|never`).
 - Mutating API проверяет Origin и double-submit CSRF: cookie `albion_csrf` + `X-CSRF-Token`; принудительная смена пароля не обходит проверку.
-- Rate-limit на все `/api/*` и отдельный лимит входов; после 5 неудач логин+IP блокируется на 15 минут (настраивается).
+- Общий rate-limit `/api/*` по умолчанию выключен (`ALBION_API_RATE_LIMIT=0`): контур локальный/через VPN. Для публикации наружу включается явно. Лимит входов и lockout (5 неудач → 15 минут) работают всегда.
 - `/docs`, `/redoc`, `/openapi.json` закрыты по умолчанию (`ALBION_ENABLE_DOCS=1` для разработки).
 - Security headers: CSP, HSTS на HTTPS, X-Frame-Options DENY, nosniff, Referrer/Permissions Policy.
 - Пароли — PBKDF2-HMAC-SHA256 с солью; сессионные токены хранятся в БД хэшами; audit log фиксирует входы и действия с пользователями.

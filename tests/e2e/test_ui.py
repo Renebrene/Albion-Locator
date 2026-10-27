@@ -2622,3 +2622,52 @@ def test_shield_filter_matches_format_prefix(page, app_server):
     assert result["billboardFull"] is True, result
     assert result["cityFormat"] is False, result
     assert result["empty"] is False, result
+
+
+def test_road_service_failure_offers_local_source(page, app_server):
+    """Сбой СКДФ: правый фрейм объясняет причину и предлагает локальную базу."""
+    login(page, app_server["base_url"])
+    page.wait_for_function("uiState.ready", timeout=15000)
+
+    calls = page.evaluate("""async () => {
+        const detail = {detail: 'Не удалось получить полный список дорог из сервиса СКДФ'};
+        const fail = new Response(JSON.stringify(detail), {
+            status: 502, headers: {'Content-Type': 'application/json'}
+        });
+        const ok = data => new Response(JSON.stringify(data), {
+            status: 200, headers: {'Content-Type': 'application/json'}
+        });
+        const seen = [];
+        window.__locateCalls = seen;
+        apiFetch = async (url, options) => {
+            if (url === '/api/locate') {
+                seen.push(JSON.parse((options && options.body) || '{}'));
+                return fail.clone();
+            }
+            if (url === '/api/geocode/reverse') return ok({});
+            if (url === '/api/history' && options && options.method === 'POST') return ok({});
+            if (url === '/api/history') return ok({entries: []});
+            return ok({});
+        };
+        localGeoAvailable = true;
+        commitPoint(47.2, 39.7, 'click');
+        await new Promise(resolve => setTimeout(resolve, 250));
+        return seen.length;
+    }""")
+    assert calls == 1, "ожидался один запрос locate"
+
+    empty = page.locator("#resultEmpty")
+    assert empty.is_visible()
+    assert "СКДФ недоступен" in empty.inner_text()
+    offer = page.locator("#switchToLocalDataBtn")
+    assert offer.is_visible(), "должно предлагаться переключение на локальную базу"
+
+    offer.click()
+    page.wait_for_function(
+        "() => document.getElementById('dataSourceSelect').value === 'local'",
+        timeout=5000,
+    )
+    page.wait_for_function("() => window.__locateCalls.length === 2", timeout=10000)
+    retry = page.evaluate("() => window.__locateCalls[1]")
+    assert retry["use_local"] is True, retry
+    assert page.evaluate("() => localStorage.getItem('albion_data_source')") == "local"

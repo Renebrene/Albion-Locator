@@ -7071,14 +7071,47 @@ function drawBoundaryFromGeoJSON(data) {
         const DEFAULT_EMPTY_RESULT_TEXT = 'Точка не выбрана. Выберите её на карте или в левом фрейме.';
 
         // Точка стоит, но дорога не определена из-за сбоя сервиса: пустая
-        // заглушка «точка не выбрана» вводила в заблуждение.
+        // заглушка «точка не выбрана» вводила в заблуждение. Дополнительно
+        // предлагаем посмотреть дорогу по локальной базе — километраж и сторона
+        // в ней недоступны, поэтому это осознанный выбор пользователя.
         function showRoadServiceFailure() {
+            document.getElementById('resultEmpty').hidden = false;
             document.getElementById('resultCard').hidden = true;
             document.getElementById('resultNotFound').hidden = true;
             const empty = document.getElementById('resultEmpty');
-            empty.hidden = false;
-            empty.textContent = 'Точка выбрана, но дорога не определена: сервис СКДФ недоступен. '
+            empty.replaceChildren();
+            const text = document.createElement('div');
+            text.textContent = 'Точка выбрана, но дорога не определена: сервис СКДФ недоступен. '
                 + 'Проверьте соединение или сообщите администратору.';
+            empty.appendChild(text);
+            if (useLocalRoadData || !localGeoAvailable) return;
+            const hint = document.createElement('div');
+            hint.className = 'hint';
+            hint.textContent = 'Локальная база (OSM) покажет дорогу и расстояние до оси, '
+                + 'но без официального километража и стороны движения.';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.id = 'switchToLocalDataBtn';
+            button.className = 'btn btn-small';
+            button.textContent = '🏠 Показать дорогу по локальной базе';
+            button.title = 'Переключить источник дорог на локальную базу и повторить поиск';
+            button.addEventListener('click', () => { void switchRoadSourceToLocal(); });
+            empty.append(hint, button);
+        }
+
+        // Переключение источника дорог на локальную базу и повторный поиск для
+        // текущей точки. Использует тот же обработчик, что и выбор в настройках.
+        async function switchRoadSourceToLocal() {
+            const select = document.getElementById('dataSourceSelect');
+            if (!select) return;
+            select.value = 'local';
+            if (typeof select.onchange === 'function') select.onchange();
+            else useLocalRoadData = true;
+            showToast('Источник дорог: локальная база. Километраж и сторона движения недоступны.',
+                'info', 6000);
+            if (!activePoint) return;
+            document.getElementById('loader').style.display = 'block';
+            await locate(activePoint.lat, activePoint.lon, redPointMarker, { recordHistory: false });
         }
 
         function resetResultBlock() {
